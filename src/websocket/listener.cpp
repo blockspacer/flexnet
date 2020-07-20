@@ -1,33 +1,13 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 
 #include <base/location.h>
-#include <base/sequence_checker.h>
 #include <base/logging.h>
+#include <base/sequence_checker.h>
 
-#include <boost/asio/basic_stream_socket.hpp>
-#include <boost/asio/detail/impl/reactive_socket_service_base.ipp>
-#include <boost/asio/detail/impl/service_registry.hpp>
-#include <boost/asio/detail/impl/strand_executor_service.ipp>
-#include <boost/asio/error.hpp>
-#include <boost/asio/executor.hpp>
-#include <boost/asio/impl/execution_context.hpp>
-#include <boost/asio/impl/executor.hpp>
-#include <boost/asio/impl/io_context.hpp>
-#include <boost/asio/impl/post.hpp>
-#include <boost/asio/impl/system_executor.hpp>
-#include <boost/asio/io_context.hpp>
-#include <boost/asio/ip/address.hpp>
-#include <boost/asio/ip/detail/impl/endpoint.ipp>
-#include <boost/asio/ip/impl/address.ipp>
-#include <boost/asio/ip/impl/basic_endpoint.hpp>
-#include <boost/asio/socket_base.hpp>
-#include <boost/asio/ssl/error.hpp>
-#include <boost/asio/strand.hpp>
+#include <boost/asio/ssl/error.hpp> // IWYU pragma: keep
 
-#include <boost/beast/core/bind_handler.hpp>
-#include <boost/beast/core/detail/bind_handler.hpp>
-#include <boost/beast/websocket/error.hpp>
-#include <boost/beast/websocket/impl/error.ipp>
+#include <boost/beast/websocket.hpp>
+#include <boost/beast/websocket/error.hpp> // IWYU pragma: keep
 
 #include <boost/system/error_code.hpp>
 #include <boost/system/system_error.hpp>
@@ -35,8 +15,6 @@
 #include <functional>
 #include <iostream>
 #include <memory>
-#include <new>
-#include <string>
 
 #define LOG_ERROR(LOG_STREAM, description, what, ec) \
   LOG_STREAM  \

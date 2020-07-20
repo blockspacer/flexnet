@@ -1,6 +1,6 @@
 #pragma once
 
-#include <boost/beast/core/basic_stream.hpp>
+#include <boost/beast/core.hpp>
 
 namespace boost {
 
@@ -15,8 +15,6 @@ class tcp;
 } // namespace asio
 
 namespace beast {
-
-class simple_rate_policy;
 
 using limited_tcp_stream
   = ::boost::beast::basic_stream<

@@ -1,10 +1,10 @@
 #pragma once
 
+#include <base/macros.h>
 #include <base/sequence_checker.h>
 
-#include <boost/asio/io_context.hpp>
-#include <boost/beast/core/error.hpp>
-#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio.hpp>
+#include <boost/beast/core.hpp>
 
 #include <functional>
 #include <memory>
