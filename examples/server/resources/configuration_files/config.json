@@ -1,0 +1,34 @@
+{
+  "distribution": {
+    "create_all_shortcuts": true,
+    "do_not_launch_chrome": false,
+    "import_bookmarks_from_file": "c:\\path",
+    "make_chrome_default": false,
+    "make_chrome_default_for_user": true,
+    "ping_delay": 40,
+    "require_eula": true,
+    "skip_first_run_ui": true,
+    "system_level": false,
+    "verbose_logging": true
+  },
+  "browser": {
+    "show_home_button": true
+  },
+  "bookmark_bar": {
+    "show_on_all_tabs": true
+  },
+  "first_run_tabs": [
+    "http://gmail.com",
+    "https://igoogle.com"
+  ],
+  "homepage": "http://example.org",
+  "homepage_is_newtabpage": false,
+  "import_autofill_form_data": false,
+  "TEST2VAL": "TEST2VAL!!!",
+  "import_bookmarks": false,
+  "import_history": false,
+  "import_home_page": false,
+  "import_saved_passwords": false,
+  "import_search_engine": false
+}
+

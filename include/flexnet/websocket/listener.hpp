@@ -2,9 +2,16 @@
 
 #include <base/macros.h>
 #include <base/sequence_checker.h>
+#include <base/callback.h>
 
 #include <boost/asio.hpp>
 #include <boost/beast/core.hpp>
+#include <boost/asio/io_service.hpp>
+#include <boost/asio/strand.hpp>
+
+#include <basis/promise/promise.h>
+#include <basis/status/statusor.hpp>
+#include <basis/status/status_macros.hpp>
 
 #include <functional>
 #include <memory>
@@ -35,18 +42,33 @@ public:
   using AcceptorType
     = ::boost::asio::ip::tcp::acceptor;
 
+  using StrandType
+    = boost::asio::io_service::strand;
+
+  using AcceptedCallback
+    = base::RepeatingCallback<
+        void(ErrorCode* ec, SocketType* socket)
+      >;
+
+  using StatusPromise
+    = base::Promise<util::Status, base::NoReject>;
+
+  using VoidPromise
+    = base::Promise<void, base::NoReject>;
+
 public:
   Listener(
     IoContext& ioc
-    , const EndpointType& endpoint);
+    , const EndpointType& endpoint
+    , AcceptedCallback&& acceptedCallback);
 
   ~Listener();
 
   // Report a failure
-  void onFail(ErrorCode ec, char const* what);
+  void logFailure(ErrorCode ec, char const* what);
 
   // Start accepting incoming connections
-  void run();
+  StatusPromise configureAndRun();
 
   /**
    * @brief checks whether server is accepting new connections
@@ -58,23 +80,23 @@ public:
    */
   void onAccept(ErrorCode ec, SocketType socket);
 
-  void stopAcceptorAsync();
+  StatusPromise stopAcceptorAsync();
+
+  bool isRunningInThisThread() const;
 
   /// \note does not close alive sessions, just
   /// stops accepting incoming connections
   /// \note stopped acceptor may be continued via `async_accept`
-  void stopAcceptor();
-
-  std::function<
-    void(ErrorCode* ec, SocketType* socket)
-    > onAcceptedCallback_;
+  ::util::Status stopAcceptor();
 
 private:
-  void configureAcceptor();
+  ::util::Status configureAcceptor();
 
-  void openAcceptor();
+  ::util::Status openAcceptor();
 
   void doAccept();
+
+  ::util::Status configureAndRunAcceptor();
 
 private:
   // The acceptor used to listen for incoming connections.
@@ -84,15 +106,14 @@ private:
 
   EndpointType endpoint_;
 
+  StrandType strand_;
+
+  AcceptedCallback acceptedCallback_;
+
   SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(Listener);
 };
-
-bool Listener::isAcceptorOpen() const
-{
-  return acceptor_.is_open();
-}
 
 } // namespace ws
 } // namespace flexnet

@@ -318,7 +318,8 @@ target_compile_definitions(${LIB_NAME} PUBLIC
 target_compile_definitions(${LIB_NAME} PRIVATE
   ${flexnet_PRIVATE_DEFINES}
   # https://stackoverflow.com/a/30877725
-  BOOST_SYSTEM_NO_DEPRECATED BOOST_ERROR_CODE_HEADER_ONLY
+  BOOST_SYSTEM_NO_DEPRECATED
+  BOOST_ERROR_CODE_HEADER_ONLY
 )
 
 target_compile_definitions(${LIB_NAME} PUBLIC
@@ -444,3 +445,5 @@ if (CONAN_AUTO_INSTALL)
   # NOTE: enable only when project is open in IDE
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/setup_misc_files.cmake)
 endif (CONAN_AUTO_INSTALL)
+
+add_subdirectory(examples/server)

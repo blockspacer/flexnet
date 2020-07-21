@@ -1,8 +1,13 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 
+#include "flexnet/util/macros.hpp"
+
 #include <base/location.h>
 #include <base/logging.h>
 #include <base/sequence_checker.h>
+
+#include <basis/promise/promise.h>
+#include <basis/promise/post_promise.h>
 
 #include <boost/asio/ssl/error.hpp> // IWYU pragma: keep
 
@@ -16,52 +21,39 @@
 #include <iostream>
 #include <memory>
 
-#define LOG_ERROR(LOG_STREAM, description, what, ec) \
-  LOG_STREAM  \
-    << description  \
-    << what  \
-    << ": "  \
-    << ec.message();
-
-#define LOG_CALL(LOG_STREAM) \
-  LOG_STREAM \
-    << "called " \
-    << FROM_HERE.ToString();
-
 namespace flexnet {
 namespace ws {
 
 Listener::Listener(
-  IoContext& ioc,
-  const EndpointType& endpoint)
+  IoContext& ioc
+  , const EndpointType& endpoint
+  , AcceptedCallback&& acceptedCallback)
   : acceptor_(ioc)
   , ioc_(ioc)
   , endpoint_(endpoint)
+  , strand_(ioc_)
+  , acceptedCallback_(std::move(acceptedCallback))
 {
   LOG_CALL(VLOG(9));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
-
-  openAcceptor();
-
-  configureAcceptor();
 }
 
-void Listener::onFail(ErrorCode ec, char const* what)
+void Listener::logFailure(ErrorCode ec, char const* what)
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(strand_.running_in_this_thread());
 
-  // NOTE: If you got onFail: accept: Too many open files
+  // NOTE: If you got logFailure: accept: Too many open files
   // set ulimit -n 4096, see stackoverflow.com/a/8583083/10904212
   // Restart the accept operation if we got the connection_aborted error
   // and the enable_connection_aborted socket option is not set.
   if (ec == ::boost::asio::error::connection_aborted)
   {
-    LOG_ERROR(LOG(WARNING),
-              "Listener failed with"
-              " connection_aborted error: ", what, ec);
+    LOG_ERROR_CODE(LOG(WARNING),
+      "Listener failed with"
+      " connection_aborted error: ", what, ec);
   }
 
   // ssl::error::stream_truncated, also known as an SSL "short read",
@@ -82,38 +74,38 @@ void Listener::onFail(ErrorCode ec, char const* what)
   // after the message has been completed, so it is safe to ignore it.
   if(ec == ::boost::asio::ssl::error::stream_truncated)
   {
-    LOG_ERROR(LOG(WARNING),
-              "Listener failed with"
-              " stream_truncated error: ", what, ec);
+    LOG_ERROR_CODE(LOG(WARNING),
+      "Listener failed with"
+      " stream_truncated error: ", what, ec);
     return;
   }
 
   if (ec == ::boost::asio::error::operation_aborted)
   {
-    LOG_ERROR(LOG(WARNING),
-              "Listener failed with"
-              " operation_aborted error: ", what, ec);
+    LOG_ERROR_CODE(LOG(WARNING),
+      "Listener failed with"
+      " operation_aborted error: ", what, ec);
     return;
   }
 
   if (ec == ::boost::beast::websocket::error::closed)
   {
-    LOG_ERROR(LOG(WARNING),
-              "Listener failed with"
-              " websocket closed error: ", what, ec);
+    LOG_ERROR_CODE(LOG(WARNING),
+      "Listener failed with"
+      " websocket closed error: ", what, ec);
     return;
   }
 
-  LOG_ERROR(LOG(WARNING),
-            "Listener failed with"
-            " error: ", what, ec);
+  LOG_ERROR_CODE(LOG(WARNING),
+    "Listener failed with"
+    " error: ", what, ec);
 }
 
-void Listener::openAcceptor()
+::util::Status Listener::openAcceptor()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(strand_.running_in_this_thread());
 
   ErrorCode ec;
 
@@ -124,19 +116,24 @@ void Listener::openAcceptor()
   acceptor_.open(endpoint_.protocol(), ec);
   if (ec)
   {
-    onFail(ec, "open");
-    return;
+    logFailure(ec, "open");
+    return MAKE_ERROR()
+      << "Could not call open for acceptor";
   }
 
-  // sanity check
-  DCHECK(isAcceptorOpen());
+  if(!isAcceptorOpen()) {
+    return MAKE_ERROR()
+      << "Failed to open acceptor";
+  }
+
+  return ::util::OkStatus();
 }
 
-void Listener::configureAcceptor()
+::util::Status Listener::configureAcceptor()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(strand_.running_in_this_thread());
 
   ErrorCode ec;
 
@@ -147,20 +144,23 @@ void Listener::configureAcceptor()
   // This specifically allows multiple sockets to be bound
   // to an address even if it is in use.
   // @see stackoverflow.com/a/7195105/10904212
-  acceptor_.set_option(::boost::asio::socket_base::reuse_address(
-                         true), ec);
+  acceptor_.set_option(
+    ::boost::asio::socket_base::reuse_address(true)
+    , ec);
   if (ec)
   {
-    onFail(ec, "set_option");
-    return;
+    logFailure(ec, "set_option");
+    return MAKE_ERROR()
+      << "Could not call set_option for acceptor";
   }
 
   // Bind to the server address
   acceptor_.bind(endpoint_, ec);
   if (ec)
   {
-    onFail(ec, "bind");
-    return;
+    logFailure(ec, "bind");
+    return MAKE_ERROR()
+      << "Could not call bind for acceptor";
   }
 
   VLOG(9)
@@ -168,49 +168,82 @@ void Listener::configureAcceptor()
     << endpoint_.address().to_string();
 
   acceptor_.listen(
-    ::boost::asio::socket_base::max_listen_connections, ec);
+    ::boost::asio::socket_base::max_listen_connections
+    , ec);
   if (ec)
   {
-    onFail(ec, "listen");
-    return;
+    logFailure(ec, "listen");
+    return MAKE_ERROR()
+      << "Could not call listen for acceptor";
   }
+
+  return ::util::OkStatus();
 }
 
-void Listener::run()
+Listener::StatusPromise Listener::configureAndRun()
 {
   LOG_CALL(VLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  DCHECK(isAcceptorOpen());
+  return base::PostPromiseAsio(FROM_HERE
+    // Post our work to the strand, to prevent data race
+    , strand_
+    , base::BindOnce(
+        &Listener::configureAndRunAcceptor,
+        shared_from_this())
+  );
+}
+
+::util::Status Listener::configureAndRunAcceptor()
+{
+  LOG_CALL(VLOG(9));
+
+  DCHECK(strand_.running_in_this_thread());
+
+  RETURN_IF_ERROR(
+    openAcceptor());
+
+  RETURN_IF_ERROR(
+    configureAcceptor());
+
+  if(!isAcceptorOpen())
+  {
+    return MAKE_ERROR()
+      << "Unable to run closed acceptor";
+  }
 
   doAccept();
+
+  return ::util::OkStatus();
 }
 
 void Listener::doAccept()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(strand_.running_in_this_thread());
 
   /**
-   * I/O objects such as sockets and streams are not thread-safe. For efficiency, networking adopts
-   * a model of using threads without explicit locking by requiring all access to I/O objects to be
+   * I/O objects such as sockets and streams are not thread-safe.
+   * For efficiency, networking adopts
+   * a model of using threads without explicit locking
+   * by requiring all access to I/O objects to be
    * performed within a strand.
    */
   acceptor_.async_accept(
-    // The new connection gets its own strand
+    // new connection needs its own strand
     ::boost::asio::make_strand(ioc_),
     ::boost::beast::bind_front_handler(
-      &Listener::onAccept,
-      shared_from_this()));
+        &Listener::onAccept,
+        shared_from_this()));
 }
 
-void Listener::stopAcceptor()
+::util::Status Listener::stopAcceptor()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(strand_.running_in_this_thread());
 
   /// \note we usually post `stopAcceptor()` using `boost::asio::post`,
   /// so need to check if acceptor was closed during delay
@@ -219,56 +252,62 @@ void Listener::stopAcceptor()
   {
     VLOG(9)
       << "unable to stop closed listener";
-    return;
+    return ::util::OkStatus();
   }
 
-  try {
-    ErrorCode ec;
+  ErrorCode ec;
 
-    if (acceptor_.is_open())
+  if (isAcceptorOpen())
+  {
+    VLOG(9)
+      << "close acceptor...";
+
+    acceptor_.cancel(ec);
+    if (ec)
     {
-      VLOG(9)
-        << "close acceptor...";
-
-      acceptor_.cancel(ec);
-      if (ec)
-      {
-        onFail(ec, "acceptor_cancel");
-      }
-
-      /// \note does not close alive sessions, just
-      /// stops accepting incoming connections
-      /// \note stopped acceptor may be continued via `async_accept`
-      acceptor_.close(ec);
-      if (ec) {
-        onFail(ec, "acceptor_close");
-      }
+      logFailure(ec, "acceptor_cancel");
+      return MAKE_ERROR()
+        << "Failed to call acceptor_cancel for acceptor";
     }
-  } catch (const boost::system::system_error& ex) {
-    LOG(WARNING)
-      << "Listener::stop: exception: " << ex.what();
+
+    /// \note does not close alive sessions, just
+    /// stops accepting incoming connections
+    /// \note stopped acceptor may be continued via `async_accept`
+    acceptor_.close(ec);
+    if (ec) {
+      logFailure(ec, "acceptor_close");
+      return MAKE_ERROR()
+        << "Failed to call acceptor_close for acceptor";
+    }
+
+    // acceptor must be closed here without errors
+    DCHECK(!isAcceptorOpen());
   }
+
+  return ::util::OkStatus();
 }
 
-void Listener::stopAcceptorAsync()
+Listener::StatusPromise Listener::stopAcceptorAsync()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(!strand_.running_in_this_thread());
 
-  // Post our work to the strand, to prevent data race
-  boost::asio::post(
-    acceptor_.get_executor(),
-    ::boost::beast::bind_front_handler(
-      &Listener::stopAcceptor,
-      shared_from_this()));
+  return base::PostPromiseAsio(FROM_HERE
+    // Post our work to the strand, to prevent data race
+    , strand_
+    , base::BindOnce(
+        &Listener::stopAcceptor,
+        shared_from_this())
+  );
 }
 
 void Listener::onAccept(ErrorCode ec, SocketType socket)
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  /// \todo unable to check strand here
+  //DCHECK(strand_.running_in_this_thread());
 
   {
     const EndpointType& remote_endpoint
@@ -278,28 +317,42 @@ void Listener::onAccept(ErrorCode ec, SocketType socket)
         << remote_endpoint;
   }
 
-  if (!isAcceptorOpen())
+  if (ec)
+  {
+    logFailure(ec, "accept");
+  }
+
+  /// \note we assume that |is_open|
+  /// is thread-safe here
+  /// (but not thread-safe in general)
+  if (!acceptor_.is_open())
   {
     VLOG(9)
       << "unable to accept new connections"
       " on closed listener";
+
     return; // stop onAccept recursion
   }
 
-  if (ec)
-  {
-    onFail(ec, "accept");
-  }
-  else
+  if (!ec)
   {
     DCHECK(socket.is_open());
 
-    DCHECK(onAcceptedCallback_);
-    onAcceptedCallback_(&ec, &socket);
+    DCHECK(acceptedCallback_);
+    /// \note usually calls |std::move(socket)|
+    acceptedCallback_.Run(&ec, &socket);
   }
 
   // Accept another connection
-  doAccept();
+  VoidPromise postResult
+    = base::PostPromiseAsio(FROM_HERE
+      // Post our work to the strand, to prevent data race
+      , strand_
+      , base::BindOnce(
+          &Listener::doAccept,
+          shared_from_this())
+    );
+  base::IgnoreResult(postResult);
 }
 
 Listener::~Listener()
@@ -308,7 +361,26 @@ Listener::~Listener()
 
   LOG_CALL(VLOG(9));
 
-  DCHECK(!isAcceptorOpen());
+  /// \note we assume that |is_open|
+  /// is thread-safe in destructor
+  /// (but not thread-safe in general)
+  /// i.e. do not modify acceptor
+  /// from any thread if you reached destructor
+  DCHECK(!acceptor_.is_open());
+}
+
+bool Listener::isAcceptorOpen() const
+{
+  /// \note |is_open| is not thread-safe in general
+  DCHECK(strand_.running_in_this_thread());
+
+  return acceptor_.is_open();
+}
+
+bool Listener::isRunningInThisThread() const
+{
+  /// \note assumed to be thread-safe
+  return strand_.running_in_this_thread();
 }
 
 } // namespace ws

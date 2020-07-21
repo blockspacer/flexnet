@@ -139,6 +139,11 @@ See for details [https://include-what-you-use.org/](https://include-what-you-use
 NOTE: our cmake files will pass
 
 ```bash
+# NOTE: you can get `clang_8.0.0` like so:
+# curl -SL http://releases.llvm.org/8.0.0/clang+llvm-8.0.0-x86_64-linux-gnu-ubuntu-18.04.tar.xz | tar -xJC .
+# mv clang+llvm-8.0.0-x86_64-linux-gnu-ubuntu-18.04 clang_8.0.0
+# mv clang_8.0.0 /usr/local
+
 -nostdinc++
 -nodefaultlibs
 -isystem/usr/local/clang_8.0.0/include/c++/v1
