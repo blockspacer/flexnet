@@ -5,6 +5,7 @@
 #include <base/callback.h>
 #include <base/macros.h>
 #include <base/sequence_checker.h>
+#include <base/memory/weak_ptr.h>
 
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
@@ -42,8 +43,8 @@ public:
   using DetectedCallback
     = base::RepeatingCallback<
         void(
-          std::shared_ptr<DetectChannel>
-          , ::boost::beast::error_code*
+          const DetectChannel*
+          , ErrorCode&
           // handshake result
           // i.e. `true` if the buffer contains a TLS client handshake
           // and no error occurred, otherwise `false`.
@@ -70,6 +71,13 @@ public:
     const std::chrono::seconds& expire_timeout
       = std::chrono::seconds(30));
 
+  base::WeakPtr<DetectChannel> weakSelf() const noexcept
+  {
+    return weak_this_;
+  }
+
+  bool isDetectingInThisSequence() const noexcept;
+
 private:
   void onDetected(
     ErrorCode ec
@@ -81,6 +89,7 @@ private:
     (const std::chrono::seconds &expire_timeout);
 
 private:
+  /// \todo use it, add SSL support
   ::boost::asio::ssl::context& ctx_;
 
   /// \note stream with custom rate limiter
@@ -90,7 +99,27 @@ private:
 
   MessageBufferType buffer_;
 
+  // base::WeakPtr can be used to ensure that any callback bound
+  // to an object is canceled when that object is destroyed
+  // (guarantees that |this| will not be used-after-free).
+  base::WeakPtrFactory<
+      DetectChannel
+    > weak_ptr_factory_;
+
+  // After constructing |weak_ptr_factory_|
+  // we immediately construct a WeakPtr
+  // in order to bind the WeakPtr object to its thread.
+  // When we need a WeakPtr, we copy construct this,
+  // which is safe to do from any
+  // thread according to weak_ptr.h (versus calling
+  // |weak_ptr_factory_.GetWeakPtr() which is not).
+  base::WeakPtr<DetectChannel> weak_this_;
+
+  // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
+
+  // check sequence created by |async_handshake|
+  SEQUENCE_CHECKER(detector_sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(DetectChannel);
 };

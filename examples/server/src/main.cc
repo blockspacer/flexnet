@@ -1,4 +1,6 @@
 #include <flexnet/websocket/listener.hpp>
+#include <flexnet/http/detect_channel.hpp>
+#include <flexnet/util/macros.hpp>
 
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -13,6 +15,7 @@
 #include <basis/task/periodic_task_executor.hpp>
 
 #include <boost/asio.hpp>
+#include <boost/asio/ssl.hpp>
 
 #include <memory>
 #include <chrono>
@@ -113,24 +116,90 @@ int main(int argc, char* argv[])
       = boost::asio::ip::tcp::endpoint{
           address, port};
 
+  ::boost::asio::ssl::context ctx
+    {::boost::asio::ssl::context::tlsv12};
+
   ws::Listener::AcceptedCallback acceptedCallback
     = base::BindRepeating(
       [
       ](
-        ws::Listener::ErrorCode* ec
-        , ws::Listener::SocketType* socket
+        /// \section bound args
+        ::boost::asio::ssl::context& boundCtx
+        /// \section callback args
+        , const ws::Listener* listener
+        , ws::Listener::ErrorCode& ec
+        , ws::Listener::SocketType& socket
       ){
+        DCHECK(listener
+          && listener->isAcceptingInThisSequence());
+
+        http::DetectChannel::DetectedCallback detectedCallback
+          = base::BindRepeating(
+            [
+            ](
+              const http::DetectChannel* detectChannel
+              , http::DetectChannel::ErrorCode& ec
+              , bool handshake_result
+              , http::DetectChannel::StreamType&& stream
+              , http::DetectChannel::MessageBufferType&& buffer
+            ){
+              DCHECK(detectChannel
+                && detectChannel->isDetectingInThisSequence());
+
+              // Handle the error, if any
+              if (ec)
+              {
+                LOG(ERROR)
+                  << "Handshake failed for new connection with error: "
+                  << ec.message();
+                return;
+              }
+
+              if(handshake_result) {
+                LOG(INFO)
+                  << "Completed secure handshake of new connection";
+              } else {
+                LOG(INFO)
+                  << "Completed NOT secure handshake of new connection";
+              }
+            }
+          );
+
+        // Handle the error, if any
+        if (ec)
+        {
+          LOG(ERROR)
+            << "Listener failed to accept new connection with error: "
+            << ec.message();
+          return;
+        }
+
         LOG(INFO)
           << "Listener accepted new connection";
+
+        std::shared_ptr<http::DetectChannel> detectChannel
+          = std::make_shared<http::DetectChannel>(
+              boundCtx
+              , std::move(socket)
+              , std::move(detectedCallback));
+
+        detectChannel->runDetector();
       }
+      , REFERENCED(ctx)
     );
 
   std::shared_ptr<ws::Listener> listener
     = std::make_shared<ws::Listener>(
         ioc
         , tcpEndpoint
-        , std::move(acceptedCallback)
       );
+
+  // When subscription gets deleted it will deregister callback
+  std::unique_ptr<ws::Listener::AcceptedCallbackList::Subscription>
+    acceptedCallbackSubscription
+      = listener->registerCallback(
+          std::move(acceptedCallback)
+        );
 
   base::RunLoop run_loop{};
 
@@ -181,21 +250,21 @@ int main(int argc, char* argv[])
 
   signals_set.async_wait(std::move(sigQuitCallback));
 
-  DCHECK(base::ThreadPool::GetInstance());
-  scoped_refptr<base::SequencedTaskRunner> asio_task_runner =
-    base::ThreadPool::GetInstance()->
-    CreateSequencedTaskRunnerWithTraits(
-      base::TaskTraits{
-        base::TaskPriority::BEST_EFFORT
-        , base::MayBlock()
-        , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
-      }
-    );
-
   {
+    DCHECK(base::ThreadPool::GetInstance());
+    scoped_refptr<base::SequencedTaskRunner> asio_task_runner_1 =
+      base::ThreadPool::GetInstance()->
+      CreateSequencedTaskRunnerWithTraits(
+        base::TaskTraits{
+          base::TaskPriority::BEST_EFFORT
+          , base::MayBlock()
+          , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+        }
+      );
+
     /// \note will stop periodic timer on scope exit
     basis::PeriodicTaskExecutor periodicAsioExecutor_1(
-      asio_task_runner
+      asio_task_runner_1
       , base::BindRepeating(
           [
           ](
@@ -208,16 +277,27 @@ int main(int argc, char* argv[])
             ioc.run_one_for(
               std::chrono::milliseconds{15});
           }
-          , std::ref(ioc)
+          , REFERENCED(ioc)
       )
     );
 
     periodicAsioExecutor_1.startPeriodicTimer(
       base::TimeDelta::FromMilliseconds(30));
 
+    DCHECK(base::ThreadPool::GetInstance());
+    scoped_refptr<base::SequencedTaskRunner> asio_task_runner_2 =
+      base::ThreadPool::GetInstance()->
+      CreateSequencedTaskRunnerWithTraits(
+        base::TaskTraits{
+          base::TaskPriority::BEST_EFFORT
+          , base::MayBlock()
+          , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+        }
+      );
+
     /// \note will stop periodic timer on scope exit
     basis::PeriodicTaskExecutor periodicAsioExecutor_2(
-      asio_task_runner
+      asio_task_runner_2
       , base::BindRepeating(
           [
           ](
@@ -230,16 +310,27 @@ int main(int argc, char* argv[])
             ioc.run_one_for(
               std::chrono::milliseconds{10});
           }
-          , std::ref(ioc)
+          , REFERENCED(ioc)
       )
     );
 
     periodicAsioExecutor_2.startPeriodicTimer(
       base::TimeDelta::FromMilliseconds(25));
 
+    DCHECK(base::ThreadPool::GetInstance());
+    scoped_refptr<base::SequencedTaskRunner> asio_task_runner_3 =
+      base::ThreadPool::GetInstance()->
+      CreateSequencedTaskRunnerWithTraits(
+        base::TaskTraits{
+          base::TaskPriority::BEST_EFFORT
+          , base::MayBlock()
+          , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+        }
+      );
+
     /// \note will stop periodic timer on scope exit
     basis::PeriodicTaskExecutor periodicAsioExecutor_3(
-      asio_task_runner
+      asio_task_runner_3
       , base::BindRepeating(
           [
           ](
@@ -252,7 +343,7 @@ int main(int argc, char* argv[])
             ioc.run_one_for(
               std::chrono::milliseconds{5});
           }
-          , std::ref(ioc)
+          , REFERENCED(ioc)
       )
     );
 

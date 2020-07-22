@@ -370,9 +370,9 @@ const std::string& MimeType::operator()
   MimeTypesMap::const_iterator iter = mime_types_.find(file_suffix);
 
   if (mime_types_.end() != iter) {
-    return (iter->second);
+    return iter->second;
   } else {
-    return (default_mime_type_);
+    return default_mime_type_;
   }
 };
 

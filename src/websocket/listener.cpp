@@ -32,13 +32,14 @@ namespace ws {
 
 Listener::Listener(
   IoContext& ioc
-  , const EndpointType& endpoint
-  , AcceptedCallback&& acceptedCallback)
+  , const EndpointType& endpoint)
   : acceptor_(ioc)
   , ioc_(ioc)
   , endpoint_(endpoint)
   , strand_(ioc_)
-  , acceptedCallback_(std::move(acceptedCallback))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(weak_ptr_factory_.GetWeakPtr()))
 {
   LOG_CALL(VLOG(9));
 
@@ -49,7 +50,7 @@ void Listener::logFailure(ErrorCode ec, char const* what)
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(strand_.running_in_this_thread());
+  DCHECK(isRunningInThisThread());
 
   // NOTE: If you got logFailure: accept: Too many open files
   // set ulimit -n 4096, see stackoverflow.com/a/8583083/10904212
@@ -57,9 +58,10 @@ void Listener::logFailure(ErrorCode ec, char const* what)
   // and the enable_connection_aborted socket option is not set.
   if (ec == ::boost::asio::error::connection_aborted)
   {
-    LOG_ERROR_CODE(LOG(WARNING),
+    LOG_ERROR_CODE(VLOG(1),
       "Listener failed with"
       " connection_aborted error: ", what, ec);
+    return;
   }
 
   // ssl::error::stream_truncated, also known as an SSL "short read",
@@ -80,7 +82,7 @@ void Listener::logFailure(ErrorCode ec, char const* what)
   // after the message has been completed, so it is safe to ignore it.
   if(ec == ::boost::asio::ssl::error::stream_truncated)
   {
-    LOG_ERROR_CODE(LOG(WARNING),
+    LOG_ERROR_CODE(VLOG(1),
       "Listener failed with"
       " stream_truncated error: ", what, ec);
     return;
@@ -88,7 +90,7 @@ void Listener::logFailure(ErrorCode ec, char const* what)
 
   if (ec == ::boost::asio::error::operation_aborted)
   {
-    LOG_ERROR_CODE(LOG(WARNING),
+    LOG_ERROR_CODE(VLOG(1),
       "Listener failed with"
       " operation_aborted error: ", what, ec);
     return;
@@ -96,13 +98,13 @@ void Listener::logFailure(ErrorCode ec, char const* what)
 
   if (ec == ::boost::beast::websocket::error::closed)
   {
-    LOG_ERROR_CODE(LOG(WARNING),
+    LOG_ERROR_CODE(VLOG(1),
       "Listener failed with"
       " websocket closed error: ", what, ec);
     return;
   }
 
-  LOG_ERROR_CODE(LOG(WARNING),
+  LOG_ERROR_CODE(VLOG(1),
     "Listener failed with"
     " error: ", what, ec);
 }
@@ -111,7 +113,7 @@ void Listener::logFailure(ErrorCode ec, char const* what)
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(strand_.running_in_this_thread());
+  DCHECK(isRunningInThisThread());
 
   ErrorCode ec;
 
@@ -139,7 +141,7 @@ void Listener::logFailure(ErrorCode ec, char const* what)
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(strand_.running_in_this_thread());
+  DCHECK(isRunningInThisThread());
 
   ErrorCode ec;
 
@@ -197,7 +199,7 @@ Listener::StatusPromise Listener::configureAndRun()
     , strand_
     , base::BindOnce(
         &Listener::configureAndRunAcceptor,
-        shared_from_this())
+        SHARED_LIFETIME(shared_from_this()))
   );
 }
 
@@ -205,7 +207,7 @@ Listener::StatusPromise Listener::configureAndRun()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(strand_.running_in_this_thread());
+  DCHECK(isRunningInThisThread());
 
   RETURN_IF_ERROR(
     openAcceptor());
@@ -228,28 +230,28 @@ void Listener::doAccept()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(strand_.running_in_this_thread());
+  DCHECK(isRunningInThisThread());
 
-  /**
-   * I/O objects such as sockets and streams are not thread-safe.
-   * For efficiency, networking adopts
-   * a model of using threads without explicit locking
-   * by requiring all access to I/O objects to be
-   * performed within a strand.
-   */
   acceptor_.async_accept(
+    /**
+     * I/O objects such as sockets and streams are not thread-safe.
+     * For efficiency, networking adopts
+     * a model of using threads without explicit locking
+     * by requiring all access to I/O objects to be
+     * performed within a strand.
+     */
     // new connection needs its own strand
     ::boost::asio::make_strand(ioc_),
     ::boost::beast::bind_front_handler(
         &Listener::onAccept,
-        shared_from_this()));
+        SHARED_LIFETIME(shared_from_this())));
 }
 
 ::util::Status Listener::stopAcceptor()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(strand_.running_in_this_thread());
+  DCHECK(isRunningInThisThread());
 
   /// \note we usually post `stopAcceptor()` using `boost::asio::post`,
   /// so need to check if acceptor was closed during delay
@@ -293,18 +295,24 @@ void Listener::doAccept()
   return ::util::OkStatus();
 }
 
+std::unique_ptr<Listener::AcceptedCallbackList::Subscription>
+Listener::registerCallback(const Listener::AcceptedCallback &cb)
+{
+  return acceptedCallbackList_.Add(cb);
+}
+
 Listener::StatusPromise Listener::stopAcceptorAsync()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(!strand_.running_in_this_thread());
+  DCHECK(!isRunningInThisThread());
 
   return base::PostPromiseAsio(FROM_HERE
     // Post our work to the strand, to prevent data race
     , strand_
     , base::BindOnce(
         &Listener::stopAcceptor,
-        shared_from_this())
+        SHARED_LIFETIME(shared_from_this()))
   );
 }
 
@@ -312,8 +320,7 @@ void Listener::onAccept(ErrorCode ec, SocketType socket)
 {
   LOG_CALL(VLOG(9));
 
-  /// \todo unable to check strand here
-  //DCHECK(strand_.running_in_this_thread());
+  DETACH_FROM_SEQUENCE(acceptor_sequence_checker_);
 
   {
     const EndpointType& remote_endpoint
@@ -340,14 +347,13 @@ void Listener::onAccept(ErrorCode ec, SocketType socket)
     return; // stop onAccept recursion
   }
 
-  if (!ec)
-  {
-    DCHECK(socket.is_open());
+  DCHECK(socket.is_open());
 
-    DCHECK(acceptedCallback_);
+  acceptedCallbackList_.Notify(
+    COPIED(this)
+    , REFERENCED(ec)
     /// \note usually calls |std::move(socket)|
-    acceptedCallback_.Run(&ec, &socket);
-  }
+    , REFERENCED(socket));
 
   // Accept another connection
   VoidPromise postResult
@@ -356,7 +362,7 @@ void Listener::onAccept(ErrorCode ec, SocketType socket)
       , strand_
       , base::BindOnce(
           &Listener::doAccept,
-          shared_from_this())
+          SHARED_LIFETIME(shared_from_this()))
     );
   base::IgnoreResult(postResult);
 }
@@ -378,15 +384,20 @@ Listener::~Listener()
 bool Listener::isAcceptorOpen() const
 {
   /// \note |is_open| is not thread-safe in general
-  DCHECK(strand_.running_in_this_thread());
+  DCHECK(isRunningInThisThread());
 
   return acceptor_.is_open();
 }
 
-bool Listener::isRunningInThisThread() const
+bool Listener::isRunningInThisThread() const noexcept
 {
   /// \note assumed to be thread-safe
   return strand_.running_in_this_thread();
+}
+
+bool Listener::isAcceptingInThisSequence() const noexcept
+{
+  return acceptor_sequence_checker_.CalledOnValidSequence();
 }
 
 } // namespace ws

@@ -32,6 +32,9 @@ DetectChannel::DetectChannel(
   // i.e. it does not actually destroy |stream| by |move|
   , stream_(std::move(socket))
   , detectedCallback_(std::move(detectedCallback))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(weak_ptr_factory_.GetWeakPtr()))
 {
   LOG_CALL(VLOG(9));
 
@@ -72,7 +75,9 @@ void DetectChannel::runDetector(
     buffer_,
     beast::bind_front_handler(
       &DetectChannel::onDetected,
-      shared_from_this()));
+      SHARED_LIFETIME(shared_from_this())
+    )
+  );
 }
 
 void DetectChannel::onDetected(
@@ -81,13 +86,21 @@ void DetectChannel::onDetected(
 {
   LOG_CALL(VLOG(9));
 
+  DETACH_FROM_SEQUENCE(detector_sequence_checker_);
+
   DCHECK(detectedCallback_);
   detectedCallback_.Run(
-    shared_from_this()
-    , &ec
-    , handshake_result
+    COPIED(this)
+    , REFERENCED(ec)
+    , COPIED(handshake_result)
     , std::move(stream_)
-    , std::move(buffer_));
+    , std::move(buffer_)
+  );
+}
+
+bool DetectChannel::isDetectingInThisSequence() const noexcept
+{
+  return detector_sequence_checker_.CalledOnValidSequence();
 }
 
 } // namespace http
