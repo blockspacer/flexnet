@@ -1,5 +1,8 @@
 #include "flexnet/util/mime_type.hpp" // IWYU pragma: associated
 
+#include <base/logging.h>
+#include <utility>
+
 namespace flexnet {
 
 MimeType::MimeType()

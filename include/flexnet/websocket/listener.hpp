@@ -1,20 +1,21 @@
 #pragma once
 
+#include <base/callback.h>
 #include <base/macros.h>
 #include <base/sequence_checker.h>
-#include <base/callback.h>
-
-#include <boost/asio.hpp>
-#include <boost/beast/core.hpp>
-#include <boost/asio/io_service.hpp>
-#include <boost/asio/strand.hpp>
 
 #include <basis/promise/promise.h>
-#include <basis/status/statusor.hpp>
-#include <basis/status/status_macros.hpp>
+#include <basis/status/status.hpp>
 
-#include <functional>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/io_service.hpp>
+#include <boost/asio/strand.hpp> // IWYU pragma: keep
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/beast/core.hpp>
+
 #include <memory>
+
+namespace base { struct NoReject; }
 
 namespace flexnet {
 

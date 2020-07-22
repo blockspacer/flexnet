@@ -1,13 +1,12 @@
 #pragma once
 
-#include <boost/beast/http.hpp>
 #include <boost/algorithm/string.hpp>
 
 #include <base/macros.h>
 #include <base/sequence_checker.h>
 
+#include <functional>
 #include <string>
-#include <algorithm>
 #include <map>
 
 namespace flexnet {

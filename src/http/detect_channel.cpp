@@ -2,34 +2,17 @@
 
 #include "flexnet/util/macros.hpp"
 
+#include <base/location.h>
+#include <base/logging.h>
+
 #include <boost/asio.hpp>
-
-#include <boost/assert.hpp>
-
-#include <boost/beast/http.hpp>
-#include <boost/beast/websocket.hpp>
-
-#include <boost/core/ignore_unused.hpp>
-
-#include <boost/system/error_code.hpp>
 
 #include <algorithm>
 #include <chrono>
-#include <cinttypes>
-#include <cstdint>
-#include <cstdio>
-#include <functional>
-#include <iostream>
-#include <map>
-#include <new>
-#include <stdexcept>
-#include <string>
+#include <ratio>
 #include <type_traits>
-#include <utility>
 
-#include <base/logging.h>
-#include <base/bind.h>
-#include <base/logging.h>
+namespace boost::asio::ssl { class context; }
 
 namespace beast = boost::beast;
 

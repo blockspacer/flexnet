@@ -2,20 +2,18 @@
 
 #include "flexnet/util/limited_tcp_stream.hpp"
 
-#include <boost/asio.hpp>
-
-#include <boost/beast/core.hpp>
-#include <boost/beast/websocket.hpp>
-#include <boost/beast/ssl.hpp>
-
-#include <base/macros.h>
 #include <base/callback.h>
-#include <base/sequenced_task_runner.h>
+#include <base/macros.h>
+#include <base/sequence_checker.h>
 
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/beast/core.hpp>
+
+#include <chrono>
 #include <cstddef>
-#include <cstdint>
-#include <string>
 #include <vector>
+
+namespace boost::asio::ssl { class context; }
 
 namespace flexnet {
 namespace http {
