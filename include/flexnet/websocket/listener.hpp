@@ -1,6 +1,6 @@
 #pragma once
 
-#include <base/callback.h>
+#include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>
 #include <base/sequence_checker.h>
 #include <base/memory/weak_ptr.h>
@@ -48,14 +48,15 @@ public:
     = ::boost::asio::ip::tcp::acceptor;
 
   using StrandType
-    = boost::asio::io_service::strand;
+    = ::boost::asio::io_service::strand;
 
   using AcceptedCallback
     = base::RepeatingCallback<
         void(
           const Listener*
           , ErrorCode& ec
-          , SocketType& socket)
+          , SocketType& socket
+          , std::shared_ptr<StrandType> perConnectionStrand)
       >;
 
   using AcceptedCallbackList
@@ -63,7 +64,8 @@ public:
         void(
           const Listener*
           , ErrorCode& ec
-          , SocketType& socket)
+          , SocketType& socket
+          , std::shared_ptr<StrandType> perConnectionStrand)
        >;
 
   using StatusPromise
@@ -90,13 +92,14 @@ public:
   /**
    * @brief handles new connections and starts sessions
    */
-  void onAccept(ErrorCode ec, SocketType socket);
+  void onAccept(ErrorCode ec
+    , SocketType socket
+    , std::shared_ptr<StrandType> perConnectionStrand);
 
   StatusPromise stopAcceptorAsync();
 
+  // calls to |async_accept*| must be performed on same sequence
   bool isRunningInThisThread() const noexcept;
-
-  bool isAcceptingInThisSequence() const noexcept;
 
   /// \note does not close alive sessions, just
   /// stops accepting incoming connections
@@ -127,6 +130,7 @@ private:
   // The acceptor used to listen for incoming connections.
   AcceptorType acceptor_;
 
+  // Provides I/O functionality
   IoContext& ioc_;
 
   // acceptor will listen that address
@@ -160,9 +164,6 @@ private:
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
-
-  // check sequence created by |async_accept|
-  SEQUENCE_CHECKER(acceptor_sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(Listener);
 };

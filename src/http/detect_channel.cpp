@@ -5,12 +5,15 @@
 #include <base/location.h>
 #include <base/logging.h>
 
-#include <boost/asio.hpp>
+#include <boost/asio/basic_stream_socket.hpp>
+#include <boost/asio/bind_executor.hpp>
+#include <boost/asio/io_context_strand.hpp>
 
 #include <algorithm>
 #include <chrono>
 #include <ratio>
 #include <type_traits>
+#include <functional>
 
 namespace boost::asio::ssl { class context; }
 
@@ -22,7 +25,8 @@ namespace http {
 DetectChannel::DetectChannel(
   ::boost::asio::ssl::context& ctx
   , AsioTcp::socket&& socket
-  , DetectedCallback&& detectedCallback)
+  , DetectedCallback&& detectedCallback
+  , std::shared_ptr<StrandType> perConnectionStrand)
   : ctx_(ctx)
   // NOTE: Following the std::move,
   // the moved-from object is in the same state
@@ -35,6 +39,8 @@ DetectChannel::DetectChannel(
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
+  , destruction_promise_(FROM_HERE)
+  , perConnectionStrand_(perConnectionStrand)
 {
   LOG_CALL(VLOG(9));
 
@@ -46,11 +52,16 @@ DetectChannel::~DetectChannel()
   LOG_CALL(VLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  destruction_promise_.Resolve();
 }
 
 void DetectChannel::configureDetector(
   const std::chrono::seconds& expire_timeout)
 {
+  DCHECK(perConnectionStrand_
+    && perConnectionStrand_->running_in_this_thread());
+
   stream_.expires_after(expire_timeout);
 
   // The policy object, which is default constructed, or
@@ -66,16 +77,47 @@ void DetectChannel::configureDetector(
 void DetectChannel::runDetector(
   const std::chrono::seconds& expire_timeout)
 {
+  DCHECK(perConnectionStrand_
+    && perConnectionStrand_->running_in_this_thread());
+
   LOG_CALL(VLOG(9));
 
   configureDetector(expire_timeout);
 
+  /** Detect a TLS/SSL handshake asynchronously on a stream.
+
+      This function reads asynchronously from a stream to determine
+      if a client handshake message is being received.
+
+      This call always returns immediately. The asynchronous operation
+      will continue until one of the following conditions is true:
+
+      @li A TLS client opening handshake is detected,
+
+      @li The received data is invalid for a TLS client handshake, or
+
+      @li An error occurs.
+
+      The algorithm, known as a <em>composed asynchronous operation</em>,
+      is implemented in terms of calls to the next layer's `async_read_some`
+      function. The program must ensure that no other calls to
+      `async_read_some` are performed until this operation completes.
+
+      Bytes read from the stream will be stored in the passed dynamic
+      buffer, which may be used to perform the TLS handshake if the
+      detector returns true, or be otherwise consumed by the caller based
+      on the expected protocol.
+  */
   beast::async_detect_ssl(
-    stream_,
-    buffer_,
-    beast::bind_front_handler(
-      &DetectChannel::onDetected,
-      SHARED_LIFETIME(shared_from_this())
+    stream_, // The stream to read from
+    buffer_, // The dynamic buffer to use
+    boost::asio::bind_executor(*perConnectionStrand_.get(),
+      std::bind(
+        &DetectChannel::onDetected
+        , SHARED_LIFETIME(shared_from_this())
+        , std::placeholders::_1
+        , std::placeholders::_2
+      )
     )
   );
 }
@@ -86,21 +128,20 @@ void DetectChannel::onDetected(
 {
   LOG_CALL(VLOG(9));
 
-  DETACH_FROM_SEQUENCE(detector_sequence_checker_);
+  DCHECK(perConnectionStrand_
+    && perConnectionStrand_->running_in_this_thread());
+
+  DCHECK(stream_.socket().is_open());
 
   DCHECK(detectedCallback_);
   detectedCallback_.Run(
-    COPIED(this)
+    COPIED(shared_from_this())
     , REFERENCED(ec)
     , COPIED(handshake_result)
     , std::move(stream_)
     , std::move(buffer_)
+    , std::move(perConnectionStrand_)
   );
-}
-
-bool DetectChannel::isDetectingInThisSequence() const noexcept
-{
-  return detector_sequence_checker_.CalledOnValidSequence();
 }
 
 } // namespace http

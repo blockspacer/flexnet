@@ -2,6 +2,16 @@
 
 C++ lib
 
+## Before installation: Add conan remotes
+
+To be able to add the list of dependency remotes please type the following command:
+
+```bash
+cmake -E time conan config install conan/remotes/
+# OR:
+# cmake -E time conan config install conan/remotes_disabled_ssl/
+```
+
 ## Installation
 
 ```bash
@@ -22,6 +32,14 @@ GIT_SSL_NO_VERIFY=true \
       --profile clang \
           -o flexnet:shared=False \
           -e flexnet:enable_tests=True
+```
+
+## How to increase log level
+
+Use `--vmodule`.
+
+```bash
+./bin/Debug/example_server/example_server --vmodule=*main*=100,*=200 --enable-logging=stderr --log-level=100 --show-fps-counter --enable-features=console_terminal,remote_console --start_tracing --tracing_categories=*,disabled-by-default-memory-infra
 ```
 
 ## HOW TO BUILD WITH SANITIZERS ENABLED
@@ -139,6 +157,9 @@ See for details [https://include-what-you-use.org/](https://include-what-you-use
 Usage (runs cmake with `-DENABLE_IWYU=ON`):
 
 ```bash
+export CXX=clang++-6.0
+export CC=clang-6.0
+
 # creates local build in separate folder and runs cmake targets
 cmake -DIWYU="ON" -DCLEAN_OLD="ON" -P tools/run_tool.cmake
 ```

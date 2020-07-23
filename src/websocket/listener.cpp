@@ -10,22 +10,21 @@
 #include <basis/promise/post_promise.h>
 #include <basis/status/status_macros.hpp>
 
-#include <boost/asio/basic_stream_socket.hpp>
+#include <boost/asio/bind_executor.hpp>
 #include <boost/asio/error.hpp>
 #include <boost/asio/io_context_strand.hpp>
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/basic_endpoint.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/asio/ssl.hpp>
-#include <boost/asio/strand.hpp>
 
 #include <boost/beast/websocket.hpp>
 
 #include <boost/system/error_code.hpp>
 
-#include <algorithm>
 #include <iostream>
 #include <memory>
+#include <functional>
 
 namespace flexnet {
 namespace ws {
@@ -194,7 +193,7 @@ Listener::StatusPromise Listener::configureAndRun()
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  return base::PostPromiseAsio(FROM_HERE
+  return base::PostPromiseOnAsioExecutor(FROM_HERE
     // Post our work to the strand, to prevent data race
     , strand_
     , base::BindOnce(
@@ -232,6 +231,14 @@ void Listener::doAccept()
 
   DCHECK(isRunningInThisThread());
 
+  std::shared_ptr<StrandType> perConnectionStrand
+    = std::make_shared<StrandType>(ioc_);
+
+  /// Start an asynchronous accept.
+  /**
+   * This function is used to asynchronously accept a new connection. The
+   * function call always returns immediately.
+   */
   acceptor_.async_accept(
     /**
      * I/O objects such as sockets and streams are not thread-safe.
@@ -241,10 +248,16 @@ void Listener::doAccept()
      * performed within a strand.
      */
     // new connection needs its own strand
-    ::boost::asio::make_strand(ioc_),
-    ::boost::beast::bind_front_handler(
-        &Listener::onAccept,
-        SHARED_LIFETIME(shared_from_this())));
+    boost::asio::bind_executor(*perConnectionStrand.get(),
+      ::std::bind(
+          &Listener::onAccept,
+          SHARED_LIFETIME(shared_from_this())
+          , std::placeholders::_1
+          , std::placeholders::_2
+          , SHARED_LIFETIME(perConnectionStrand)
+      )
+    )
+  );
 }
 
 ::util::Status Listener::stopAcceptor()
@@ -307,7 +320,7 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
 
   DCHECK(!isRunningInThisThread());
 
-  return base::PostPromiseAsio(FROM_HERE
+  return base::PostPromiseOnAsioExecutor(FROM_HERE
     // Post our work to the strand, to prevent data race
     , strand_
     , base::BindOnce(
@@ -316,11 +329,14 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
   );
 }
 
-void Listener::onAccept(ErrorCode ec, SocketType socket)
+void Listener::onAccept(ErrorCode ec
+  , SocketType socket
+  , std::shared_ptr<StrandType> perConnectionStrand)
 {
   LOG_CALL(VLOG(9));
 
-  DETACH_FROM_SEQUENCE(acceptor_sequence_checker_);
+  DCHECK(perConnectionStrand
+    && perConnectionStrand->running_in_this_thread());
 
   {
     const EndpointType& remote_endpoint
@@ -353,11 +369,13 @@ void Listener::onAccept(ErrorCode ec, SocketType socket)
     COPIED(this)
     , REFERENCED(ec)
     /// \note usually calls |std::move(socket)|
-    , REFERENCED(socket));
+    , REFERENCED(socket)
+    /// \note usually calls |std::move(perConnectionStrand)|
+    , SHARED_LIFETIME(perConnectionStrand));
 
   // Accept another connection
   VoidPromise postResult
-    = base::PostPromiseAsio(FROM_HERE
+    = base::PostPromiseOnAsioExecutor(FROM_HERE
       // Post our work to the strand, to prevent data race
       , strand_
       , base::BindOnce(
@@ -393,11 +411,6 @@ bool Listener::isRunningInThisThread() const noexcept
 {
   /// \note assumed to be thread-safe
   return strand_.running_in_this_thread();
-}
-
-bool Listener::isAcceptingInThisSequence() const noexcept
-{
-  return acceptor_sequence_checker_.CalledOnValidSequence();
 }
 
 } // namespace ws

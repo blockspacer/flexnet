@@ -3,24 +3,29 @@
 #include <base/macros.h> // IWYU pragma: keep
 #include <base/compiler_specific.h> // IWYU pragma: keep
 
-// documents that value will be copied
+// Documents that value can be used from any thread.
+// Usually it means that value is guarded by some mutex lock.
+#define THREAD_SAFE(x) x
+
+// Documents that value will be copied.
 /// \note use it to annotate arguments that are bound to function
 #define COPIED(x) x
 
-// documents that value will be used as alias
-// i.e. another name for an already existing variable
+/// \note prefer `REFERENCED` to `RAW_REFERENCED`
+// Documents that value will be used as alias
+// i.e. another name for an already existing variable.
 #define RAW_REFERENCED(x) x
 
-// documents that value will be used as alias
-// i.e. another name for an already existing variable
+// Documents that value will be used as alias
+// i.e. another name for an already existing variable.
 /// \note use it to annotate arguments that are bound to function
 #define REFERENCED(x) std::ref(x)
 
 #define CONST_REFERENCED(x) std::cref(x)
 
-// documents that value has shared storage
+// Documents that value has shared storage
 // like shaped_ptr, scoped_refptr, etc.
-// i.e. that object lifetime will be prolonged
+// i.e. that object lifetime will be prolonged.
 /// \note use it to annotate arguments that are bound to function
 #define SHARED_LIFETIME(x) x
 

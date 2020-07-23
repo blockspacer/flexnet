@@ -7,12 +7,20 @@
 #include <base/sequence_checker.h>
 #include <base/memory/weak_ptr.h>
 
-#include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
+
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/executor.hpp>
+#include <boost/asio/strand.hpp> // IWYU pragma: keep
+#include <boost/asio/io_service.hpp>
+
+#include <basis/promise/promise.h>
 
 #include <chrono>
 #include <cstddef>
 #include <vector>
+
+namespace base { struct NoReject; }
 
 namespace boost::asio::ssl { class context; }
 
@@ -40,28 +48,36 @@ public:
   using StreamType
     = ::boost::beast::limited_tcp_stream;
 
+  using StrandType
+    = ::boost::asio::io_service::strand;
+
   using DetectedCallback
     = base::RepeatingCallback<
         void(
-          const DetectChannel*
+          std::shared_ptr<http::DetectChannel>
           , ErrorCode&
           // handshake result
           // i.e. `true` if the buffer contains a TLS client handshake
           // and no error occurred, otherwise `false`.
           , bool
           , StreamType&& stream
-          , MessageBufferType&& buffer)
+          , MessageBufferType&& buffer
+          , std::shared_ptr<StrandType> perConnectionStrand)
       >;
 
   using AsioTcp
-    = boost::asio::ip::tcp;
+    = ::boost::asio::ip::tcp;
+
+  using VoidPromise
+    = base::Promise<void, base::NoReject>;
 
 public:
   DetectChannel(
     ::boost::asio::ssl::context& ctx
     // Take ownership of the socket
     , AsioTcp::socket&& socket
-    , DetectedCallback&& detectedCallback);
+    , DetectedCallback&& detectedCallback
+    , std::shared_ptr<StrandType> perConnectionStrand);
 
   ~DetectChannel();
 
@@ -76,7 +92,20 @@ public:
     return weak_this_;
   }
 
-  bool isDetectingInThisSequence() const noexcept;
+  StrandType& perConnectionStrand() const noexcept{
+    return *perConnectionStrand_.get();
+  }
+
+  /// \note make sure that |stream_| exists
+  /// and thread-safe when you call |executor()|
+  boost::asio::executor executor() noexcept {
+    return stream_.get_executor();
+  }
+
+  VoidPromise destructionPromise() noexcept
+  {
+    return destruction_promise_.promise();
+  }
 
 private:
   void onDetected(
@@ -115,11 +144,14 @@ private:
   // |weak_ptr_factory_.GetWeakPtr() which is not).
   base::WeakPtr<DetectChannel> weak_this_;
 
+  base::ManualPromiseResolver<void, base::NoReject>
+    destruction_promise_;
+
+  // |stream_| and calls to |async_detect*| are guarded by strand
+  std::shared_ptr<StrandType> perConnectionStrand_;
+
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
-
-  // check sequence created by |async_handshake|
-  SEQUENCE_CHECKER(detector_sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(DetectChannel);
 };
