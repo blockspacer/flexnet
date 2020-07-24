@@ -111,7 +111,7 @@ void Listener::CAUTION_NOT_THREAD_SAFE(logFailure)
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(isRunningInThisThread());
+  DCHECK(isAcceptingInThisThread());
 
   ErrorCode ec;
 
@@ -142,7 +142,7 @@ void Listener::CAUTION_NOT_THREAD_SAFE(logFailure)
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(isRunningInThisThread());
+  DCHECK(isAcceptingInThisThread());
 
   // sanity check
   DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
@@ -200,7 +200,7 @@ Listener::StatusPromise Listener::configureAndRun()
 
   DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
 
-  DCHECK(!isRunningInThisThread());
+  DCHECK(!isAcceptingInThisThread());
   return base::PostPromiseOnAsioExecutor(FROM_HERE
     // Post our work to the strand, to prevent data race
     , strand_
@@ -214,7 +214,7 @@ Listener::StatusPromise Listener::configureAndRun()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(isRunningInThisThread());
+  DCHECK(isAcceptingInThisThread());
 
   // sanity check
   DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
@@ -240,10 +240,11 @@ void Listener::doAccept()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(isRunningInThisThread());
+  DCHECK(isAcceptingInThisThread());
 
   THREAD_SAFE(assume_is_accepting_) = true;
 
+  /// \todo remove shared_ptr overhead
   std::shared_ptr<StrandType> perConnectionStrand
     = std::make_shared<StrandType>(ioc_);
 
@@ -277,7 +278,7 @@ void Listener::doAccept()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(isRunningInThisThread());
+  DCHECK(isAcceptingInThisThread());
 
   /// \note we usually post `stopAcceptor()` using `boost::asio::post`,
   /// so need to check if acceptor was closed during delay
@@ -352,7 +353,7 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
 
   DCHECK(THREAD_SAFE(assume_is_accepting_).load());
 
-  DCHECK(!isRunningInThisThread());
+  DCHECK(!isAcceptingInThisThread());
   return base::PostPromiseOnAsioExecutor(FROM_HERE
     // Post our work to the strand, to prevent data race
     , strand_
@@ -368,6 +369,7 @@ void Listener::onAccept(ErrorCode ec
 {
   LOG_CALL(VLOG(9));
 
+  /// \note not same as |isAcceptingInThisThread()|
   DCHECK(perConnectionStrand
     && perConnectionStrand->running_in_this_thread());
 
@@ -379,7 +381,7 @@ void Listener::onAccept(ErrorCode ec
   /// \note we assume that |is_open|
   /// is thread-safe here
   /// (but not thread-safe in general)
-  if (!acceptor_.is_open())
+  if (!CAUTION_NOT_THREAD_SAFE(acceptor_.is_open()))
   {
     VLOG(9)
       << "unable to accept new connections"
@@ -409,7 +411,7 @@ void Listener::onAccept(ErrorCode ec
     , SHARED_LIFETIME(perConnectionStrand));
 
   // Accept another connection
-  DCHECK(!isRunningInThisThread());
+  DCHECK(!isAcceptingInThisThread());
   VoidPromise postResult
     = base::PostPromiseOnAsioExecutor(FROM_HERE
       // Post our work to the strand, to prevent data race
@@ -432,7 +434,7 @@ Listener::~Listener()
   /// (but not thread-safe in general)
   /// i.e. do not modify acceptor
   /// from any thread if you reached destructor
-  DCHECK(!acceptor_.is_open());
+  DCHECK(!CAUTION_NOT_THREAD_SAFE(acceptor_.is_open()));
 
   // sanity check
   DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
@@ -441,12 +443,12 @@ Listener::~Listener()
 bool Listener::isAcceptorOpen() const
 {
   /// \note |is_open| is not thread-safe in general
-  DCHECK(isRunningInThisThread());
+  DCHECK(isAcceptingInThisThread());
 
   return acceptor_.is_open();
 }
 
-bool Listener::isRunningInThisThread() const noexcept
+bool Listener::isAcceptingInThisThread() const noexcept
 {
   /// \note assumed to be thread-safe
   return strand_.running_in_this_thread();

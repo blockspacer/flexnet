@@ -101,7 +101,8 @@ public:
   StatusPromise stopAcceptorAsync();
 
   // calls to |async_accept*| must be performed on same sequence
-  bool isRunningInThisThread() const noexcept;
+  // i.e. it is |strand_.running_in_this_thread()|
+  bool isAcceptingInThisThread() const noexcept;
 
   /// \note does not close alive sessions, just
   /// stops accepting incoming connections

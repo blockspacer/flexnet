@@ -33,6 +33,7 @@ namespace http {
     handshake message is being received.
 */
 class DetectChannel
+  /// \todo remove shared_ptr overhead
   : public std::enable_shared_from_this<DetectChannel>
 {
 public:
@@ -148,6 +149,7 @@ private:
     destruction_promise_;
 
   // |stream_| and calls to |async_detect*| are guarded by strand
+  /// \todo remove shared_ptr overhead
   std::shared_ptr<StrandType> perConnectionStrand_;
 
   // check sequence on which class was constructed/destructed/configured
