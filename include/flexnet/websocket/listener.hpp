@@ -1,5 +1,7 @@
 #pragma once
 
+#include "flexnet/util/macros.hpp"
+
 #include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>
 #include <base/sequence_checker.h>
@@ -116,7 +118,9 @@ public:
 
 private:
   // Report a failure
-  void logFailure(ErrorCode ec, char const* what);
+  /// \note not thread-safe, so keep it for logging purposes only
+  void CAUTION_NOT_THREAD_SAFE(logFailure)
+    (ErrorCode ec, char const* what);
 
   ::util::Status configureAcceptor();
 
@@ -144,7 +148,9 @@ private:
   // track creation of new connections.
   // |base::CallbackList| allows to de-register callback
   // when some of these objects destruct.
-  AcceptedCallbackList acceptedCallbackList_;
+  /// \note take care of thread-safety
+  /// i.e. change |acceptedCallbackList_| only when acceptor stopped
+  CAUTION_NOT_THREAD_SAFE(AcceptedCallbackList) acceptedCallbackList_;
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
@@ -161,6 +167,12 @@ private:
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
   base::WeakPtr<Listener> weak_this_;
+
+  // unlike |isAcceptorOpen()| it can be used from any sequence,
+  // but it is approximation that stores state
+  // based on results of previous API calls
+  // i.e. it may be NOT same as |acceptor_.is_open()|
+  std::atomic<bool> assume_is_accepting_{false};
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

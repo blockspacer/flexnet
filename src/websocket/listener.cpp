@@ -45,11 +45,10 @@ Listener::Listener(
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-void Listener::logFailure(ErrorCode ec, char const* what)
+void Listener::CAUTION_NOT_THREAD_SAFE(logFailure)
+  (ErrorCode ec, char const* what)
 {
   LOG_CALL(VLOG(9));
-
-  DCHECK(isRunningInThisThread());
 
   // NOTE: If you got logFailure: accept: Too many open files
   // set ulimit -n 4096, see stackoverflow.com/a/8583083/10904212
@@ -120,6 +119,9 @@ void Listener::logFailure(ErrorCode ec, char const* what)
     << "opening acceptor for "
     << endpoint_.address().to_string();
 
+  // sanity check
+  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
+
   acceptor_.open(endpoint_.protocol(), ec);
   if (ec)
   {
@@ -141,6 +143,9 @@ void Listener::logFailure(ErrorCode ec, char const* what)
   LOG_CALL(VLOG(9));
 
   DCHECK(isRunningInThisThread());
+
+  // sanity check
+  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
 
   ErrorCode ec;
 
@@ -193,6 +198,9 @@ Listener::StatusPromise Listener::configureAndRun()
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
+
+  DCHECK(!isRunningInThisThread());
   return base::PostPromiseOnAsioExecutor(FROM_HERE
     // Post our work to the strand, to prevent data race
     , strand_
@@ -207,6 +215,9 @@ Listener::StatusPromise Listener::configureAndRun()
   LOG_CALL(VLOG(9));
 
   DCHECK(isRunningInThisThread());
+
+  // sanity check
+  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
 
   RETURN_IF_ERROR(
     openAcceptor());
@@ -230,6 +241,8 @@ void Listener::doAccept()
   LOG_CALL(VLOG(9));
 
   DCHECK(isRunningInThisThread());
+
+  THREAD_SAFE(assume_is_accepting_) = true;
 
   std::shared_ptr<StrandType> perConnectionStrand
     = std::make_shared<StrandType>(ioc_);
@@ -273,6 +286,9 @@ void Listener::doAccept()
   {
     VLOG(9)
       << "unable to stop closed listener";
+
+    THREAD_SAFE(assume_is_accepting_) = false;
+
     return ::util::OkStatus();
   }
 
@@ -287,6 +303,9 @@ void Listener::doAccept()
     if (ec)
     {
       logFailure(ec, "acceptor_cancel");
+
+      THREAD_SAFE(assume_is_accepting_) = isAcceptorOpen();
+
       return MAKE_ERROR()
         << "Failed to call acceptor_cancel for acceptor";
     }
@@ -297,6 +316,9 @@ void Listener::doAccept()
     acceptor_.close(ec);
     if (ec) {
       logFailure(ec, "acceptor_close");
+
+      THREAD_SAFE(assume_is_accepting_) = isAcceptorOpen();
+
       return MAKE_ERROR()
         << "Failed to call acceptor_close for acceptor";
     }
@@ -305,21 +327,32 @@ void Listener::doAccept()
     DCHECK(!isAcceptorOpen());
   }
 
+  THREAD_SAFE(assume_is_accepting_) = false;
+
   return ::util::OkStatus();
 }
 
 std::unique_ptr<Listener::AcceptedCallbackList::Subscription>
 Listener::registerCallback(const Listener::AcceptedCallback &cb)
 {
-  return acceptedCallbackList_.Add(cb);
+  /// \note guarantees thread-safety of |acceptedCallbackList_|
+  /// i.e. change |acceptedCallbackList_| only when acceptor stopped
+  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  return CAUTION_NOT_THREAD_SAFE(acceptedCallbackList_).Add(cb);
 }
 
 Listener::StatusPromise Listener::stopAcceptorAsync()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(!isRunningInThisThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  DCHECK(THREAD_SAFE(assume_is_accepting_).load());
+
+  DCHECK(!isRunningInThisThread());
   return base::PostPromiseOnAsioExecutor(FROM_HERE
     // Post our work to the strand, to prevent data race
     , strand_
@@ -338,14 +371,6 @@ void Listener::onAccept(ErrorCode ec
   DCHECK(perConnectionStrand
     && perConnectionStrand->running_in_this_thread());
 
-  {
-    const EndpointType& remote_endpoint
-      = socket.remote_endpoint();
-    VLOG(9)
-        << "Listener accepted remote endpoint: "
-        << remote_endpoint;
-  }
-
   if (ec)
   {
     logFailure(ec, "accept");
@@ -363,9 +388,19 @@ void Listener::onAccept(ErrorCode ec
     return; // stop onAccept recursion
   }
 
-  DCHECK(socket.is_open());
+  {
+    DCHECK(socket.is_open());
+    const EndpointType& remote_endpoint
+      = socket.remote_endpoint();
+    VLOG(9)
+        << "Listener accepted remote endpoint: "
+        << remote_endpoint;
+  }
 
-  acceptedCallbackList_.Notify(
+  // sanity check
+  DCHECK(THREAD_SAFE(assume_is_accepting_).load());
+
+  CAUTION_NOT_THREAD_SAFE(acceptedCallbackList_).Notify(
     COPIED(this)
     , REFERENCED(ec)
     /// \note usually calls |std::move(socket)|
@@ -374,6 +409,7 @@ void Listener::onAccept(ErrorCode ec
     , SHARED_LIFETIME(perConnectionStrand));
 
   // Accept another connection
+  DCHECK(!isRunningInThisThread());
   VoidPromise postResult
     = base::PostPromiseOnAsioExecutor(FROM_HERE
       // Post our work to the strand, to prevent data race
@@ -397,6 +433,9 @@ Listener::~Listener()
   /// i.e. do not modify acceptor
   /// from any thread if you reached destructor
   DCHECK(!acceptor_.is_open());
+
+  // sanity check
+  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
 }
 
 bool Listener::isAcceptorOpen() const

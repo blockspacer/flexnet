@@ -3,6 +3,13 @@
 #include <base/macros.h> // IWYU pragma: keep
 #include <base/compiler_specific.h> // IWYU pragma: keep
 
+// Documents that value can NOT be used from
+// any thread without extra thread-safety checks.
+// i.e. take care of possible thread-safety bugs.
+// Usually it means that value MUST be guarded by some mutex lock
+// or modified only during app initialization.
+#define CAUTION_NOT_THREAD_SAFE(x) x
+
 // Documents that value can be used from any thread.
 // Usually it means that value is guarded by some mutex lock.
 #define THREAD_SAFE(x) x
