@@ -24,8 +24,7 @@ namespace http {
 
 DetectChannel::DetectChannel(
   ::boost::asio::ssl::context& ctx
-  , AsioTcp::socket&& socket
-  , DetectedCallback&& detectedCallback)
+  , AsioTcp::socket&& socket)
   : ctx_(ctx)
   // NOTE: Following the std::move,
   // the moved-from object is in the same state
@@ -34,8 +33,7 @@ DetectChannel::DetectChannel(
   // see boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/basic_stream_socket/basic_stream_socket/overload5.html
   // i.e. it does not actually destroy |stream| by |move|
   , stream_(std::move(socket))
-  , detectedCallback_(std::move(detectedCallback))
-  , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
   , destruction_promise_(FROM_HERE)
@@ -46,13 +44,22 @@ DetectChannel::DetectChannel(
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-DetectChannel::~DetectChannel()
+DetectChannel::CAUTION_NOT_THREAD_SAFE(~DetectChannel())
+{
+  LOG_CALL(VLOG(9));
+
+  destruction_promise_.Resolve();
+}
+
+void DetectChannel::registerDetectedCallback(
+  DetectChannel::DetectedCallback&& detectedCallback)
 {
   LOG_CALL(VLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  destruction_promise_.Resolve();
+  DCHECK(detectedCallback);
+  detectedCallback_ = std::move(detectedCallback);
 }
 
 void DetectChannel::configureDetector(
@@ -113,7 +120,9 @@ void DetectChannel::runDetector(
     boost::asio::bind_executor(perConnectionStrand_,
       std::bind(
         &DetectChannel::onDetected
-        , SHARED_LIFETIME(shared_from_this())
+        , /// \note lifetime must be managed externally
+          UNOWNED_LIFETIME(
+            COPIED(this))
         , std::placeholders::_1
         , std::placeholders::_2
       )
@@ -133,7 +142,7 @@ void DetectChannel::onDetected(
 
   DCHECK(detectedCallback_);
   detectedCallback_.Run(
-    COPIED(shared_from_this())
+    COPIED(this)
     , REFERENCED(ec)
     , COPIED(handshake_result)
     , std::move(stream_)

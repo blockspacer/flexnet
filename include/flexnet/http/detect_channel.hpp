@@ -1,6 +1,7 @@
 #pragma once
 
 #include "flexnet/util/limited_tcp_stream.hpp"
+#include "flexnet/util/macros.hpp"
 
 #include <base/callback.h>
 #include <base/macros.h>
@@ -33,8 +34,6 @@ namespace http {
     handshake message is being received.
 */
 class DetectChannel
-  /// \todo remove shared_ptr overhead
-  : public std::enable_shared_from_this<DetectChannel>
 {
 public:
   static const size_t kMaxMessageSizeBytes = 100000;
@@ -55,7 +54,7 @@ public:
   using DetectedCallback
     = base::RepeatingCallback<
         void(
-          std::shared_ptr<http::DetectChannel>
+          const http::DetectChannel*
           , ErrorCode&
           // handshake result
           // i.e. `true` if the buffer contains a TLS client handshake
@@ -75,10 +74,13 @@ public:
   DetectChannel(
     ::boost::asio::ssl::context& ctx
     // Take ownership of the socket
-    , AsioTcp::socket&& socket
-    , DetectedCallback&& detectedCallback);
+    , AsioTcp::socket&& socket);
 
-  ~DetectChannel();
+  /// \note can destruct on any thread
+  CAUTION_NOT_THREAD_SAFE(~DetectChannel());
+
+  void registerDetectedCallback(
+    DetectedCallback&& detectedCallback);
 
   // calls |beast::async_detect_*|
   void runDetector(

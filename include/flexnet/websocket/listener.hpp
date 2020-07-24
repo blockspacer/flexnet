@@ -127,7 +127,7 @@ public:
   ::util::Status stopAcceptor();
 
   std::unique_ptr<AcceptedCallbackList::Subscription>
-  registerCallback(const AcceptedCallback& cb);
+  registerAcceptedCallback(const AcceptedCallback& cb);
 
   base::WeakPtr<Listener> weakSelf() const noexcept
   {

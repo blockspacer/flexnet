@@ -135,7 +135,8 @@ class ExampleServer
   , ws::Listener::StrandType* perConnectionStrand);
 
   void onDetected(
-    std::shared_ptr<http::DetectChannel> detectChannel
+    base::OnceClosure&& deleteDetectorClosure
+    , const http::DetectChannel* detectChannel
     , http::DetectChannel::ErrorCode& ec
     , bool handshake_result
     , http::DetectChannel::StreamType&& stream
@@ -246,7 +247,7 @@ ExampleServer::ExampleServer()
       );
 
   acceptedCallbackSubscription_
-    = listener_->registerCallback(
+    = listener_->registerAcceptedCallback(
         base::BindRepeating(
           &ExampleServer::onAccepted
           , base::Unretained(this)
@@ -359,19 +360,46 @@ void ExampleServer::onAccepted(
   LOG(INFO)
     << "Listener accepted new connection";
 
-  std::shared_ptr<http::DetectChannel> detectChannel
-    = std::make_shared<http::DetectChannel>(
-        ctx_
-        , std::move(socket)
-        , base::BindRepeating(
-            &ExampleServer::onDetected
-            , base::Unretained(this)
-        ));
+  /// \todo replace unique_ptr with entt registry (pool)
+  std::unique_ptr<http::DetectChannel> detectChannel
+    = std::make_unique<http::DetectChannel>(
+    ctx_
+    , std::move(socket)
+  );
 
-  base::OnceClosure runDetectorCb
+  // we will |std::move(detectChannel)|, so cache pointer to object
+  http::DetectChannel* detectChannelPtr
+    = detectChannel.get();
+
+  base::OnceClosure scheduleDeleteDetectorClosure
+    = base::BindOnce(
+        [
+        ](
+          std::unique_ptr<http::DetectChannel>&& detectChannel
+          , scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner
+        ){
+          LOG_CALL(VLOG(9));
+          DCHECK(detectChannel);
+          DCHECK(mainLoopRunner);
+          mainLoopRunner->DeleteSoon(FROM_HERE, std::move(detectChannel));
+        }
+        , base::Passed(std::move(detectChannel))
+        , mainLoopRunner_
+      );
+
+  DCHECK(detectChannelPtr);
+  detectChannelPtr->registerDetectedCallback(
+    base::BindRepeating(
+        &ExampleServer::onDetected
+        , base::Unretained(this)
+        , base::Passed(std::move(scheduleDeleteDetectorClosure))
+    )
+  );
+
+  base::OnceClosure runDetectorClosure
     = base::BindOnce(
         &http::DetectChannel::runDetector
-        , SHARED_LIFETIME(detectChannel)
+        , UNOWNED_LIFETIME(base::Unretained(detectChannelPtr))
         , std::chrono::seconds(30) // expire timeout
       );
 
@@ -381,7 +409,7 @@ void ExampleServer::onAccepted(
         // prevent server termination before all connections closed
         &ExampleServer::addToDestructionPromiseChain
         , base::Unretained(this)
-        , SHARED_LIFETIME(detectChannel->destructionPromise()))
+        , SHARED_LIFETIME(detectChannelPtr->destructionPromise()))
   )
   .ThenOn(mainLoopRunner_
     , FROM_HERE
@@ -392,10 +420,10 @@ void ExampleServer::onAccepted(
         base::OnceClosure
       >
       , FROM_HERE
-      , CONST_REFERENCED(detectChannel->perConnectionStrand())
-      /// \note callback must prolong lifetime of |perConnectionStrand|
-      /// i.e. prolong lifetime of |detectChannel| that holds |perConnectionStrand|
-      , std::move(runDetectorCb)
+      , CONST_REFERENCED(detectChannelPtr->perConnectionStrand())
+      /// \note callback must manage lifetime of |perConnectionStrand|
+      /// i.e. manage lifetime of |detectChannel| that holds |perConnectionStrand|
+      , std::move(runDetectorClosure)
     ) // BindOnce
   )
   /// \note tasks below will be scheduled after channel destruction
@@ -406,7 +434,7 @@ void ExampleServer::onAccepted(
         /// \note returns promise,
         /// so we will wait for NESTED promise
         &http::DetectChannel::destructionPromise
-        , SHARED_LIFETIME(detectChannel))
+        , UNOWNED_LIFETIME(base::Unretained(detectChannelPtr)))
   )
   .ThenOn(mainLoopRunner_
     , FROM_HERE
@@ -414,13 +442,14 @@ void ExampleServer::onAccepted(
         // destroyed connections do not prevent server termination
         &ExampleServer::removeFromDestructionPromiseChain
         , base::Unretained(this)
-        , SHARED_LIFETIME(detectChannel->destructionPromise())
+        , SHARED_LIFETIME(detectChannelPtr->destructionPromise())
       )
   );
 }
 
 void ExampleServer::onDetected(
-  std::shared_ptr<http::DetectChannel> detectChannel
+  base::OnceClosure&& deleteDetectorClosure
+  , const http::DetectChannel* detectChannel
   , http::DetectChannel::ErrorCode& ec
   , bool handshake_result
   , http::DetectChannel::StreamType&& stream
@@ -451,20 +480,7 @@ void ExampleServer::onDetected(
   /// \todo: create channel here
 
   // reset |DetectChannel| (we do not need it anymore)
-  mainLoopRunner_->PostTask(FROM_HERE,
-    base::BindOnce(
-      [
-      ](
-        std::shared_ptr<http::DetectChannel> detectChannel
-      ){
-          LOG_CALL(VLOG(9));
-
-          DCHECK(detectChannel);
-          detectChannel.reset();
-      }
-      , SHARED_LIFETIME(detectChannel)
-    )
-  );
+  std::move(deleteDetectorClosure).Run();
 }
 
 void ExampleServer::runLoop()

@@ -39,7 +39,7 @@ Listener::Listener(
   , ioc_(ioc)
   , endpoint_(endpoint)
   , acceptorStrand_(ioc_)
-  , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
   , allocateStrandCallback_(std::move(allocateStrandCallback))
@@ -259,7 +259,7 @@ void Listener::doAccept()
       = allocateStrandCallback_.Run(
           &perConnectionStrand
           , RAW_REFERENCED(ioc_)
-          , this);
+          , COPIED(this));
     if(!allocateOk) {
       LOG(ERROR)
         << "failed to allocate strand for created connection";
@@ -354,7 +354,7 @@ void Listener::doAccept()
 }
 
 std::unique_ptr<Listener::AcceptedCallbackList::Subscription>
-Listener::registerCallback(const Listener::AcceptedCallback &cb)
+Listener::registerAcceptedCallback(const Listener::AcceptedCallback &cb)
 {
   /// \note guarantees thread-safety of |acceptedCallbackList_|
   /// i.e. change |acceptedCallbackList_| only when acceptor stopped
@@ -402,7 +402,7 @@ void Listener::onAccept(ErrorCode ec
       bool deallocateOk
         = deallocateStrandCallback_.Run(
             &perConnectionStrand
-            , this);
+            , COPIED(this));
       if(!deallocateOk){
         LOG(ERROR)
           << "failed to deallocate strand for created connection";
