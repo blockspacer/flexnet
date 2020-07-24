@@ -50,7 +50,7 @@ public:
     = ::boost::beast::limited_tcp_stream;
 
   using StrandType
-    = ::boost::asio::io_service::strand;
+    = ::boost::asio::strand<StreamType::executor_type>;
 
   using DetectedCallback
     = base::RepeatingCallback<
@@ -62,8 +62,7 @@ public:
           // and no error occurred, otherwise `false`.
           , bool
           , StreamType&& stream
-          , MessageBufferType&& buffer
-          , std::shared_ptr<StrandType> perConnectionStrand)
+          , MessageBufferType&& buffer)
       >;
 
   using AsioTcp
@@ -77,8 +76,7 @@ public:
     ::boost::asio::ssl::context& ctx
     // Take ownership of the socket
     , AsioTcp::socket&& socket
-    , DetectedCallback&& detectedCallback
-    , std::shared_ptr<StrandType> perConnectionStrand);
+    , DetectedCallback&& detectedCallback);
 
   ~DetectChannel();
 
@@ -93,8 +91,13 @@ public:
     return weak_this_;
   }
 
-  StrandType& perConnectionStrand() const noexcept{
-    return *perConnectionStrand_.get();
+  bool isDetectingInThisThread() const noexcept
+  {
+    return perConnectionStrand_.running_in_this_thread();
+  }
+
+  StrandType& perConnectionStrand() noexcept{
+    return perConnectionStrand_;
   }
 
   /// \note make sure that |stream_| exists
@@ -149,8 +152,7 @@ private:
     destruction_promise_;
 
   // |stream_| and calls to |async_detect*| are guarded by strand
-  /// \todo remove shared_ptr overhead
-  std::shared_ptr<StrandType> perConnectionStrand_;
+  StrandType perConnectionStrand_;
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

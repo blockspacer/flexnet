@@ -52,13 +52,28 @@ public:
   using StrandType
     = ::boost::asio::io_service::strand;
 
+  using AllocateStrandCallback
+    = base::RepeatingCallback<
+        bool(
+          StrandType** strand
+          , IoContext& ioc
+          , const Listener*)
+      >;
+
+  using DeallocateStrandCallback
+    = base::RepeatingCallback<
+        bool(
+          StrandType** strand
+          , const Listener*)
+      >;
+
   using AcceptedCallback
     = base::RepeatingCallback<
         void(
           const Listener*
           , ErrorCode& ec
           , SocketType& socket
-          , std::shared_ptr<StrandType> perConnectionStrand)
+          , StrandType* perConnectionStrand)
       >;
 
   using AcceptedCallbackList
@@ -67,7 +82,7 @@ public:
           const Listener*
           , ErrorCode& ec
           , SocketType& socket
-          , std::shared_ptr<StrandType> perConnectionStrand)
+          , StrandType* perConnectionStrand)
        >;
 
   using StatusPromise
@@ -79,7 +94,9 @@ public:
 public:
   Listener(
     IoContext& ioc
-    , const EndpointType& endpoint);
+    , const EndpointType& endpoint
+    , AllocateStrandCallback&& allocateStrandCallback
+    , DeallocateStrandCallback&& deallocateStrandCallback);
 
   ~Listener();
 
@@ -96,12 +113,12 @@ public:
    */
   void onAccept(ErrorCode ec
     , SocketType socket
-    , std::shared_ptr<StrandType> perConnectionStrand);
+    , StrandType* perConnectionStrand);
 
   StatusPromise stopAcceptorAsync();
 
   // calls to |async_accept*| must be performed on same sequence
-  // i.e. it is |strand_.running_in_this_thread()|
+  // i.e. it is |acceptorStrand_.running_in_this_thread()|
   bool isAcceptingInThisThread() const noexcept;
 
   /// \note does not close alive sessions, just
@@ -141,9 +158,9 @@ private:
   // acceptor will listen that address
   EndpointType endpoint_;
 
-  // modification of |acceptor_| guarded by |strand_|
+  // modification of |acceptor_| guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
-  StrandType strand_;
+  StrandType acceptorStrand_;
 
   // Different objects (metrics, cache, database, etc.) may want to
   // track creation of new connections.
@@ -174,6 +191,14 @@ private:
   // based on results of previous API calls
   // i.e. it may be NOT same as |acceptor_.is_open()|
   std::atomic<bool> assume_is_accepting_{false};
+
+  /// \note allow API users to use custom allocators
+  /// (like memory pool) to increase performance
+  AllocateStrandCallback allocateStrandCallback_;
+
+  /// \note allow API users to use custom allocators
+  /// (like memory pool) to increase performance
+  DeallocateStrandCallback deallocateStrandCallback_;
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

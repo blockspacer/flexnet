@@ -9,6 +9,7 @@
 
 #include <basis/promise/post_promise.h>
 #include <basis/status/status_macros.hpp>
+#include <basis/scoped_cleanup.hpp>
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/error.hpp>
@@ -31,14 +32,18 @@ namespace ws {
 
 Listener::Listener(
   IoContext& ioc
-  , const EndpointType& endpoint)
+  , const EndpointType& endpoint
+  , AllocateStrandCallback&& allocateStrandCallback
+  , DeallocateStrandCallback&& deallocateStrandCallback)
   : acceptor_(ioc)
   , ioc_(ioc)
   , endpoint_(endpoint)
-  , strand_(ioc_)
+  , acceptorStrand_(ioc_)
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
+  , allocateStrandCallback_(std::move(allocateStrandCallback))
+  , deallocateStrandCallback_(std::move(deallocateStrandCallback))
 {
   LOG_CALL(VLOG(9));
 
@@ -203,7 +208,7 @@ Listener::StatusPromise Listener::configureAndRun()
   DCHECK(!isAcceptingInThisThread());
   return base::PostPromiseOnAsioExecutor(FROM_HERE
     // Post our work to the strand, to prevent data race
-    , strand_
+    , acceptorStrand_
     , base::BindOnce(
         &Listener::configureAndRunAcceptor,
         SHARED_LIFETIME(shared_from_this()))
@@ -244,9 +249,24 @@ void Listener::doAccept()
 
   THREAD_SAFE(assume_is_accepting_) = true;
 
-  /// \todo remove shared_ptr overhead
-  std::shared_ptr<StrandType> perConnectionStrand
-    = std::make_shared<StrandType>(ioc_);
+  StrandType* perConnectionStrand = nullptr;
+
+  /// \note usually it is same as
+  /// StrandType* perConnectionStrand = new (std::nothrow) StrandType(ioc_);
+  {
+    DCHECK(allocateStrandCallback_);
+    bool allocateOk
+      = allocateStrandCallback_.Run(
+          &perConnectionStrand
+          , RAW_REFERENCED(ioc_)
+          , this);
+    if(!allocateOk) {
+      LOG(ERROR)
+        << "failed to allocate strand for created connection";
+      return;
+    }
+    DCHECK(perConnectionStrand);
+  }
 
   /// Start an asynchronous accept.
   /**
@@ -262,13 +282,13 @@ void Listener::doAccept()
      * performed within a strand.
      */
     // new connection needs its own strand
-    boost::asio::bind_executor(*perConnectionStrand.get(),
+    boost::asio::bind_executor(*perConnectionStrand,
       ::std::bind(
           &Listener::onAccept,
           SHARED_LIFETIME(shared_from_this())
           , std::placeholders::_1
           , std::placeholders::_2
-          , SHARED_LIFETIME(perConnectionStrand)
+          , UNOWNED_LIFETIME(perConnectionStrand)
       )
     )
   );
@@ -356,7 +376,7 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
   DCHECK(!isAcceptingInThisThread());
   return base::PostPromiseOnAsioExecutor(FROM_HERE
     // Post our work to the strand, to prevent data race
-    , strand_
+    , acceptorStrand_
     , base::BindOnce(
         &Listener::stopAcceptor,
         SHARED_LIFETIME(shared_from_this()))
@@ -365,13 +385,31 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
 
 void Listener::onAccept(ErrorCode ec
   , SocketType socket
-  , std::shared_ptr<StrandType> perConnectionStrand)
+  , StrandType* perConnectionStrand)
 {
   LOG_CALL(VLOG(9));
 
-  /// \note not same as |isAcceptingInThisThread()|
+  /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(perConnectionStrand
     && perConnectionStrand->running_in_this_thread());
+
+  util::ScopedCleanup scopedDeallocateStrand{[
+      this
+      , &perConnectionStrand
+    ](
+    ){
+      DCHECK(deallocateStrandCallback_);
+      bool deallocateOk
+        = deallocateStrandCallback_.Run(
+            &perConnectionStrand
+            , this);
+      if(!deallocateOk){
+        LOG(ERROR)
+          << "failed to deallocate strand for created connection";
+      }
+      DCHECK(!perConnectionStrand);
+    }
+  };
 
   if (ec)
   {
@@ -407,15 +445,13 @@ void Listener::onAccept(ErrorCode ec
     , REFERENCED(ec)
     /// \note usually calls |std::move(socket)|
     , REFERENCED(socket)
-    /// \note usually calls |std::move(perConnectionStrand)|
-    , SHARED_LIFETIME(perConnectionStrand));
+    , REFERENCED(perConnectionStrand));
 
   // Accept another connection
-  DCHECK(!isAcceptingInThisThread());
   VoidPromise postResult
     = base::PostPromiseOnAsioExecutor(FROM_HERE
       // Post our work to the strand, to prevent data race
-      , strand_
+      , acceptorStrand_
       , base::BindOnce(
           &Listener::doAccept,
           SHARED_LIFETIME(shared_from_this()))
@@ -451,7 +487,7 @@ bool Listener::isAcceptorOpen() const
 bool Listener::isAcceptingInThisThread() const noexcept
 {
   /// \note assumed to be thread-safe
-  return strand_.running_in_this_thread();
+  return acceptorStrand_.running_in_this_thread();
 }
 
 } // namespace ws

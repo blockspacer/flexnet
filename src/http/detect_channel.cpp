@@ -25,8 +25,7 @@ namespace http {
 DetectChannel::DetectChannel(
   ::boost::asio::ssl::context& ctx
   , AsioTcp::socket&& socket
-  , DetectedCallback&& detectedCallback
-  , std::shared_ptr<StrandType> perConnectionStrand)
+  , DetectedCallback&& detectedCallback)
   : ctx_(ctx)
   // NOTE: Following the std::move,
   // the moved-from object is in the same state
@@ -40,7 +39,7 @@ DetectChannel::DetectChannel(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
   , destruction_promise_(FROM_HERE)
-  , perConnectionStrand_(perConnectionStrand)
+  , perConnectionStrand_(stream_.get_executor())
 {
   LOG_CALL(VLOG(9));
 
@@ -59,8 +58,9 @@ DetectChannel::~DetectChannel()
 void DetectChannel::configureDetector(
   const std::chrono::seconds& expire_timeout)
 {
-  DCHECK(perConnectionStrand_
-    && perConnectionStrand_->running_in_this_thread());
+  LOG_CALL(VLOG(9));
+
+  DCHECK(isDetectingInThisThread());
 
   stream_.expires_after(expire_timeout);
 
@@ -77,10 +77,9 @@ void DetectChannel::configureDetector(
 void DetectChannel::runDetector(
   const std::chrono::seconds& expire_timeout)
 {
-  DCHECK(perConnectionStrand_
-    && perConnectionStrand_->running_in_this_thread());
-
   LOG_CALL(VLOG(9));
+
+  DCHECK(isDetectingInThisThread());
 
   configureDetector(expire_timeout);
 
@@ -111,7 +110,7 @@ void DetectChannel::runDetector(
   beast::async_detect_ssl(
     stream_, // The stream to read from
     buffer_, // The dynamic buffer to use
-    boost::asio::bind_executor(*perConnectionStrand_.get(),
+    boost::asio::bind_executor(perConnectionStrand_,
       std::bind(
         &DetectChannel::onDetected
         , SHARED_LIFETIME(shared_from_this())
@@ -128,8 +127,7 @@ void DetectChannel::onDetected(
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(perConnectionStrand_
-    && perConnectionStrand_->running_in_this_thread());
+  DCHECK(isDetectingInThisThread());
 
   DCHECK(stream_.socket().is_open());
 
@@ -140,7 +138,6 @@ void DetectChannel::onDetected(
     , COPIED(handshake_result)
     , std::move(stream_)
     , std::move(buffer_)
-    , std::move(perConnectionStrand_)
   );
 }
 

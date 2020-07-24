@@ -132,15 +132,14 @@ class ExampleServer
     const ws::Listener* listener
     , ws::Listener::ErrorCode& ec
     , ws::Listener::SocketType& socket
-    , std::shared_ptr<ws::Listener::StrandType> perConnectionStrand);
+  , ws::Listener::StrandType* perConnectionStrand);
 
   void onDetected(
     std::shared_ptr<http::DetectChannel> detectChannel
     , http::DetectChannel::ErrorCode& ec
     , bool handshake_result
     , http::DetectChannel::StreamType&& stream
-    , http::DetectChannel::MessageBufferType&& buffer
-    , std::shared_ptr<http::DetectChannel::StrandType> perConnectionStrand);
+    , http::DetectChannel::MessageBufferType&& buffer);
 
  private:
   // The io_context is required for all I/O
@@ -190,12 +189,60 @@ class ExampleServer
 
 ExampleServer::ExampleServer()
 {
+  LOG_CALL(VLOG(9));
+
   DETACH_FROM_SEQUENCE(sequence_checker_);
+
+  ws::Listener::AllocateStrandCallback allocateStrandCallback
+    = base::BindRepeating([
+      ](
+        ws::Listener::StrandType** strand
+        , ws::Listener::IoContext& ioc
+        , const ws::Listener* listener
+      )
+        -> bool
+      {
+        LOG_CALL(VLOG(9));
+
+        base::IgnoreResult(listener);
+
+        /// \note can be replaced with memory pool
+        /// to increase performance
+        NEW_NO_THROW(FROM_HERE,
+          *strand // lhs of assignment
+          , ws::Listener::StrandType(ioc) // rhs of assignment
+          , LOG(ERROR) // log allocation failure
+        );
+
+        return *strand != nullptr;
+      });
+
+  ws::Listener::DeallocateStrandCallback deallocateStrandCallback
+    = base::BindRepeating([
+      ](
+        ws::Listener::StrandType** strand
+        , const ws::Listener* listener
+      )
+        -> bool
+      {
+        LOG_CALL(VLOG(9));
+
+        base::IgnoreResult(listener);
+
+        /// \note can be replaced with memory pool
+        /// to increase performance
+        DELETE_NOT_ARRAY_TO_NULLPTR(FROM_HERE,
+          *strand);
+
+        return true;
+      });
 
   listener_
     = std::make_shared<ws::Listener>(
         ioc_
         , tcpEndpoint_
+        , std::move(allocateStrandCallback)
+        , std::move(deallocateStrandCallback)
       );
 
   acceptedCallbackSubscription_
@@ -216,6 +263,8 @@ ExampleServer::ExampleServer()
     = [this]
       (boost::system::error_code const&, int)
       {
+        LOG_CALL(VLOG(9));
+
         DCHECK(mainLoopRunner_);
 
         LOG(INFO)
@@ -237,6 +286,8 @@ ExampleServer::ExampleServer()
             ](
               const ::util::Status& stopAcceptorResult
             ){
+               LOG_CALL(VLOG(9));
+
                if(!stopAcceptorResult.ok()) {
                  LOG(ERROR)
                    << "failed to stop acceptor with status: "
@@ -274,10 +325,12 @@ ExampleServer::ExampleServer()
 
 ExampleServer::StatusPromise ExampleServer::stopAcceptors()
 {
+  LOG_CALL(VLOG(9));
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   return base::Promises::All(FROM_HERE
-    /// \todo all more acceptors
+    /// \todo add more acceptors
     , listener_->stopAcceptorAsync());
 }
 
@@ -285,8 +338,10 @@ void ExampleServer::onAccepted(
    const ws::Listener* listener
   , ws::Listener::ErrorCode& ec
   , ws::Listener::SocketType& socket
-  , std::shared_ptr<ws::Listener::StrandType> perConnectionStrand)
+  , ws::Listener::StrandType* perConnectionStrand)
 {
+  LOG_CALL(VLOG(9));
+
   DCHECK(listener);
 
   DCHECK(perConnectionStrand
@@ -311,8 +366,7 @@ void ExampleServer::onAccepted(
         , base::BindRepeating(
             &ExampleServer::onDetected
             , base::Unretained(this)
-        )
-        , std::move(perConnectionStrand));
+        ));
 
   base::OnceClosure runDetectorCb
     = base::BindOnce(
@@ -340,6 +394,7 @@ void ExampleServer::onAccepted(
       , FROM_HERE
       , CONST_REFERENCED(detectChannel->perConnectionStrand())
       /// \note callback must prolong lifetime of |perConnectionStrand|
+      /// i.e. prolong lifetime of |detectChannel| that holds |perConnectionStrand|
       , std::move(runDetectorCb)
     ) // BindOnce
   )
@@ -369,11 +424,12 @@ void ExampleServer::onDetected(
   , http::DetectChannel::ErrorCode& ec
   , bool handshake_result
   , http::DetectChannel::StreamType&& stream
-  , http::DetectChannel::MessageBufferType&& buffer
-  , std::shared_ptr<http::DetectChannel::StrandType> perConnectionStrand)
+  , http::DetectChannel::MessageBufferType&& buffer)
 {
-  DCHECK(perConnectionStrand
-    && perConnectionStrand->running_in_this_thread());
+  LOG_CALL(VLOG(9));
+
+  DCHECK(detectChannel
+    && detectChannel->isDetectingInThisThread());
 
   // Handle the error, if any
   if (ec)
@@ -401,6 +457,9 @@ void ExampleServer::onDetected(
       ](
         std::shared_ptr<http::DetectChannel> detectChannel
       ){
+          LOG_CALL(VLOG(9));
+
+          DCHECK(detectChannel);
           detectChannel.reset();
       }
       , SHARED_LIFETIME(detectChannel)
@@ -410,6 +469,8 @@ void ExampleServer::onDetected(
 
 void ExampleServer::runLoop()
 {
+  LOG_CALL(VLOG(9));
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   {
@@ -584,6 +645,8 @@ void ExampleServer::runLoop()
 
 ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor()
 {
+  LOG_CALL(VLOG(9));
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   return listener_->configureAndRun()
@@ -601,6 +664,8 @@ ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor()
 
 ExampleServer::VoidPromise ExampleServer::promiseDestructionOfConnections()
 {
+  LOG_CALL(VLOG(9));
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if(!destructionPromises_.empty()) {
@@ -613,6 +678,8 @@ ExampleServer::VoidPromise ExampleServer::promiseDestructionOfConnections()
 
 void ExampleServer::stopIOContext()
 {
+  LOG_CALL(VLOG(9));
+
   // Stop the io_context. This will cause run()
   // to return immediately, eventually destroying the
   // io_context and any remaining handlers in it.
@@ -631,6 +698,8 @@ bool ExampleServer::VoidPromiseComparator::operator()
 void ExampleServer::addToDestructionPromiseChain(
   SHARED_LIFETIME(VoidPromise) promise)
 {
+  LOG_CALL(VLOG(9));
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   destructionPromises_.emplace(promise);
@@ -639,6 +708,8 @@ void ExampleServer::addToDestructionPromiseChain(
 void ExampleServer::removeFromDestructionPromiseChain(
   SHARED_LIFETIME(VoidPromise) boundPromise)
 {
+  LOG_CALL(VLOG(9));
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   base::EraseIf(destructionPromises_,
@@ -654,6 +725,8 @@ void ExampleServer::removeFromDestructionPromiseChain(
 
 ExampleServer::~ExampleServer()
 {
+  LOG_CALL(VLOG(9));
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   DCHECK(THREAD_SAFE(ioc_.stopped()));

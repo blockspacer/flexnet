@@ -3,6 +3,34 @@
 #include <base/macros.h> // IWYU pragma: keep
 #include <base/compiler_specific.h> // IWYU pragma: keep
 
+/// \usage
+/// NEW_NO_THROW(FROM_HERE,
+///   ptr // lhs of assignment
+///   , SomeType(somearg1, somearg2) // rhs of assignment
+///   , LOG(ERROR) // log allocation failure
+/// );
+#define NEW_NO_THROW(from_here, lhs, rhs, FAILED_LOG_STREAM) \
+  DCHECK(!lhs); \
+  lhs = new(std::nothrow/*, from_here.file_name(), from_here.line_number()*/) rhs; \
+  if(!lhs) \
+  { \
+    FAILED_LOG_STREAM \
+      << "failed to allocate " \
+      << from_here.ToString(); \
+  }
+
+/// \usage
+/// DELETE_NOT_ARRAY_TO_NULLPTR(FROM_HERE, ptr);
+#define DELETE_NOT_ARRAY_TO_NULLPTR(from_here, x) \
+  DCHECK(x) \
+      << "failed to deallocate " \
+      << from_here.ToString(); \
+  delete x; \
+  x = nullptr; \
+  DCHECK(!x) \
+      << "failed to deallocate " \
+      << from_here.ToString();
+
 // Documents that value can NOT be used from
 // any thread without extra thread-safety checks.
 // i.e. take care of possible thread-safety bugs.
@@ -35,6 +63,11 @@
 // i.e. that object lifetime will be prolonged.
 /// \note use it to annotate arguments that are bound to function
 #define SHARED_LIFETIME(x) x
+
+// Documents that value has external storage
+// i.e. that object lifetime not conrolled.
+/// \note use it to annotate arguments that are bound to function
+#define UNOWNED_LIFETIME(x) x
 
 /**
  * @usage
