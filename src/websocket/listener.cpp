@@ -259,11 +259,14 @@ void Listener::doAccept()
       = allocateStrandCallback_.Run(
           &perConnectionStrand
           , RAW_REFERENCED(ioc_)
-          , COPIED(this));
+          , util::ConstCopyWrapper(this));
     if(!allocateOk) {
       LOG(ERROR)
         << "failed to allocate strand for created connection";
       return;
+    } else {
+      VLOG(9)
+        << "allocated strand for created connection";
     }
     DCHECK(perConnectionStrand);
   }
@@ -398,14 +401,18 @@ void Listener::onAccept(ErrorCode ec
       , &perConnectionStrand
     ](
     ){
+      LOG_CALL(VLOG(9));
       DCHECK(deallocateStrandCallback_);
       bool deallocateOk
         = deallocateStrandCallback_.Run(
             &perConnectionStrand
-            , COPIED(this));
+            , util::ConstCopyWrapper(this));
       if(!deallocateOk){
         LOG(ERROR)
           << "failed to deallocate strand for created connection";
+      } else {
+        VLOG(9)
+          << "deallocated strand for created connection";
       }
       DCHECK(!perConnectionStrand);
     }
@@ -441,11 +448,14 @@ void Listener::onAccept(ErrorCode ec
   DCHECK(THREAD_SAFE(assume_is_accepting_).load());
 
   CAUTION_NOT_THREAD_SAFE(acceptedCallbackList_).Notify(
-    COPIED(this)
+   util::ConstCopyWrapper(this)
     , REFERENCED(ec)
     /// \note usually calls |std::move(socket)|
     , REFERENCED(socket)
-    , REFERENCED(perConnectionStrand));
+    , REFERENCED(perConnectionStrand)
+    // |scopedDeallocateStrand| can be used to control
+    // lifetime of |perConnectionStrand|
+    , REFERENCED(scopedDeallocateStrand));
 
   // Accept another connection
   VoidPromise postResult
@@ -456,7 +466,7 @@ void Listener::onAccept(ErrorCode ec
           &Listener::doAccept,
           SHARED_LIFETIME(shared_from_this()))
     );
-  base::IgnoreResult(postResult);
+  ignore_result(postResult);
 }
 
 Listener::~Listener()

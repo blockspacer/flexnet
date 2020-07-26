@@ -3,6 +3,16 @@
 #include <base/macros.h> // IWYU pragma: keep
 #include <base/compiler_specific.h> // IWYU pragma: keep
 
+// similar to __attribute__((warn_unused_result))
+/// \usage (note order restriction)
+/// [[nodisard]] extern bool foo();
+/// [[nodisard]] inline bool foo();
+/// [[nodisard]] static bool foo();
+/// [[nodisard]] static inline bool foo();
+/// [[nodisard]] virtual bool foo();
+#define MUST_USE_RETURN_VALUE \
+  [[nodiscard]] /* do not ignore return value */
+
 /// \usage
 /// NEW_NO_THROW(FROM_HERE,
 ///   ptr // lhs of assignment
@@ -42,6 +52,7 @@
 // Usually it means that value is guarded by some mutex lock.
 #define THREAD_SAFE(x) x
 
+/// \note prefer |CopyWrapper| to |COPIED|
 // Documents that value will be copied.
 /// \note use it to annotate arguments that are bound to function
 #define COPIED(x) x
@@ -66,7 +77,26 @@
 
 // Documents that value has external storage
 // i.e. that object lifetime not conrolled.
+// If you found lifetime-related bug,
+// than you can `grep-search` for |UNOWNED_LIFETIME| in code.
 /// \note use it to annotate arguments that are bound to function
+/// \example
+///   beast::async_detect_ssl(
+///     stream_, // The stream to read from
+///     buffer_, // The dynamic buffer to use
+///     boost::asio::bind_executor(perConnectionStrand_,
+///       std::bind(
+///         &DetectChannel::onDetected
+///         , /// \note Lifetime must be managed externally.
+///           /// API user can free |DetectChannel| only if
+///           /// that callback finished (or failed to schedule).
+///           UNOWNED_LIFETIME(
+///             COPIED(this))
+///         , std::placeholders::_1
+///         , std::placeholders::_2
+///       )
+///     )
+///   );
 #define UNOWNED_LIFETIME(x) x
 
 /**
@@ -162,3 +192,4 @@
 #endif // !defined(ALLOW_THIS_IN_INITIALIZER_LIST)
 
 #endif  // COMPILER_MSVC
+

@@ -70,6 +70,7 @@ public:
 
   /// \note `stream_` can be moved to websocket session from http session,
   /// so we can't use it here anymore
+  MUST_USE_RETURN_VALUE
   bool is_stream_valid() const {
     return http_stream_valid_.load();
   }
@@ -93,8 +94,10 @@ public:
 
   void send(const std::shared_ptr<const std::string> shared_msg, bool is_binary = true) /*override*/;
 
+  MUST_USE_RETURN_VALUE
   bool isExpired() /*const*/ /*override*/;
 
+  MUST_USE_RETURN_VALUE
   bool isOpen() /*const*/ /*override*/;
 
   void on_read(boost::beast::error_code ec, std::size_t bytes_transferred);

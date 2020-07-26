@@ -2,6 +2,7 @@
 
 #include "flexnet/util/limited_tcp_stream.hpp"
 #include "flexnet/util/macros.hpp"
+#include "flexnet/util/wrappers.hpp"
 
 #include <base/callback.h>
 #include <base/macros.h>
@@ -54,12 +55,12 @@ public:
   using DetectedCallback
     = base::RepeatingCallback<
         void(
-          const http::DetectChannel*
+          util::ConstCopyWrapper<DetectChannel*>&&
           , ErrorCode&
           // handshake result
           // i.e. `true` if the buffer contains a TLS client handshake
           // and no error occurred, otherwise `false`.
-          , bool
+          , util::ConstCopyWrapper<bool>&&
           , StreamType&& stream
           , MessageBufferType&& buffer)
       >;
@@ -88,26 +89,31 @@ public:
     const std::chrono::seconds& expire_timeout
       = std::chrono::seconds(30));
 
+  MUST_USE_RETURN_VALUE
   base::WeakPtr<DetectChannel> weakSelf() const noexcept
   {
     return weak_this_;
   }
 
+  MUST_USE_RETURN_VALUE
   bool isDetectingInThisThread() const noexcept
   {
     return perConnectionStrand_.running_in_this_thread();
   }
 
+  MUST_USE_RETURN_VALUE
   StrandType& perConnectionStrand() noexcept{
     return perConnectionStrand_;
   }
 
+  MUST_USE_RETURN_VALUE
   /// \note make sure that |stream_| exists
   /// and thread-safe when you call |executor()|
   boost::asio::executor executor() noexcept {
     return stream_.get_executor();
   }
 
+  MUST_USE_RETURN_VALUE
   VoidPromise destructionPromise() noexcept
   {
     return destruction_promise_.promise();
@@ -118,7 +124,7 @@ private:
     ErrorCode ec
     // `true` if the buffer contains a TLS client handshake
     // and no error occurred, otherwise `false`.
-    , bool handshake_result);
+    , bool handshakeResult);
 
   void configureDetector
     (const std::chrono::seconds &expire_timeout);

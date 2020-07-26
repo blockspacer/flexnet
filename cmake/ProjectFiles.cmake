@@ -14,4 +14,8 @@ list(APPEND flexnet_SOURCES
   ${flexnet_src_DIR}/util/mime_type.cpp
   #
   ${flexnet_include_DIR}/util/limited_tcp_stream.hpp
+  #
+  ${flexnet_include_DIR}/util/macros.hpp
+  #
+  ${flexnet_include_DIR}/util/wrappers.hpp
 )

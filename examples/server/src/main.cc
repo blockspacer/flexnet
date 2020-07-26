@@ -1,6 +1,7 @@
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/util/macros.hpp>
+#include <flexnet/util/wrappers.hpp>
 
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -34,6 +35,7 @@ static const base::FilePath::CharType kTraceReportFileName[]
   = FILE_PATH_LITERAL(R"raw(trace_report.json)raw");
 
 // Check to see that we are being called on only one thread.
+MUST_USE_RETURN_VALUE
 bool isCalledOnSameSingleThread()
 {
   static base::PlatformThreadId thread_id = 0;
@@ -47,7 +49,7 @@ bool isCalledOnSameSingleThread()
 
 // init common application systems,
 // initialization order matters!
-[[nodiscard]] /* do not ignore return value */
+MUST_USE_RETURN_VALUE
 base::Optional<int> initEnv(
   int argc
   , char* argv[]
@@ -113,10 +115,13 @@ class ExampleServer
 
   void runLoop();
 
+  MUST_USE_RETURN_VALUE
   StatusPromise stopAcceptors();
 
+  MUST_USE_RETURN_VALUE
   VoidPromise configureAndRunAcceptor();
 
+  MUST_USE_RETURN_VALUE
   VoidPromise promiseDestructionOfConnections();
 
   void stopIOContext();
@@ -129,16 +134,17 @@ class ExampleServer
 
  private:
   void onAccepted(
-    const ws::Listener* listener
+    util::ConstCopyWrapper<ws::Listener*>&& listenerWrapper
     , ws::Listener::ErrorCode& ec
     , ws::Listener::SocketType& socket
-  , ws::Listener::StrandType* perConnectionStrand);
+    , ws::Listener::StrandType* perConnectionStrand
+    , util::ScopedCleanup& scopedDeallocateStrand);
 
   void onDetected(
     base::OnceClosure&& deleteDetectorClosure
-    , const http::DetectChannel* detectChannel
+    , util::ConstCopyWrapper<http::DetectChannel*>&& detectChannelWrapper
     , http::DetectChannel::ErrorCode& ec
-    , bool handshake_result
+    , util::ConstCopyWrapper<bool>&& handshakeRresultWrapper
     , http::DetectChannel::StreamType&& stream
     , http::DetectChannel::MessageBufferType&& buffer);
 
@@ -199,13 +205,13 @@ ExampleServer::ExampleServer()
       ](
         ws::Listener::StrandType** strand
         , ws::Listener::IoContext& ioc
-        , const ws::Listener* listener
+        , util::ConstCopyWrapper<ws::Listener*>&& listenerWrapper
       )
         -> bool
       {
         LOG_CALL(VLOG(9));
 
-        base::IgnoreResult(listener);
+        ignore_result(listenerWrapper.Take());
 
         /// \note can be replaced with memory pool
         /// to increase performance
@@ -222,13 +228,13 @@ ExampleServer::ExampleServer()
     = base::BindRepeating([
       ](
         ws::Listener::StrandType** strand
-        , const ws::Listener* listener
+        , util::ConstCopyWrapper<ws::Listener*>&& listenerWrapper
       )
         -> bool
       {
         LOG_CALL(VLOG(9));
 
-        base::IgnoreResult(listener);
+        ignore_result(listenerWrapper.Take());
 
         /// \note can be replaced with memory pool
         /// to increase performance
@@ -240,8 +246,8 @@ ExampleServer::ExampleServer()
 
   listener_
     = std::make_shared<ws::Listener>(
-        ioc_
-        , tcpEndpoint_
+        RAW_REFERENCED(ioc_)
+        , RAW_REFERENCED(tcpEndpoint_)
         , std::move(allocateStrandCallback)
         , std::move(deallocateStrandCallback)
       );
@@ -272,7 +278,7 @@ ExampleServer::ExampleServer()
           << "got stop signal";
 
         base::PostPromise(FROM_HERE
-          , mainLoopRunner_.get()
+          , UNOWNED_LIFETIME(mainLoopRunner_.get())
           , base::BindOnce(
               /// \note returns promise,
               /// so we will wait for NESTED promise
@@ -336,14 +342,19 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors()
 }
 
 void ExampleServer::onAccepted(
-   const ws::Listener* listener
+  util::ConstCopyWrapper<ws::Listener*>&& listenerWrapper
   , ws::Listener::ErrorCode& ec
   , ws::Listener::SocketType& socket
-  , ws::Listener::StrandType* perConnectionStrand)
+  , ws::Listener::StrandType* perConnectionStrand
+  , util::ScopedCleanup& scopedDeallocateStrand)
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(listener);
+  ignore_result(listenerWrapper.Take());
+
+  // |scopedDeallocateStrand| can be used to control
+  // lifetime of |perConnectionStrand|
+  ignore_result(scopedDeallocateStrand);
 
   DCHECK(perConnectionStrand
     && perConnectionStrand->running_in_this_thread());
@@ -404,7 +415,7 @@ void ExampleServer::onAccepted(
       );
 
   base::PostPromise(FROM_HERE
-    , mainLoopRunner_.get()
+    , UNOWNED_LIFETIME(mainLoopRunner_.get())
     , base::BindOnce(
         // prevent server termination before all connections closed
         &ExampleServer::addToDestructionPromiseChain
@@ -421,8 +432,7 @@ void ExampleServer::onAccepted(
       >
       , FROM_HERE
       , CONST_REFERENCED(detectChannelPtr->perConnectionStrand())
-      /// \note callback must manage lifetime of |perConnectionStrand|
-      /// i.e. manage lifetime of |detectChannel| that holds |perConnectionStrand|
+      /// \note manage lifetime of |perConnectionStrand|
       , std::move(runDetectorClosure)
     ) // BindOnce
   )
@@ -449,13 +459,16 @@ void ExampleServer::onAccepted(
 
 void ExampleServer::onDetected(
   base::OnceClosure&& deleteDetectorClosure
-  , const http::DetectChannel* detectChannel
+  , util::ConstCopyWrapper<http::DetectChannel*>&& detectChannelWrapper
   , http::DetectChannel::ErrorCode& ec
-  , bool handshake_result
+  , util::ConstCopyWrapper<bool>&& handshakeResultWrapper
   , http::DetectChannel::StreamType&& stream
   , http::DetectChannel::MessageBufferType&& buffer)
 {
   LOG_CALL(VLOG(9));
+
+  const http::DetectChannel* detectChannel
+    = detectChannelWrapper.Take();
 
   DCHECK(detectChannel
     && detectChannel->isDetectingInThisThread());
@@ -469,7 +482,9 @@ void ExampleServer::onDetected(
     return;
   }
 
-  if(handshake_result) {
+  const bool handshakeResult = handshakeResultWrapper.Take();
+
+  if(handshakeResult) {
     LOG(INFO)
       << "Completed secure handshake of new connection";
   } else {

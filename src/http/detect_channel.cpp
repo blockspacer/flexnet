@@ -120,7 +120,9 @@ void DetectChannel::runDetector(
     boost::asio::bind_executor(perConnectionStrand_,
       std::bind(
         &DetectChannel::onDetected
-        , /// \note lifetime must be managed externally
+        , /// \note Lifetime must be managed externally.
+          /// API user can free |DetectChannel| only if
+          /// that callback finished (or failed to schedule).
           UNOWNED_LIFETIME(
             COPIED(this))
         , std::placeholders::_1
@@ -132,7 +134,7 @@ void DetectChannel::runDetector(
 
 void DetectChannel::onDetected(
   ErrorCode ec
-  , bool handshake_result)
+  , bool handshakeResult)
 {
   LOG_CALL(VLOG(9));
 
@@ -142,9 +144,9 @@ void DetectChannel::onDetected(
 
   DCHECK(detectedCallback_);
   detectedCallback_.Run(
-    COPIED(this)
+    util::ConstCopyWrapper<DetectChannel*>(this)
     , REFERENCED(ec)
-    , COPIED(handshake_result)
+    , util::ConstCopyWrapper<bool>(handshakeResult)
     , std::move(stream_)
     , std::move(buffer_)
   );

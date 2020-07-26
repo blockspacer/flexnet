@@ -1,6 +1,7 @@
 #pragma once
 
 #include "flexnet/util/macros.hpp"
+#include "flexnet/util/wrappers.hpp"
 
 #include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>
@@ -10,6 +11,7 @@
 
 #include <basis/promise/promise.h>
 #include <basis/status/status.hpp>
+#include <basis/scoped_cleanup.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/io_service.hpp>
@@ -57,32 +59,38 @@ public:
         bool(
           StrandType** strand
           , IoContext& ioc
-          , const Listener*)
+          , util::ConstCopyWrapper<Listener*>&&)
       >;
 
   using DeallocateStrandCallback
     = base::RepeatingCallback<
         bool(
           StrandType** strand
-          , const Listener*)
+          , util::ConstCopyWrapper<Listener*>&&)
       >;
 
   using AcceptedCallback
     = base::RepeatingCallback<
         void(
-          const Listener*
+          util::ConstCopyWrapper<Listener*>&&
           , ErrorCode& ec
           , SocketType& socket
-          , StrandType* perConnectionStrand)
+          , StrandType* perConnectionStrand
+          // |scopedDeallocateStrand| can be used to control
+          // lifetime of |perConnectionStrand|
+          , util::ScopedCleanup& scopedDeallocateStrand)
       >;
 
   using AcceptedCallbackList
     = base::CallbackList<
         void(
-          const Listener*
+          util::ConstCopyWrapper<Listener*>&&
           , ErrorCode& ec
           , SocketType& socket
-          , StrandType* perConnectionStrand)
+          , StrandType* perConnectionStrand
+          // |scopedDeallocateStrand| can be used to control
+          // lifetime of |perConnectionStrand|
+          , util::ScopedCleanup& scopedDeallocateStrand)
        >;
 
   using StatusPromise
@@ -101,11 +109,13 @@ public:
   ~Listener();
 
   // Start accepting incoming connections
+  MUST_USE_RETURN_VALUE
   StatusPromise configureAndRun();
 
   /**
    * @brief checks whether server is accepting new connections
    */
+  MUST_USE_RETURN_VALUE
   bool isAcceptorOpen() const;
 
   /**
@@ -115,20 +125,25 @@ public:
     , SocketType socket
     , StrandType* perConnectionStrand);
 
+  MUST_USE_RETURN_VALUE
   StatusPromise stopAcceptorAsync();
 
   // calls to |async_accept*| must be performed on same sequence
   // i.e. it is |acceptorStrand_.running_in_this_thread()|
+  MUST_USE_RETURN_VALUE
   bool isAcceptingInThisThread() const noexcept;
 
   /// \note does not close alive sessions, just
   /// stops accepting incoming connections
   /// \note stopped acceptor may be continued via `async_accept`
+  MUST_USE_RETURN_VALUE
   ::util::Status stopAcceptor();
 
+  MUST_USE_RETURN_VALUE
   std::unique_ptr<AcceptedCallbackList::Subscription>
   registerAcceptedCallback(const AcceptedCallback& cb);
 
+  MUST_USE_RETURN_VALUE
   base::WeakPtr<Listener> weakSelf() const noexcept
   {
     return weak_this_;
@@ -140,12 +155,15 @@ private:
   void CAUTION_NOT_THREAD_SAFE(logFailure)
     (ErrorCode ec, char const* what);
 
+  MUST_USE_RETURN_VALUE
   ::util::Status configureAcceptor();
 
+  MUST_USE_RETURN_VALUE
   ::util::Status openAcceptor();
 
   void doAccept();
 
+  MUST_USE_RETURN_VALUE
   ::util::Status configureAndRunAcceptor();
 
 private:

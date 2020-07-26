@@ -119,6 +119,7 @@ public:
 
   //bool isOpenUnsafe();
 
+  MUST_USE_RETURN_VALUE
   bool isOpen()
     override;
 
@@ -133,6 +134,7 @@ public:
   /**
    * @brief returns true if last received message was binary
    */
+  MUST_USE_RETURN_VALUE
   bool got_binary() const { return ws_.got_binary(); }
 
   boost::beast::websocket::stream<::boost::beast::limited_tcp_stream>&
