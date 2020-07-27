@@ -2,9 +2,7 @@
 
 #include "flexnet/util/limited_tcp_stream.hpp"
 #include "flexnet/util/macros.hpp"
-#include "flexnet/util/wrappers.hpp"
-#include "flexnet/util/unowned_ptr.hpp"
-#include "flexnet/util/unowned_ref.hpp"
+#include "flexnet/util/move_only.hpp"
 
 #include <base/callback.h>
 #include <base/macros.h>
@@ -16,15 +14,15 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/executor.hpp>
 #include <boost/asio/strand.hpp> // IWYU pragma: keep
-#include <boost/asio/io_service.hpp>
 
 #include <basis/promise/promise.h>
 
 #include <chrono>
 #include <cstddef>
-#include <vector>
 
 namespace base { struct NoReject; }
+
+namespace util { template <class T> class UnownedPtr; }
 
 namespace flexnet {
 namespace http {
@@ -53,10 +51,10 @@ public:
     = ::boost::asio::strand<StreamType::executor_type>;
 
   using DetectedCallback
-    = base::RepeatingCallback<
+    = base::OnceCallback<
         void(
           util::UnownedPtr<DetectChannel>&&
-          , ErrorCode&
+          , util::MoveOnly<const ErrorCode>&&
           // handshake result
           // i.e. `true` if the buffer contains a TLS client handshake
           // and no error occurred, otherwise `false`.
@@ -77,7 +75,8 @@ public:
     AsioTcp::socket&& socket);
 
   /// \note can destruct on any thread
-  CAUTION_NOT_THREAD_SAFE(~DetectChannel());
+  CAUTION_NOT_THREAD_SAFE()
+  ~DetectChannel();
 
   void registerDetectedCallback(
     DetectedCallback&& detectedCallback);
@@ -91,25 +90,33 @@ public:
   MUST_USE_RETURN_VALUE
   base::WeakPtr<DetectChannel> weakSelf() const noexcept
   {
+    // It is thread-safe to copy |base::WeakPtr|.
+    // Weak pointers may be passed safely between sequences, but must always be
+    // dereferenced and invalidated on the same SequencedTaskRunner otherwise
+    // checking the pointer would be racey.
     return weak_this_;
   }
 
   MUST_USE_RETURN_VALUE
   bool isDetectingInThisThread() const noexcept
   {
+    /// \note |running_in_this_thread| is thread-safe
+    /// only if |perConnectionStrand_| will not be modified concurrently
     return perConnectionStrand_.running_in_this_thread();
   }
 
   MUST_USE_RETURN_VALUE
   StrandType& perConnectionStrand() noexcept{
-    return perConnectionStrand_;
+    return CAUTION_NOT_THREAD_SAFE()
+      perConnectionStrand_;
   }
 
   MUST_USE_RETURN_VALUE
   /// \note make sure that |stream_| exists
   /// and thread-safe when you call |executor()|
   boost::asio::executor executor() noexcept {
-    return stream_.get_executor();
+    return CAUTION_NOT_THREAD_SAFE()
+      stream_.get_executor();
   }
 
   MUST_USE_RETURN_VALUE
@@ -120,21 +127,24 @@ public:
 
 private:
   void onDetected(
-    ErrorCode ec
+    const ErrorCode& ec
     // `true` if the buffer contains a TLS client handshake
     // and no error occurred, otherwise `false`.
-    , bool handshakeResult);
+    , const bool& handshakeResult);
 
   void configureDetector
     (const std::chrono::seconds &expire_timeout);
 
 private:
   /// \note stream with custom rate limiter
+  CAUTION_NOT_THREAD_SAFE()
   StreamType stream_;
 
   /// \note take care of thread-safety
-  CAUTION_NOT_THREAD_SAFE(DetectedCallback) detectedCallback_;
+  CAUTION_NOT_THREAD_SAFE()
+  DetectedCallback detectedCallback_;
 
+  CAUTION_NOT_THREAD_SAFE()
   MessageBufferType buffer_;
 
   // base::WeakPtr can be used to ensure that any callback bound
@@ -142,7 +152,8 @@ private:
   // (guarantees that |this| will not be used-after-free).
   base::WeakPtrFactory<
       DetectChannel
-    > weak_ptr_factory_;
+    > weak_ptr_factory_
+    LIVES_ON(sequence_checker_);
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -151,12 +162,19 @@ private:
   // which is safe to do from any
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
-  base::WeakPtr<DetectChannel> weak_this_;
+  base::WeakPtr<DetectChannel> weak_this_
+    LIVES_ON(sequence_checker_);
 
-  base::ManualPromiseResolver<void, base::NoReject>
-    destruction_promise_;
+  /// \note Lifetime of async callbacks
+  /// must be managed externally.
+  /// API user can free |DetectChannel| only if
+  /// all its callbacks finished (or failed to schedule).
+  /// i.e. API user must wait for |destruction_promise_|
+  CAUTION_NOT_THREAD_SAFE()
+  base::ManualPromiseResolver<void, base::NoReject> destruction_promise_;
 
   // |stream_| and calls to |async_detect*| are guarded by strand
+  CAUTION_NOT_THREAD_SAFE()
   StrandType perConnectionStrand_;
 
   // check sequence on which class was constructed/destructed/configured

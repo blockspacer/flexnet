@@ -44,13 +44,7 @@ WebsocketChannel::WebsocketChannel(
   ::boost::beast::limited_tcp_stream&& stream
   , ::boost::asio::ssl::context& ctx)
     : ctx_(ctx)
-      // NOTE: Following the std::move,
-      // the moved-from object is in the same state
-      // as if constructed using the
-      // basic_stream_socket(io_service&) constructor.
-      // see boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/basic_stream_socket/basic_stream_socket/overload5.html
-      // i.e. it does not actually destroy |stream| by |move|
-      , ws_(std::move(stream))
+      , ws_(std::move(COPY_ON_MOVE(stream)))
       , isSendBusy_(false)
 {
   DETACH_FROM_SEQUENCE(sequence_checker_);

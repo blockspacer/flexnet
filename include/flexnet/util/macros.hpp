@@ -3,6 +3,12 @@
 #include <base/macros.h> // IWYU pragma: keep
 #include <base/compiler_specific.h> // IWYU pragma: keep
 
+// documents that moved-from object will be in the same state
+// as if constructed using moved-from object the constructor.
+/// \example boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/basic_stream_socket/basic_stream_socket/overload5.html
+/// i.e. it does not actually destroy |stream| by |move|
+#define COPY_ON_MOVE(x) x
+
 // documents that value must be created/modified/used
 // only from one base::Sequence
 /// \todo integrate with thread-safety annotations
@@ -35,8 +41,8 @@
   }
 
 /// \usage
-/// DELETE_NOT_ARRAY_TO_NULLPTR(FROM_HERE, ptr);
-#define DELETE_NOT_ARRAY_TO_NULLPTR(from_here, x) \
+/// DELETE_NOT_ARRAY_AND_NULLIFY(FROM_HERE, ptr);
+#define DELETE_NOT_ARRAY_AND_NULLIFY(from_here, x) \
   DCHECK(x) \
       << "failed to deallocate " \
       << from_here.ToString(); \
@@ -46,11 +52,19 @@
       << "failed to deallocate " \
       << from_here.ToString();
 
+// Documents that value may not be thread-safe in general,
+// but because it can be modified only during
+// `initialization` and `teardown` steps
+// it can be used by multiple threads during `running` step.
+#define GLOBAL_THREAD_SAFETY(x) x
+
 // Documents that value can NOT be used from
 // any thread without extra thread-safety checks.
 // i.e. take care of possible thread-safety bugs.
 // Usually it means that value MUST be guarded by some mutex lock
-// or modified only during app initialization.
+// OR modified only during `initialization` step.
+/// \note prefer sequence checkers or
+/// <base/thread_collision_warner.h> to it if possible
 #define CAUTION_NOT_THREAD_SAFE(x) x
 
 // Documents that value can be used from any thread.
@@ -79,6 +93,10 @@
 // i.e. that object lifetime will be prolonged.
 /// \note use it to annotate arguments that are bound to function
 #define SHARED_LIFETIME(x) x
+
+// Documents that function returns promise,
+// so next ThenOn/ThenHere will `wait` (asynchronously) for NESTED promise
+#define NESTED_PROMISE(x) x
 
 // Documents that value has external storage
 // i.e. that object lifetime not conrolled.

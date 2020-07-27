@@ -7,11 +7,11 @@
 #include "flexnet/util/macros.hpp"
 
 #include <functional>
-#include <memory>
 #include <type_traits>
-#include <utility>
 
+#include <base/macros.h>
 #include <base/logging.h>
+#include <base/threading/thread_collision_warner.h>
 
 namespace util {
 
@@ -50,9 +50,12 @@ class UnownedRef
     : UnownedRef(that.Ref())
   {}
 
-  CAUTION_NOT_THREAD_SAFE(UnownedRef(
-    UnownedRef&& other))
+  CAUTION_NOT_THREAD_SAFE()
+  UnownedRef(
+    UnownedRef&& other)
   {
+    DFAKE_SCOPED_LOCK(debug_collision_warner_);
+
     // can be changed only if not initialized
     DCHECK(!m_pObj);
 
@@ -74,6 +77,8 @@ class UnownedRef
     UNOWNED_LIFETIME(const U& pObj))
     : COPIED(m_pObj(&pObj))
   {
+    DFAKE_SCOPED_LOCK(debug_collision_warner_);
+
     DCHECK(m_pObj);
   }
 
@@ -84,57 +89,84 @@ class UnownedRef
     UNOWNED_LIFETIME(const std::reference_wrapper<U>& pObj))
     : COPIED(m_pObj(&pObj.get()))
   {
+    DFAKE_SCOPED_LOCK(debug_collision_warner_);
+
     DCHECK(m_pObj);
   }
 
   ~UnownedRef()
   {
+    DFAKE_SCOPED_LOCK(debug_collision_warner_);
+
     ProbeForLowSeverityLifetimeIssue();
   }
 
   bool operator==(const UnownedRef& that) const
   {
+    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
+
     return Get() == that.Get();
   }
 
   bool operator!=(const UnownedRef& that) const
   {
+    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
+
     return !(*this == that);
   }
 
   bool operator<(const UnownedRef& that) const
   {
+    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
+
     return std::less<T*>()(Get(), that.Get());
   }
 
   template <typename U>
   bool operator==(const U& that) const
   {
+    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
+
     return Get() == &that;
   }
 
   template <typename U>
   bool operator!=(const U& that) const
   {
+    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
+
     return !(*this == &that);
   }
 
   T& Ref() const
   {
+    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
+
     DCHECK(m_pObj);
     return *m_pObj;
   }
 
-  T* Get() const { return m_pObj; }
+  /// \note Do not do stupid things like
+  /// `delete unownedRef.Get();`
+  T* Get() const
+  {
+    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
+
+    return m_pObj;
+  }
 
   T& operator*() const
   {
+    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
+
     DCHECK(m_pObj);
     return *m_pObj;
   }
 
   T* operator->() const
   {
+    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
+
     DCHECK(m_pObj);
     return m_pObj;
   }
@@ -143,13 +175,21 @@ class UnownedRef
   // check that object is alive, use memory tool like ASAN
   inline void ProbeForLowSeverityLifetimeIssue()
   {
+    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
+
 #if defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
     if (m_pObj)
       reinterpret_cast<const volatile uint8_t*>(m_pObj)[0];
 #endif
   }
 
-  T* m_pObj = nullptr;
+  // Thread collision warner to ensure that API is not called concurrently.
+  // |m_pObj| allowed to call from multiple threads, but not
+  // concurrently.
+  DFAKE_MUTEX(debug_collision_warner_);
+
+  T* m_pObj = nullptr
+    LIVES_ON(debug_collision_warner_);
 
   DISALLOW_ASSIGN(UnownedRef);
 };

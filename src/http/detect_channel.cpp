@@ -1,13 +1,14 @@
 #include "flexnet/http/detect_channel.hpp" // IWYU pragma: associated
 
 #include "flexnet/util/macros.hpp"
+#include "flexnet/util/unowned_ptr.hpp"
+#include "flexnet/util/move_only.hpp"
 
 #include <base/location.h>
 #include <base/logging.h>
 
 #include <boost/asio/basic_stream_socket.hpp>
 #include <boost/asio/bind_executor.hpp>
-#include <boost/asio/io_context_strand.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -22,13 +23,7 @@ namespace http {
 
 DetectChannel::DetectChannel(
   AsioTcp::socket&& socket)
-  // NOTE: Following the std::move,
-  // the moved-from object is in the same state
-  // as if constructed using the
-  // basic_stream_socket(io_service&) constructor.
-  // see boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/basic_stream_socket/basic_stream_socket/overload5.html
-  // i.e. it does not actually destroy |stream| by |move|
-  : stream_(std::move(socket))
+  : stream_(std::move(COPY_ON_MOVE(socket)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
@@ -40,7 +35,8 @@ DetectChannel::DetectChannel(
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-DetectChannel::CAUTION_NOT_THREAD_SAFE(~DetectChannel())
+CAUTION_NOT_THREAD_SAFE()
+DetectChannel::~DetectChannel()
 {
   LOG_CALL(VLOG(9));
 
@@ -116,9 +112,11 @@ void DetectChannel::runDetector(
     boost::asio::bind_executor(perConnectionStrand_,
       std::bind(
         &DetectChannel::onDetected
-        , /// \note Lifetime must be managed externally.
+        , /// \note Lifetime of async callbacks
+          /// must be managed externally.
           /// API user can free |DetectChannel| only if
-          /// that callback finished (or failed to schedule).
+          /// all its callbacks finished (or failed to schedule).
+          /// i.e. API user must wait for |destruction_promise_|
           UNOWNED_LIFETIME(
             COPIED(this))
         , std::placeholders::_1
@@ -129,8 +127,8 @@ void DetectChannel::runDetector(
 }
 
 void DetectChannel::onDetected(
-  ErrorCode ec
-  , bool handshakeResult)
+  const ErrorCode& ec
+  , const bool& handshakeResult)
 {
   LOG_CALL(VLOG(9));
 
@@ -139,13 +137,15 @@ void DetectChannel::onDetected(
   DCHECK(stream_.socket().is_open());
 
   DCHECK(detectedCallback_);
-  CAUTION_NOT_THREAD_SAFE(detectedCallback_).Run(
-    util::UnownedPtr<DetectChannel>(this)
-    , REFERENCED(ec)
-    , util::MoveOnly<const bool>::copyFrom(handshakeResult)
-    , std::move(stream_)
-    , std::move(buffer_)
-  );
+
+  CAUTION_NOT_THREAD_SAFE()
+  std::move(detectedCallback_).Run(
+      util::UnownedPtr<DetectChannel>(this)
+      , util::MoveOnly<const ErrorCode>::copyFrom(ec)
+      , util::MoveOnly<const bool>::copyFrom(handshakeResult)
+      , std::move(stream_)
+      , std::move(buffer_)
+    );
 }
 
 } // namespace http

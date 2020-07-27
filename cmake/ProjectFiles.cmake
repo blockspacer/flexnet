@@ -17,9 +17,11 @@ list(APPEND flexnet_SOURCES
   #
   ${flexnet_include_DIR}/util/macros.hpp
   #
-  ${flexnet_include_DIR}/util/wrappers.hpp
+  ${flexnet_include_DIR}/util/move_only.hpp
   #
   ${flexnet_include_DIR}/util/unowned_ptr.hpp
   #
   ${flexnet_include_DIR}/util/unowned_ref.hpp
+  #
+  ${flexnet_include_DIR}/util/promise_collection.hpp
 )

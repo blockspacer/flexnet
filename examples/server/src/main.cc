@@ -1,9 +1,10 @@
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/util/macros.hpp>
-#include <flexnet/util/wrappers.hpp>
+#include <flexnet/util/move_only.hpp>
 #include <flexnet/util/unowned_ptr.hpp>
 #include <flexnet/util/unowned_ref.hpp>
+#include <flexnet/util/promise_collection.hpp>
 
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -37,6 +38,8 @@ static const base::FilePath::CharType kTraceReportFileName[]
   = FILE_PATH_LITERAL(R"raw(trace_report.json)raw");
 
 // Check to see that we are being called on only one thread.
+// Useful during app initialization because sequence checkers
+// may be not available before app initialized.
 MUST_USE_RETURN_VALUE
 bool isCalledOnSameSingleThread()
 {
@@ -100,15 +103,11 @@ class ExampleServer
   using StatusPromise
     = base::Promise<::util::Status, base::NoReject>;
 
-  // Define a total order based on the |task_runner| affinity, so that MDPs
-  // belonging to the same SequencedTaskRunner are adjacent in the set.
-  struct VoidPromiseComparator {
-    bool operator()(const VoidPromise& a,
-                    const VoidPromise& b) const;
-  };
-
   using VoidPromiseContainer =
-      std::set<SHARED_LIFETIME(VoidPromise), VoidPromiseComparator>;
+      util::PromiseCollection<void, base::NoReject>;
+
+  using EndpointType
+    = ws::Listener::EndpointType;
 
  public:
   ExampleServer();
@@ -143,37 +142,42 @@ class ExampleServer
     , util::ScopedCleanup& scopedDeallocateStrand);
 
   void onDetected(
-    base::OnceClosure&& deleteDetectorClosure
+    base::OnceClosure&& doneClosure
     , util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper
-    , http::DetectChannel::ErrorCode& ec
+    , util::MoveOnly<const http::DetectChannel::ErrorCode>&& ecWrapper
     , util::MoveOnly<const bool>&& handshakeResultWrapper
     , http::DetectChannel::StreamType&& stream
     , http::DetectChannel::MessageBufferType&& buffer);
 
  private:
   // The io_context is required for all I/O
+  GLOBAL_THREAD_SAFETY()
   boost::asio::io_context ioc_{};
 
+  GLOBAL_THREAD_SAFETY()
   const boost::asio::ip::address address_
     = ::boost::asio::ip::make_address("127.0.0.1");
 
+  GLOBAL_THREAD_SAFETY()
   const unsigned short port_
     = 8085;
 
-  using EndpointType
-    = ws::Listener::EndpointType;
-
+  GLOBAL_THREAD_SAFETY()
   const EndpointType tcpEndpoint_{address_, port_};
 
   /// \todo SSL support
+  // GLOBAL_THREAD_SAFETY()
   // ::boost::asio::ssl::context ctx_
   //   {::boost::asio::ssl::context::tlsv12};
 
+  GLOBAL_THREAD_SAFETY()
   std::shared_ptr<ws::Listener> listener_;
 
+  GLOBAL_THREAD_SAFETY()
   base::RunLoop run_loop_{};
 
   // Capture SIGINT and SIGTERM to perform a clean shutdown
+  GLOBAL_THREAD_SAFETY()
   boost::asio::signal_set signals_set_{
     ioc_ /// \note will not handle signals if ioc stopped
     , SIGINT
@@ -183,11 +187,14 @@ class ExampleServer
   VoidPromiseContainer destructionPromises_
     LIVES_ON(sequence_checker_);
 
+  GLOBAL_THREAD_SAFETY()
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     = base::MessageLoop::current()->task_runner();
 
+  GLOBAL_THREAD_SAFETY()
   base::Thread asio_thread_1{"asio_thread_1"};
 
+  GLOBAL_THREAD_SAFETY()
   base::Thread asio_thread_2{"asio_thread_2"};
 
   SEQUENCE_CHECKER(sequence_checker_);
@@ -239,7 +246,7 @@ ExampleServer::ExampleServer()
 
         /// \note can be replaced with memory pool
         /// to increase performance
-        DELETE_NOT_ARRAY_TO_NULLPTR(FROM_HERE,
+        DELETE_NOT_ARRAY_AND_NULLIFY(FROM_HERE,
           strand);
 
         return true;
@@ -280,10 +287,8 @@ ExampleServer::ExampleServer()
         base::PostPromise(FROM_HERE
           , UNOWNED_LIFETIME(mainLoopRunner_.get())
           , base::BindOnce(
-              /// \note returns promise,
-              /// so we will wait for NESTED promise
-              &ExampleServer::stopAcceptors,
-              base::Unretained(this))
+              NESTED_PROMISE(&ExampleServer::stopAcceptors)
+              , base::Unretained(this))
         )
         // do not accept new connections
         .ThenOn(mainLoopRunner_
@@ -306,9 +311,7 @@ ExampleServer::ExampleServer()
         .ThenOn(mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
-              /// \note returns promise,
-              /// so we will wait for NESTED promise
-              &ExampleServer::promiseDestructionOfConnections
+              NESTED_PROMISE(&ExampleServer::promiseDestructionOfConnections)
               , base::Unretained(this)
           )
         )
@@ -316,9 +319,7 @@ ExampleServer::ExampleServer()
         .ThenOn(mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
-              /// \note returns promise,
-              /// so we will wait for NESTED promise
-              &ExampleServer::stopIOContext
+              NESTED_PROMISE(&ExampleServer::stopIOContext)
               , base::Unretained(this)
           )
         )
@@ -399,7 +400,7 @@ void ExampleServer::onAccepted(
 
   DCHECK(detectChannelPtr);
   detectChannelPtr->registerDetectedCallback(
-    base::BindRepeating(
+    base::BindOnce(
         &ExampleServer::onDetected
         , base::Unretained(this)
         , base::Passed(std::move(scheduleDeleteDetectorClosure))
@@ -424,27 +425,20 @@ void ExampleServer::onAccepted(
   .ThenOn(mainLoopRunner_
     , FROM_HERE
     , base::BindOnce(
-      /// \note returns promise,
-      /// so we will wait for NESTED promise
-      &base::PostPromiseOnAsioExecutor<
+      NESTED_PROMISE(&base::PostPromiseOnAsioExecutor<
         base::OnceClosure
-      >
+      >)
       , FROM_HERE
       , CONST_REFERENCED(detectChannelPtr->perConnectionStrand())
       /// \note manage lifetime of |perConnectionStrand|
       , std::move(runDetectorClosure)
     ) // BindOnce
-  )
+  );
+
+
   /// \note tasks below will be scheduled after channel destruction
   /// i.e. will wait for |destructionPromise|
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        /// \note returns promise,
-        /// so we will wait for NESTED promise
-        &http::DetectChannel::destructionPromise
-        , UNOWNED_LIFETIME(base::Unretained(detectChannelPtr)))
-  )
+  detectChannelPtr->destructionPromise()
   .ThenOn(mainLoopRunner_
     , FROM_HERE
     , base::BindOnce(
@@ -457,14 +451,26 @@ void ExampleServer::onAccepted(
 }
 
 void ExampleServer::onDetected(
-  base::OnceClosure&& deleteDetectorClosure
+  base::OnceClosure&& doneClosure
   , util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper
-  , http::DetectChannel::ErrorCode& ec
+  , util::MoveOnly<const http::DetectChannel::ErrorCode>&& ecWrapper
   , util::MoveOnly<const bool>&& handshakeResultWrapper
   , http::DetectChannel::StreamType&& stream
   , http::DetectChannel::MessageBufferType&& buffer)
 {
   LOG_CALL(VLOG(9));
+
+  const http::DetectChannel::ErrorCode& ec
+    = ecWrapper.TakeConst();
+
+  util::ScopedCleanup scopedDoneClosure{[
+      &doneClosure
+    ](
+    ){
+      // reset |DetectChannel| (we do not need it anymore)
+      std::move(doneClosure).Run();
+    }
+  };
 
   DCHECK(detectChannelWrapper
     && detectChannelWrapper->isDetectingInThisThread());
@@ -478,7 +484,8 @@ void ExampleServer::onDetected(
     return;
   }
 
-  const bool handshakeResult = handshakeResultWrapper.TakeConst();
+  const bool& handshakeResult
+    = handshakeResultWrapper.TakeConst();
 
   if(handshakeResult) {
     LOG(INFO)
@@ -489,9 +496,6 @@ void ExampleServer::onDetected(
   }
 
   /// \todo: create channel here
-
-  // reset |DetectChannel| (we do not need it anymore)
-  std::move(deleteDetectorClosure).Run();
 }
 
 void ExampleServer::runLoop()
@@ -695,12 +699,7 @@ ExampleServer::VoidPromise ExampleServer::promiseDestructionOfConnections()
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if(!destructionPromises_.empty()) {
-    return base::Promises::All(FROM_HERE, destructionPromises_);
-  }
-
-  // dummy promise
-  return base::Promise<void, base::NoReject>::CreateResolved(FROM_HERE);
+  return destructionPromises_.All(FROM_HERE);
 }
 
 void ExampleServer::stopIOContext()
@@ -714,14 +713,6 @@ void ExampleServer::stopIOContext()
   DCHECK(THREAD_SAFE(ioc_.stopped()));
 }
 
-bool ExampleServer::VoidPromiseComparator::operator()
-  (const ExampleServer::VoidPromise& a
-   , const ExampleServer::VoidPromise& b) const
-{
-  return a.GetScopedRefptrForTesting()
-    < b.GetScopedRefptrForTesting();
-}
-
 void ExampleServer::addToDestructionPromiseChain(
   SHARED_LIFETIME(VoidPromise) promise)
 {
@@ -729,7 +720,7 @@ void ExampleServer::addToDestructionPromiseChain(
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  destructionPromises_.emplace(promise);
+  destructionPromises_.add(promise);
 }
 
 void ExampleServer::removeFromDestructionPromiseChain(
@@ -739,15 +730,7 @@ void ExampleServer::removeFromDestructionPromiseChain(
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  base::EraseIf(destructionPromises_,
-    [
-      SHARED_LIFETIME(boundPromise)
-    ](
-      const VoidPromise& key
-    ){
-      return key.GetScopedRefptrForTesting()
-        == boundPromise.GetScopedRefptrForTesting();
-    });
+  destructionPromises_.remove(boundPromise);
 }
 
 ExampleServer::~ExampleServer()
@@ -790,9 +773,7 @@ int main(int argc, char* argv[])
         /// will be executed only when |run_loop| is running
         , base::MessageLoop::current()->task_runner().get()
         , base::BindOnce(
-            /// \note returns promise,
-            /// so we will wait for NESTED promise
-            &ExampleServer::configureAndRunAcceptor
+            NESTED_PROMISE(&ExampleServer::configureAndRunAcceptor)
             , base::Unretained(&exampleServer)
         )
     )

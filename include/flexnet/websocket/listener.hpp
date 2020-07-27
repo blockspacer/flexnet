@@ -1,19 +1,16 @@
 #pragma once
 
 #include "flexnet/util/macros.hpp"
-#include "flexnet/util/wrappers.hpp"
-#include "flexnet/util/unowned_ptr.hpp"
-#include "flexnet/util/unowned_ref.hpp"
+#include "flexnet/util/unowned_ptr.hpp" // IWYU pragma: keep
 
 #include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>
 #include <base/sequence_checker.h>
 #include <base/memory/weak_ptr.h>
-#include <base/callback_list.h>
 
 #include <basis/promise/promise.h>
 #include <basis/status/status.hpp>
-#include <basis/scoped_cleanup.hpp>
+#include <basis/scoped_cleanup.hpp> // IWYU pragma: keep
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/io_service.hpp>
@@ -22,6 +19,9 @@
 #include <boost/beast/core.hpp>
 
 #include <memory>
+#include <atomic>
+
+namespace util { template <class T> class UnownedRef; }
 
 namespace base { struct NoReject; }
 
@@ -134,14 +134,19 @@ public:
   MUST_USE_RETURN_VALUE
   base::WeakPtr<Listener> weakSelf() const noexcept
   {
+    // It is thread-safe to copy |base::WeakPtr|.
+    // Weak pointers may be passed safely between sequences, but must always be
+    // dereferenced and invalidated on the same SequencedTaskRunner otherwise
+    // checking the pointer would be racey.
     return weak_this_;
   }
 
 private:
   // Report a failure
   /// \note not thread-safe, so keep it for logging purposes only
-  void CAUTION_NOT_THREAD_SAFE(logFailure)
-    (ErrorCode ec, char const* what);
+  CAUTION_NOT_THREAD_SAFE()
+  void logFailure(
+    ErrorCode ec, char const* what);
 
   MUST_USE_RETURN_VALUE
   ::util::Status configureAcceptor();
@@ -156,28 +161,34 @@ private:
 
 private:
   // The acceptor used to listen for incoming connections.
+  CAUTION_NOT_THREAD_SAFE()
   AcceptorType acceptor_;
 
   // Provides I/O functionality
+  GLOBAL_THREAD_SAFETY()
   util::UnownedPtr<IoContext> ioc_;
 
   // acceptor will listen that address
+  CAUTION_NOT_THREAD_SAFE()
   EndpointType endpoint_;
 
   // modification of |acceptor_| guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
+  CAUTION_NOT_THREAD_SAFE()
   StrandType acceptorStrand_;
 
   /// \note take care of thread-safety
   /// i.e. change |acceptedCallback_| only when acceptor stopped
-  CAUTION_NOT_THREAD_SAFE(AcceptedCallback) acceptedCallback_;
+  CAUTION_NOT_THREAD_SAFE()
+  AcceptedCallback acceptedCallback_;
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
   base::WeakPtrFactory<
       Listener
-    > weak_ptr_factory_;
+    > weak_ptr_factory_
+    LIVES_ON(sequence_checker_);
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -186,12 +197,14 @@ private:
   // which is safe to do from any
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
-  base::WeakPtr<Listener> weak_this_;
+  base::WeakPtr<Listener> weak_this_
+    LIVES_ON(sequence_checker_);
 
   // unlike |isAcceptorOpen()| it can be used from any sequence,
   // but it is approximation that stores state
   // based on results of previous API calls
   // i.e. it may be NOT same as |acceptor_.is_open()|
+  THREAD_SAFE()
   std::atomic<bool> assume_is_accepting_{false};
 
   /// \note allow API users to use custom allocators
@@ -199,10 +212,12 @@ private:
   /// \note usually it is same as
   /// StrandType* perConnectionStrand
   ///   = new (std::nothrow) StrandType(ioc_);
+  CAUTION_NOT_THREAD_SAFE()
   AllocateStrandCallback allocateStrandCallback_;
 
   /// \note allow API users to use custom allocators
   /// (like memory pool) to increase performance
+  CAUTION_NOT_THREAD_SAFE()
   DeallocateStrandCallback deallocateStrandCallback_;
 
   // check sequence on which class was constructed/destructed/configured

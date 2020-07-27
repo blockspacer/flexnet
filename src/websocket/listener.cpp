@@ -2,7 +2,7 @@
 
 #include "flexnet/util/macros.hpp"
 #include "flexnet/util/unowned_ptr.hpp"
-#include "flexnet/util/unowned_ref.hpp"
+#include "flexnet/util/unowned_ref.hpp" // IWYU pragma: keep
 
 #include <base/bind.h>
 #include <base/location.h>
@@ -28,6 +28,7 @@
 #include <iostream>
 #include <memory>
 #include <functional>
+#include <algorithm>
 
 namespace flexnet {
 namespace ws {
@@ -52,8 +53,9 @@ Listener::Listener(
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-void Listener::CAUTION_NOT_THREAD_SAFE(logFailure)
-  (ErrorCode ec, char const* what)
+CAUTION_NOT_THREAD_SAFE()
+void Listener::logFailure(
+  ErrorCode ec, char const* what)
 {
   LOG_CALL(VLOG(9));
 
@@ -429,7 +431,7 @@ void Listener::onAccept(ErrorCode ec
   /// \note we assume that |is_open|
   /// is thread-safe here
   /// (but not thread-safe in general)
-  if (!CAUTION_NOT_THREAD_SAFE(acceptor_.is_open()))
+  if (CAUTION_NOT_THREAD_SAFE(!acceptor_.is_open()))
   {
     VLOG(9)
       << "unable to accept new connections"
@@ -454,7 +456,7 @@ void Listener::onAccept(ErrorCode ec
    util::UnownedPtr<Listener>(this)
     , REFERENCED(ec)
     /// \note usually calls |std::move(socket)|
-    , REFERENCED(socket)
+    , REFERENCED(COPY_ON_MOVE(socket))
     , COPIED(unownedPerConnectionStrand)
     // |scopedDeallocateStrand| can be used to control
     // lifetime of |unownedPerConnectionStrand|
@@ -483,7 +485,8 @@ Listener::~Listener()
   /// (but not thread-safe in general)
   /// i.e. do not modify acceptor
   /// from any thread if you reached destructor
-  DCHECK(!CAUTION_NOT_THREAD_SAFE(acceptor_.is_open()));
+  DCHECK(CAUTION_NOT_THREAD_SAFE(
+    !acceptor_.is_open()));
 
   // sanity check
   DCHECK(!THREAD_SAFE(assume_is_accepting_).load());

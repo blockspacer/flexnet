@@ -3,11 +3,9 @@
 #include "flexnet/util/macros.hpp"
 
 #include <base/sequence_checker.h>
+#include <base/logging.h>
 
-#include <algorithm>
-#include <memory>
 #include <type_traits>
-#include <utility>
 
 namespace util {
 
@@ -98,7 +96,7 @@ class MoveOnly<
   {}
 
   MUST_USE_RETURN_VALUE
-  T Take() const
+  T&& Take() const
   {
     // call |Take()| only once and only from one thread
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -106,6 +104,10 @@ class MoveOnly<
     is_valid_ = false;
     return std::move(scoper_);
   }
+
+  MoveOnly(MoveOnly const&) = delete;
+
+  MoveOnly& operator=(MoveOnly const&) = delete;
 
  private:
   // is_valid_ is distinct from NULL
@@ -163,7 +165,7 @@ class MoveOnly<
   {}
 
   MUST_USE_RETURN_VALUE
-  const T TakeConst() const
+  const T&& TakeConst() const
   {
     // call |Take()| only once and only from one thread
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -171,6 +173,10 @@ class MoveOnly<
     is_valid_ = false;
     return std::move(scoper_);
   }
+
+  MoveOnly(MoveOnly const&) = delete;
+
+  MoveOnly& operator=(MoveOnly const&) = delete;
 
  private:
   // is_valid_ is distinct from NULL
