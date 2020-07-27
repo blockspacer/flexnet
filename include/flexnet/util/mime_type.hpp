@@ -30,7 +30,8 @@ public:
   };
 
   using MimeTypesMap
-    = std::map<std::string, std::string, IgnoreCaseMimeTypeComparator>;
+    = std::map<std::string, std::string,
+    IgnoreCaseMimeTypeComparator>;
 
 public:
   MimeType();

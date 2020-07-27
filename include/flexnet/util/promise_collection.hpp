@@ -20,10 +20,10 @@ namespace util {
 template <
   typename ResolveType
   , typename RejectType = base::NoReject
->
+  >
 class PromiseCollection
 {
- public:
+public:
   using PromiseType =
     base::Promise<ResolveType, RejectType>;
 
@@ -34,12 +34,12 @@ class PromiseCollection
                     const PromiseType& b) const
     {
       return a.GetScopedRefptrForTesting()
-        < b.GetScopedRefptrForTesting();
+             < b.GetScopedRefptrForTesting();
     }
   };
 
   using PromiseContainer =
-      std::set<SHARED_LIFETIME(PromiseType), PromiseComparator>;
+    std::set<SHARED_LIFETIME(PromiseType), PromiseComparator>;
 
   bool empty() const
   {
@@ -74,7 +74,7 @@ class PromiseCollection
   }
 
   void add(
-    SHARED_LIFETIME(PromiseType) promise)
+    SHARED_LIFETIME(PromiseType)promise)
   {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -82,26 +82,27 @@ class PromiseCollection
   }
 
   void remove(
-    SHARED_LIFETIME(PromiseType) boundPromise)
+    SHARED_LIFETIME(PromiseType)boundPromise)
   {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-    base::EraseIf(promiseContainer_,
+    base::EraseIf(
+      promiseContainer_,
       [
         SHARED_LIFETIME(boundPromise)
       ](
         const PromiseType& key
-      ){
+        ){
         return key.GetScopedRefptrForTesting()
-          == boundPromise.GetScopedRefptrForTesting();
+        == boundPromise.GetScopedRefptrForTesting();
       });
   }
 
- private:
+private:
   SEQUENCE_CHECKER(sequence_checker_);
 
   PromiseContainer promiseContainer_
-    LIVES_ON(sequence_checker_);
+  LIVES_ON(sequence_checker_);
 };
 
 }  // namespace util

@@ -58,30 +58,30 @@ public:
 
   using AllocateStrandCallback
     = base::RepeatingCallback<
-        bool(
-          util::UnownedRef<StrandType*> strand
-          , util::UnownedRef<IoContext> ioc
-          , util::UnownedPtr<Listener>&&)
-      >;
+    bool (
+      util::UnownedRef<StrandType*> strand
+      , util::UnownedRef<IoContext> ioc
+      , util::UnownedPtr<Listener>&&)
+    >;
 
   using DeallocateStrandCallback
     = base::RepeatingCallback<
-        bool(
-          StrandType*&& strand
-          , util::UnownedPtr<Listener>&&)
-      >;
+    bool (
+      StrandType*&& strand
+      , util::UnownedPtr<Listener>&&)
+    >;
 
   using AcceptedCallback
     = base::RepeatingCallback<
-        void(
-          util::UnownedPtr<Listener>&&
-          , util::UnownedRef<ErrorCode> ec
-          , util::UnownedRef<SocketType> socket
-          , COPIED(util::UnownedPtr<StrandType> perConnectionStrand)
-          // |scopedDeallocateStrand| can be used to control
-          // lifetime of |perConnectionStrand|
-          , util::ScopedCleanup& scopedDeallocateStrand)
-      >;
+    void (
+      util::UnownedPtr<Listener>&&
+      , util::UnownedRef<ErrorCode> ec
+      , util::UnownedRef<SocketType> socket
+      , COPIED(util::UnownedPtr<StrandType> perConnectionStrand)
+      // |scopedDeallocateStrand| can be used to control
+      // lifetime of |perConnectionStrand|
+      , util::ScopedCleanup& scopedDeallocateStrand)
+    >;
 
   using StatusPromise
     = base::Promise<util::Status, base::NoReject>;
@@ -112,8 +112,8 @@ public:
    * @brief handles new connections and starts sessions
    */
   void onAccept(ErrorCode ec
-    , SocketType socket
-    , StrandType* perConnectionStrand);
+                , SocketType socket
+                , StrandType* perConnectionStrand);
 
   MUST_USE_RETURN_VALUE
   StatusPromise stopAcceptorAsync();
@@ -127,7 +127,7 @@ public:
   /// stops accepting incoming connections
   /// \note stopped acceptor may be continued via `async_accept`
   MUST_USE_RETURN_VALUE
-  ::util::Status stopAcceptor();
+    ::util::Status stopAcceptor();
 
   void registerAcceptedCallback(const AcceptedCallback& cb);
 
@@ -149,15 +149,15 @@ private:
     ErrorCode ec, char const* what);
 
   MUST_USE_RETURN_VALUE
-  ::util::Status configureAcceptor();
+    ::util::Status configureAcceptor();
 
   MUST_USE_RETURN_VALUE
-  ::util::Status openAcceptor();
+    ::util::Status openAcceptor();
 
   void doAccept();
 
   MUST_USE_RETURN_VALUE
-  ::util::Status configureAndRunAcceptor();
+    ::util::Status configureAndRunAcceptor();
 
 private:
   // The acceptor used to listen for incoming connections.
@@ -186,9 +186,9 @@ private:
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
   base::WeakPtrFactory<
-      Listener
+    Listener
     > weak_ptr_factory_
-    LIVES_ON(sequence_checker_);
+  LIVES_ON(sequence_checker_);
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -198,7 +198,7 @@ private:
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
   base::WeakPtr<Listener> weak_this_
-    LIVES_ON(sequence_checker_);
+  LIVES_ON(sequence_checker_);
 
   // unlike |isAcceptorOpen()| it can be used from any sequence,
   // but it is approximation that stores state

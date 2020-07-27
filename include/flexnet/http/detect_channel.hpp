@@ -52,16 +52,16 @@ public:
 
   using DetectedCallback
     = base::OnceCallback<
-        void(
-          util::UnownedPtr<DetectChannel>&&
-          , util::MoveOnly<const ErrorCode>&&
-          // handshake result
-          // i.e. `true` if the buffer contains a TLS client handshake
-          // and no error occurred, otherwise `false`.
-          , util::MoveOnly<const bool>&&
-          , StreamType&& stream
-          , MessageBufferType&& buffer)
-      >;
+    void (
+      util::UnownedPtr<DetectChannel>&&
+      , util::MoveOnly<const ErrorCode>&&
+      // handshake result
+      // i.e. `true` if the buffer contains a TLS client handshake
+      // and no error occurred, otherwise `false`.
+      , util::MoveOnly<const bool>&&
+      , StreamType&& stream
+      , MessageBufferType&& buffer)
+    >;
 
   using AsioTcp
     = ::boost::asio::ip::tcp;
@@ -85,7 +85,7 @@ public:
   void runDetector(
     // Sets the timeout using |stream_.expires_after|.
     const std::chrono::seconds& expire_timeout
-      = std::chrono::seconds(30));
+    = std::chrono::seconds(30));
 
   MUST_USE_RETURN_VALUE
   base::WeakPtr<DetectChannel> weakSelf() const noexcept
@@ -108,7 +108,7 @@ public:
   MUST_USE_RETURN_VALUE
   StrandType& perConnectionStrand() noexcept{
     return CAUTION_NOT_THREAD_SAFE()
-      perConnectionStrand_;
+           perConnectionStrand_;
   }
 
   MUST_USE_RETURN_VALUE
@@ -116,7 +116,7 @@ public:
   /// and thread-safe when you call |executor()|
   boost::asio::executor executor() noexcept {
     return CAUTION_NOT_THREAD_SAFE()
-      stream_.get_executor();
+           stream_.get_executor();
   }
 
   MUST_USE_RETURN_VALUE
@@ -151,9 +151,9 @@ private:
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
   base::WeakPtrFactory<
-      DetectChannel
+    DetectChannel
     > weak_ptr_factory_
-    LIVES_ON(sequence_checker_);
+  LIVES_ON(sequence_checker_);
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -163,7 +163,7 @@ private:
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
   base::WeakPtr<DetectChannel> weak_this_
-    LIVES_ON(sequence_checker_);
+  LIVES_ON(sequence_checker_);
 
   /// \note Lifetime of async callbacks
   /// must be managed externally.
@@ -171,7 +171,8 @@ private:
   /// all its callbacks finished (or failed to schedule).
   /// i.e. API user must wait for |destruction_promise_|
   CAUTION_NOT_THREAD_SAFE()
-  base::ManualPromiseResolver<void, base::NoReject> destruction_promise_;
+  base::ManualPromiseResolver<void,
+    base::NoReject> destruction_promise_;
 
   // |stream_| and calls to |async_detect*| are guarded by strand
   CAUTION_NOT_THREAD_SAFE()

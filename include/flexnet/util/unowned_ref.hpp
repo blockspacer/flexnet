@@ -38,13 +38,13 @@ struct is_reference_wrapper
 
 /// \todo move to separate file
 template <class U>
-struct is_reference_wrapper<std::reference_wrapper<U>>
+struct is_reference_wrapper<std::reference_wrapper<U> >
   : std::true_type {};
 
 template <class T>
 class UnownedRef
 {
- public:
+public:
   UnownedRef() = default;
   UnownedRef(const UnownedRef& that)
     : UnownedRef(that.Ref())
@@ -69,10 +69,10 @@ class UnownedRef
   template <
     typename U
     , std::enable_if_t<
-        !is_reference_wrapper<std::decay_t<U>>::value
-        , void
+      !is_reference_wrapper<std::decay_t<U> >::value
+      , void
       >
-  >
+    >
   explicit UnownedRef(
     UNOWNED_LIFETIME(const U& pObj))
     : COPIED(m_pObj(&pObj))
@@ -84,7 +84,7 @@ class UnownedRef
 
   template <
     typename U
-  >
+    >
   UnownedRef(
     UNOWNED_LIFETIME(const std::reference_wrapper<U>& pObj))
     : COPIED(m_pObj(&pObj.get()))
@@ -171,7 +171,7 @@ class UnownedRef
     return m_pObj;
   }
 
- private:
+private:
   // check that object is alive, use memory tool like ASAN
   inline void ProbeForLowSeverityLifetimeIssue()
   {

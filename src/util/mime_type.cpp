@@ -6,8 +6,8 @@
 namespace flexnet {
 
 MimeType::MimeType()
-    : mime_types_()
-    , default_mime_type_("application/octet-stream")
+  : mime_types_()
+  , default_mime_type_("application/octet-stream")
 {
   DETACH_FROM_SEQUENCE(sequence_checker_);
 

@@ -42,7 +42,7 @@ namespace util {
 template <class T>
 class UnownedPtr
 {
- public:
+public:
   UnownedPtr() = default;
   UnownedPtr(const UnownedPtr& that)
     : UnownedPtr(that.Get())
@@ -224,7 +224,7 @@ class UnownedPtr
     return m_pObj;
   }
 
- private:
+private:
   // check that object is alive, use memory tool like ASAN
   inline void ProbeForLowSeverityLifetimeIssue()
   {

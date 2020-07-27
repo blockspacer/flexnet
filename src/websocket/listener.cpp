@@ -44,7 +44,7 @@ Listener::Listener(
   , acceptorStrand_(*ioc.Get())
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_this_(weak_ptr_factory_.GetWeakPtr()))
+    weak_this_(weak_ptr_factory_.GetWeakPtr()))
   , allocateStrandCallback_(std::move(allocateStrandCallback))
   , deallocateStrandCallback_(std::move(deallocateStrandCallback))
 {
@@ -66,8 +66,8 @@ void Listener::logFailure(
   if (ec == ::boost::asio::error::connection_aborted)
   {
     LOG_ERROR_CODE(VLOG(1),
-      "Listener failed with"
-      " connection_aborted error: ", what, ec);
+                   "Listener failed with"
+                   " connection_aborted error: ", what, ec);
     return;
   }
 
@@ -90,30 +90,30 @@ void Listener::logFailure(
   if(ec == ::boost::asio::ssl::error::stream_truncated)
   {
     LOG_ERROR_CODE(VLOG(1),
-      "Listener failed with"
-      " stream_truncated error: ", what, ec);
+                   "Listener failed with"
+                   " stream_truncated error: ", what, ec);
     return;
   }
 
   if (ec == ::boost::asio::error::operation_aborted)
   {
     LOG_ERROR_CODE(VLOG(1),
-      "Listener failed with"
-      " operation_aborted error: ", what, ec);
+                   "Listener failed with"
+                   " operation_aborted error: ", what, ec);
     return;
   }
 
   if (ec == ::boost::beast::websocket::error::closed)
   {
     LOG_ERROR_CODE(VLOG(1),
-      "Listener failed with"
-      " websocket closed error: ", what, ec);
+                   "Listener failed with"
+                   " websocket closed error: ", what, ec);
     return;
   }
 
   LOG_ERROR_CODE(VLOG(1),
-    "Listener failed with"
-    " error: ", what, ec);
+                 "Listener failed with"
+                 " error: ", what, ec);
 }
 
 ::util::Status Listener::openAcceptor()
@@ -136,12 +136,12 @@ void Listener::logFailure(
   {
     logFailure(ec, "open");
     return MAKE_ERROR()
-      << "Could not call open for acceptor";
+           << "Could not call open for acceptor";
   }
 
   if(!isAcceptorOpen()) {
     return MAKE_ERROR()
-      << "Failed to open acceptor";
+           << "Failed to open acceptor";
   }
 
   return ::util::OkStatus();
@@ -172,7 +172,7 @@ void Listener::logFailure(
   {
     logFailure(ec, "set_option");
     return MAKE_ERROR()
-      << "Could not call set_option for acceptor";
+           << "Could not call set_option for acceptor";
   }
 
   // Bind to the server address
@@ -181,7 +181,7 @@ void Listener::logFailure(
   {
     logFailure(ec, "bind");
     return MAKE_ERROR()
-      << "Could not call bind for acceptor";
+           << "Could not call bind for acceptor";
   }
 
   VLOG(9)
@@ -195,7 +195,7 @@ void Listener::logFailure(
   {
     logFailure(ec, "listen");
     return MAKE_ERROR()
-      << "Could not call listen for acceptor";
+           << "Could not call listen for acceptor";
   }
 
   return ::util::OkStatus();
@@ -210,13 +210,16 @@ Listener::StatusPromise Listener::configureAndRun()
   DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
 
   DCHECK(!isAcceptingInThisThread());
-  return base::PostPromiseOnAsioExecutor(FROM_HERE
+  return base::PostPromiseOnAsioExecutor(
+    FROM_HERE
     // Post our work to the strand, to prevent data race
     , acceptorStrand_
     , base::BindOnce(
-        &Listener::configureAndRunAcceptor,
-        SHARED_LIFETIME(shared_from_this()))
-  );
+      &Listener::
+        configureAndRunAcceptor,
+      SHARED_LIFETIME(
+        shared_from_this()))
+    );
 }
 
 ::util::Status Listener::configureAndRunAcceptor()
@@ -237,7 +240,7 @@ Listener::StatusPromise Listener::configureAndRun()
   if(!isAcceptorOpen())
   {
     return MAKE_ERROR()
-      << "Unable to run closed acceptor";
+           << "Unable to run closed acceptor";
   }
 
   doAccept();
@@ -287,16 +290,17 @@ void Listener::doAccept()
      * performed within a strand.
      */
     // new connection needs its own strand
-    boost::asio::bind_executor(*allocatedStrandPtr,
+    boost::asio::bind_executor(
+      *allocatedStrandPtr,
       ::std::bind(
-          &Listener::onAccept,
-          SHARED_LIFETIME(shared_from_this())
-          , std::placeholders::_1
-          , std::placeholders::_2
-          , std::move(allocatedStrandPtr)
+        &Listener::onAccept,
+        SHARED_LIFETIME(shared_from_this())
+        , std::placeholders::_1
+        , std::placeholders::_2
+        , std::move(allocatedStrandPtr)
+        )
       )
-    )
-  );
+    );
 }
 
 ::util::Status Listener::stopAcceptor()
@@ -333,7 +337,7 @@ void Listener::doAccept()
       THREAD_SAFE(assume_is_accepting_) = isAcceptorOpen();
 
       return MAKE_ERROR()
-        << "Failed to call acceptor_cancel for acceptor";
+             << "Failed to call acceptor_cancel for acceptor";
     }
 
     /// \note does not close alive sessions, just
@@ -346,7 +350,7 @@ void Listener::doAccept()
       THREAD_SAFE(assume_is_accepting_) = isAcceptorOpen();
 
       return MAKE_ERROR()
-        << "Failed to call acceptor_close for acceptor";
+             << "Failed to call acceptor_close for acceptor";
     }
 
     // acceptor must be closed here without errors
@@ -379,18 +383,20 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
   DCHECK(THREAD_SAFE(assume_is_accepting_).load());
 
   DCHECK(!isAcceptingInThisThread());
-  return base::PostPromiseOnAsioExecutor(FROM_HERE
+  return base::PostPromiseOnAsioExecutor(
+    FROM_HERE
     // Post our work to the strand, to prevent data race
     , acceptorStrand_
     , base::BindOnce(
-        &Listener::stopAcceptor,
-        SHARED_LIFETIME(shared_from_this()))
-  );
+      &Listener::stopAcceptor,
+      SHARED_LIFETIME(
+        shared_from_this()))
+    );
 }
 
 void Listener::onAccept(ErrorCode ec
-  , SocketType socket
-  , StrandType* perConnectionStrand)
+                        , SocketType socket
+                        , StrandType* perConnectionStrand)
 {
   LOG_CALL(VLOG(9));
 
@@ -399,20 +405,20 @@ void Listener::onAccept(ErrorCode ec
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(unownedPerConnectionStrand
-    && unownedPerConnectionStrand->running_in_this_thread());
+         && unownedPerConnectionStrand->running_in_this_thread());
 
-  util::ScopedCleanup scopedDeallocateStrand{[
+  util::ScopedCleanup scopedDeallocateStrand{
+    [
       this
       , &unownedPerConnectionStrand
-    ](
-    ){
+    ](){
       LOG_CALL(VLOG(9));
       DCHECK(deallocateStrandCallback_);
       bool deallocateOk
         = deallocateStrandCallback_.Run(
             unownedPerConnectionStrand.Release()
             , util::UnownedPtr<Listener>(this));
-      if(!deallocateOk){
+      if(!deallocateOk) {
         LOG(ERROR)
           << "failed to deallocate strand for created connection";
       } else {
@@ -453,7 +459,7 @@ void Listener::onAccept(ErrorCode ec
   DCHECK(THREAD_SAFE(assume_is_accepting_).load());
 
   CAUTION_NOT_THREAD_SAFE(acceptedCallback_).Run(
-   util::UnownedPtr<Listener>(this)
+    util::UnownedPtr<Listener>(this)
     , REFERENCED(ec)
     /// \note usually calls |std::move(socket)|
     , REFERENCED(COPY_ON_MOVE(socket))
@@ -464,13 +470,15 @@ void Listener::onAccept(ErrorCode ec
 
   // Accept another connection
   VoidPromise postResult
-    = base::PostPromiseOnAsioExecutor(FROM_HERE
-      // Post our work to the strand, to prevent data race
-      , acceptorStrand_
-      , base::BindOnce(
+    = base::PostPromiseOnAsioExecutor(
+        FROM_HERE
+        // Post our work to the strand, to prevent data race
+        , acceptorStrand_
+        , base::BindOnce(
           &Listener::doAccept,
-          SHARED_LIFETIME(shared_from_this()))
-    );
+          SHARED_LIFETIME(
+            shared_from_this()))
+        );
   ignore_result(postResult);
 }
 
@@ -486,7 +494,7 @@ Listener::~Listener()
   /// i.e. do not modify acceptor
   /// from any thread if you reached destructor
   DCHECK(CAUTION_NOT_THREAD_SAFE(
-    !acceptor_.is_open()));
+           !acceptor_.is_open()));
 
   // sanity check
   DCHECK(!THREAD_SAFE(assume_is_accepting_).load());

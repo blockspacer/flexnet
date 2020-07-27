@@ -26,7 +26,7 @@ DetectChannel::DetectChannel(
   : stream_(std::move(COPY_ON_MOVE(socket)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_this_(weak_ptr_factory_.GetWeakPtr()))
+    weak_this_(weak_ptr_factory_.GetWeakPtr()))
   , destruction_promise_(FROM_HERE)
   , perConnectionStrand_(stream_.get_executor())
 {
@@ -82,6 +82,20 @@ void DetectChannel::runDetector(
 
   configureDetector(expire_timeout);
 
+  /// \note Lifetime of async callbacks
+  /// must be managed externally.
+  /// API user can free |DetectChannel| only if
+  /// all its callbacks finished (or failed to schedule).
+  /// i.e. API user must wait for |destruction_promise_|
+  auto onDetectedCb
+    = std::bind(
+        &DetectChannel::onDetected
+        , UNOWNED_LIFETIME(
+          COPIED(this))
+        , std::placeholders::_1
+        , std::placeholders::_2
+        );
+
   /** Detect a TLS/SSL handshake asynchronously on a stream.
 
       This function reads asynchronously from a stream to determine
@@ -109,21 +123,9 @@ void DetectChannel::runDetector(
   beast::async_detect_ssl(
     stream_, // The stream to read from
     buffer_, // The dynamic buffer to use
-    boost::asio::bind_executor(perConnectionStrand_,
-      std::bind(
-        &DetectChannel::onDetected
-        , /// \note Lifetime of async callbacks
-          /// must be managed externally.
-          /// API user can free |DetectChannel| only if
-          /// all its callbacks finished (or failed to schedule).
-          /// i.e. API user must wait for |destruction_promise_|
-          UNOWNED_LIFETIME(
-            COPIED(this))
-        , std::placeholders::_1
-        , std::placeholders::_2
-      )
-    )
-  );
+    boost::asio::bind_executor(
+      perConnectionStrand_, std::move(onDetectedCb))
+    );
 }
 
 void DetectChannel::onDetected(
@@ -140,11 +142,11 @@ void DetectChannel::onDetected(
 
   CAUTION_NOT_THREAD_SAFE()
   std::move(detectedCallback_).Run(
-      util::UnownedPtr<DetectChannel>(this)
-      , util::MoveOnly<const ErrorCode>::copyFrom(ec)
-      , util::MoveOnly<const bool>::copyFrom(handshakeResult)
-      , std::move(stream_)
-      , std::move(buffer_)
+    util::UnownedPtr<DetectChannel>(this)
+    , util::MoveOnly<const ErrorCode>::copyFrom(ec)
+    , util::MoveOnly<const bool>::copyFrom(handshakeResult)
+    , std::move(stream_)
+    , std::move(buffer_)
     );
 }
 

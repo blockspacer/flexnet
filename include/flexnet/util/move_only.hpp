@@ -27,7 +27,7 @@ struct dependent_false : std::false_type {}; /// \todo move to separate file
 
 // similar to dependent_false
 // used to print type names in static_assert
-template<typename... typeclass>
+template<typename ... typeclass>
 struct typename_false : std::false_type {}; /// \todo move to separate file
 
 /// \todo add ASAN support like in |UnownedPtr|
@@ -43,7 +43,7 @@ struct typename_false : std::false_type {}; /// \todo move to separate file
 template <
   class T
   , typename = void
->
+  >
 class MoveOnly
 {
   static_assert(
@@ -53,30 +53,31 @@ class MoveOnly
 
 template <
   class T
->
+  >
 class MoveOnly<
   T
   , std::enable_if_t<
-      !std::is_const<T>{}
-        // you may want to use |UnownedPtr|
-        // if you want to wrap pointer
-        && !std::is_pointer<T>{}
-      , void
-    >
+  !std::is_const<T> {}
+// you may want to use |UnownedPtr|
+// if you want to wrap pointer
+&& !std::is_pointer<T>{}
+, void
+>
 >
 {
- private:
+private:
   // Made private bacause it makes
   // `move` operation implicit.
   // Use |moveFrom| instead.
   explicit MoveOnly(T&& scoper)
-      : is_valid_(true)
-      , scoper_(std::move(scoper))
-  {}
+    : is_valid_(true)
+    , scoper_(std::move(scoper))
+  {
+  }
 
- public:
+public:
   // We want to explicitly document that `copy` operation will happen
-  static MoveOnly copyFrom(COPIED(const T& scoper))
+  static MoveOnly copyFrom(COPIED(const T & scoper))
   {
     T tmp = scoper;
     return MoveOnly(std::move(tmp));
@@ -91,9 +92,10 @@ class MoveOnly<
   /// \note |MoveOnly| must be movable but NOT copiable
   /// to make sure that you copy large data type ONLY ONCE!
   MoveOnly(MoveOnly&& other)
-      : is_valid_(other.is_valid_)
-      , scoper_(std::move(other.scoper_))
-  {}
+    : is_valid_(other.is_valid_)
+    , scoper_(std::move(other.scoper_))
+  {
+  }
 
   MUST_USE_RETURN_VALUE
   T&& Take() const
@@ -109,7 +111,7 @@ class MoveOnly<
 
   MoveOnly& operator=(MoveOnly const&) = delete;
 
- private:
+private:
   // is_valid_ is distinct from NULL
   mutable bool is_valid_;
 
@@ -123,29 +125,30 @@ class MoveOnly<
 // version of |MoveOnly| for `const T` data types
 template <
   class T
->
+  >
 class MoveOnly<
   const T
   , std::enable_if_t<
-      // you may want to use |UnownedPtr|
-      // if you want to wrap pointer
-      !std::is_pointer<T>{}
-      , void
-    >
+  // you may want to use |UnownedPtr|
+  // if you want to wrap pointer
+  !std::is_pointer<T> {}
+, void
+>
 >
 {
- private:
+private:
   // Made private bacause it makes
   // `move` operation implicit.
   // Use |moveFrom| instead.
   explicit MoveOnly(T&& scoper)
-      : is_valid_(true)
-      , scoper_(std::move(scoper))
-  {}
+    : is_valid_(true)
+    , scoper_(std::move(scoper))
+  {
+  }
 
- public:
+public:
   // We want to explicitly document that `copy` operation will happen
-  static MoveOnly copyFrom(COPIED(const T& scoper))
+  static MoveOnly copyFrom(COPIED(const T & scoper))
   {
     T tmp = scoper;
     return MoveOnly(std::move(tmp));
@@ -160,9 +163,10 @@ class MoveOnly<
   /// \note |MoveOnly| must be movable but NOT copiable
   /// to make sure that you copy large data type ONLY ONCE!
   MoveOnly(MoveOnly&& other)
-      : is_valid_(other.is_valid_)
-      , scoper_(std::move(other.scoper_))
-  {}
+    : is_valid_(other.is_valid_)
+    , scoper_(std::move(other.scoper_))
+  {
+  }
 
   MUST_USE_RETURN_VALUE
   const T&& TakeConst() const
@@ -178,7 +182,7 @@ class MoveOnly<
 
   MoveOnly& operator=(MoveOnly const&) = delete;
 
- private:
+private:
   // is_valid_ is distinct from NULL
   mutable bool is_valid_;
 
