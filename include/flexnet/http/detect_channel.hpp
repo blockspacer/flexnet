@@ -3,6 +3,7 @@
 #include "flexnet/util/limited_tcp_stream.hpp"
 #include "flexnet/util/macros.hpp"
 #include "flexnet/util/wrappers.hpp"
+#include "flexnet/util/unowned_ptr.h"
 
 #include <base/callback.h>
 #include <base/macros.h>
@@ -23,8 +24,6 @@
 #include <vector>
 
 namespace base { struct NoReject; }
-
-namespace boost::asio::ssl { class context; }
 
 namespace flexnet {
 namespace http {
@@ -55,12 +54,12 @@ public:
   using DetectedCallback
     = base::RepeatingCallback<
         void(
-          util::ConstCopyWrapper<DetectChannel*>&&
+          util::UnownedPtr<DetectChannel>&&
           , ErrorCode&
           // handshake result
           // i.e. `true` if the buffer contains a TLS client handshake
           // and no error occurred, otherwise `false`.
-          , util::ConstCopyWrapper<bool>&&
+          , util::MoveOnly<const bool>&&
           , StreamType&& stream
           , MessageBufferType&& buffer)
       >;
@@ -73,9 +72,8 @@ public:
 
 public:
   DetectChannel(
-    ::boost::asio::ssl::context& ctx
     // Take ownership of the socket
-    , AsioTcp::socket&& socket);
+    AsioTcp::socket&& socket);
 
   /// \note can destruct on any thread
   CAUTION_NOT_THREAD_SAFE(~DetectChannel());
@@ -130,13 +128,11 @@ private:
     (const std::chrono::seconds &expire_timeout);
 
 private:
-  /// \todo use it, add SSL support
-  ::boost::asio::ssl::context& ctx_;
-
   /// \note stream with custom rate limiter
   StreamType stream_;
 
-  DetectedCallback detectedCallback_;
+  /// \note take care of thread-safety
+  CAUTION_NOT_THREAD_SAFE(DetectedCallback) detectedCallback_;
 
   MessageBufferType buffer_;
 

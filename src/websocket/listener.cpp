@@ -1,6 +1,7 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 
 #include "flexnet/util/macros.hpp"
+#include "flexnet/util/unowned_ptr.h"
 
 #include <base/bind.h>
 #include <base/location.h>
@@ -31,14 +32,14 @@ namespace flexnet {
 namespace ws {
 
 Listener::Listener(
-  IoContext& ioc
-  , const EndpointType& endpoint
+  util::UnownedPtr<IoContext>&& ioc
+  , EndpointType&& endpoint
   , AllocateStrandCallback&& allocateStrandCallback
   , DeallocateStrandCallback&& deallocateStrandCallback)
-  : acceptor_(ioc)
-  , ioc_(ioc)
+  : acceptor_(*ioc.Get())
+  , UNOWNED_LIFETIME(ioc_(ioc))
   , endpoint_(endpoint)
-  , acceptorStrand_(ioc_)
+  , acceptorStrand_(*ioc.Get())
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
@@ -249,17 +250,15 @@ void Listener::doAccept()
 
   THREAD_SAFE(assume_is_accepting_) = true;
 
-  StrandType* perConnectionStrand = nullptr;
+  StrandType* allocatedStrandPtr = nullptr;
 
-  /// \note usually it is same as
-  /// StrandType* perConnectionStrand = new (std::nothrow) StrandType(ioc_);
   {
     DCHECK(allocateStrandCallback_);
     bool allocateOk
       = allocateStrandCallback_.Run(
-          &perConnectionStrand
-          , RAW_REFERENCED(ioc_)
-          , util::ConstCopyWrapper(this));
+          REFERENCED(allocatedStrandPtr)
+          , REFERENCED(*ioc_.Get())
+          , util::UnownedPtr<Listener>(this));
     if(!allocateOk) {
       LOG(ERROR)
         << "failed to allocate strand for created connection";
@@ -268,7 +267,7 @@ void Listener::doAccept()
       VLOG(9)
         << "allocated strand for created connection";
     }
-    DCHECK(perConnectionStrand);
+    DCHECK(allocatedStrandPtr);
   }
 
   /// Start an asynchronous accept.
@@ -285,13 +284,13 @@ void Listener::doAccept()
      * performed within a strand.
      */
     // new connection needs its own strand
-    boost::asio::bind_executor(*perConnectionStrand,
+    boost::asio::bind_executor(*allocatedStrandPtr,
       ::std::bind(
           &Listener::onAccept,
           SHARED_LIFETIME(shared_from_this())
           , std::placeholders::_1
           , std::placeholders::_2
-          , UNOWNED_LIFETIME(perConnectionStrand)
+          , std::move(allocatedStrandPtr)
       )
     )
   );
@@ -356,16 +355,16 @@ void Listener::doAccept()
   return ::util::OkStatus();
 }
 
-std::unique_ptr<Listener::AcceptedCallbackList::Subscription>
-Listener::registerAcceptedCallback(const Listener::AcceptedCallback &cb)
+void Listener::registerAcceptedCallback(
+  const Listener::AcceptedCallback &cb)
 {
-  /// \note guarantees thread-safety of |acceptedCallbackList_|
-  /// i.e. change |acceptedCallbackList_| only when acceptor stopped
+  /// \note guarantees thread-safety of |acceptedCallback_|
+  /// i.e. change |acceptedCallback_| only when acceptor stopped
   DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  return CAUTION_NOT_THREAD_SAFE(acceptedCallbackList_).Add(cb);
+  acceptedCallback_ = std::move(cb);
 }
 
 Listener::StatusPromise Listener::stopAcceptorAsync()
@@ -392,21 +391,24 @@ void Listener::onAccept(ErrorCode ec
 {
   LOG_CALL(VLOG(9));
 
+  util::UnownedPtr<StrandType> unownedPerConnectionStrand
+    = util::UnownedPtr<StrandType>(perConnectionStrand);
+
   /// \note may be same or not same as |isAcceptingInThisThread()|
-  DCHECK(perConnectionStrand
-    && perConnectionStrand->running_in_this_thread());
+  DCHECK(unownedPerConnectionStrand
+    && unownedPerConnectionStrand->running_in_this_thread());
 
   util::ScopedCleanup scopedDeallocateStrand{[
       this
-      , &perConnectionStrand
+      , &unownedPerConnectionStrand
     ](
     ){
       LOG_CALL(VLOG(9));
       DCHECK(deallocateStrandCallback_);
       bool deallocateOk
         = deallocateStrandCallback_.Run(
-            &perConnectionStrand
-            , util::ConstCopyWrapper(this));
+            unownedPerConnectionStrand.Release()
+            , util::UnownedPtr<Listener>(this));
       if(!deallocateOk){
         LOG(ERROR)
           << "failed to deallocate strand for created connection";
@@ -414,7 +416,7 @@ void Listener::onAccept(ErrorCode ec
         VLOG(9)
           << "deallocated strand for created connection";
       }
-      DCHECK(!perConnectionStrand);
+      DCHECK(!unownedPerConnectionStrand);
     }
   };
 
@@ -447,14 +449,14 @@ void Listener::onAccept(ErrorCode ec
   // sanity check
   DCHECK(THREAD_SAFE(assume_is_accepting_).load());
 
-  CAUTION_NOT_THREAD_SAFE(acceptedCallbackList_).Notify(
-   util::ConstCopyWrapper(this)
+  CAUTION_NOT_THREAD_SAFE(acceptedCallback_).Run(
+   util::UnownedPtr<Listener>(this)
     , REFERENCED(ec)
     /// \note usually calls |std::move(socket)|
     , REFERENCED(socket)
-    , REFERENCED(perConnectionStrand)
+    , COPIED(unownedPerConnectionStrand)
     // |scopedDeallocateStrand| can be used to control
-    // lifetime of |perConnectionStrand|
+    // lifetime of |unownedPerConnectionStrand|
     , REFERENCED(scopedDeallocateStrand));
 
   // Accept another connection

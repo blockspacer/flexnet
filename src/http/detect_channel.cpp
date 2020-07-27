@@ -15,24 +15,20 @@
 #include <type_traits>
 #include <functional>
 
-namespace boost::asio::ssl { class context; }
-
 namespace beast = boost::beast;
 
 namespace flexnet {
 namespace http {
 
 DetectChannel::DetectChannel(
-  ::boost::asio::ssl::context& ctx
-  , AsioTcp::socket&& socket)
-  : ctx_(ctx)
+  AsioTcp::socket&& socket)
   // NOTE: Following the std::move,
   // the moved-from object is in the same state
   // as if constructed using the
   // basic_stream_socket(io_service&) constructor.
   // see boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/basic_stream_socket/basic_stream_socket/overload5.html
   // i.e. it does not actually destroy |stream| by |move|
-  , stream_(std::move(socket))
+  : stream_(std::move(socket))
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
@@ -143,10 +139,10 @@ void DetectChannel::onDetected(
   DCHECK(stream_.socket().is_open());
 
   DCHECK(detectedCallback_);
-  detectedCallback_.Run(
-    util::ConstCopyWrapper<DetectChannel*>(this)
+  CAUTION_NOT_THREAD_SAFE(detectedCallback_).Run(
+    util::UnownedPtr<DetectChannel>(this)
     , REFERENCED(ec)
-    , util::ConstCopyWrapper<bool>(handshakeResult)
+    , util::MoveOnly<const bool>::copyFrom(handshakeResult)
     , std::move(stream_)
     , std::move(buffer_)
   );

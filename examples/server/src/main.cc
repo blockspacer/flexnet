@@ -2,6 +2,7 @@
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/util/macros.hpp>
 #include <flexnet/util/wrappers.hpp>
+#include <flexnet/util/unowned_ptr.h>
 
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -134,17 +135,17 @@ class ExampleServer
 
  private:
   void onAccepted(
-    util::ConstCopyWrapper<ws::Listener*>&& listenerWrapper
-    , ws::Listener::ErrorCode& ec
-    , ws::Listener::SocketType& socket
-    , ws::Listener::StrandType* perConnectionStrand
+    util::UnownedPtr<ws::Listener>&& listenerWrapper
+    , util::UnownedRef<ws::Listener::ErrorCode> ec
+    , util::UnownedRef<ws::Listener::SocketType> socket
+    , util::UnownedPtr<ws::Listener::StrandType> perConnectionStrand
     , util::ScopedCleanup& scopedDeallocateStrand);
 
   void onDetected(
     base::OnceClosure&& deleteDetectorClosure
-    , util::ConstCopyWrapper<http::DetectChannel*>&& detectChannelWrapper
+    , util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper
     , http::DetectChannel::ErrorCode& ec
-    , util::ConstCopyWrapper<bool>&& handshakeRresultWrapper
+    , util::MoveOnly<const bool>&& handshakeResultWrapper
     , http::DetectChannel::StreamType&& stream
     , http::DetectChannel::MessageBufferType&& buffer);
 
@@ -158,18 +159,16 @@ class ExampleServer
   const unsigned short port_
     = 8085;
 
-  const boost::asio::ip::tcp::endpoint tcpEndpoint_
-      = boost::asio::ip::tcp::endpoint{
-          address_, port_};
+  using EndpointType
+    = ws::Listener::EndpointType;
 
-  ::boost::asio::ssl::context ctx_
-    {::boost::asio::ssl::context::tlsv12};
+  const EndpointType tcpEndpoint_{address_, port_};
+
+  /// \todo SSL support
+  // ::boost::asio::ssl::context ctx_
+  //   {::boost::asio::ssl::context::tlsv12};
 
   std::shared_ptr<ws::Listener> listener_;
-
-  // When subscription gets deleted it will deregister callback
-  std::unique_ptr<ws::Listener::AcceptedCallbackList::Subscription>
-    acceptedCallbackSubscription_;
 
   base::RunLoop run_loop_{};
 
@@ -180,7 +179,8 @@ class ExampleServer
     , SIGTERM
   };
 
-  VoidPromiseContainer destructionPromises_;
+  VoidPromiseContainer destructionPromises_
+    LIVES_ON(sequence_checker_);
 
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     = base::MessageLoop::current()->task_runner();
@@ -203,62 +203,61 @@ ExampleServer::ExampleServer()
   ws::Listener::AllocateStrandCallback allocateStrandCallback
     = base::BindRepeating([
       ](
-        ws::Listener::StrandType** strand
-        , ws::Listener::IoContext& ioc
-        , util::ConstCopyWrapper<ws::Listener*>&& listenerWrapper
+        util::UnownedRef<ws::Listener::StrandType*> strand
+        , util::UnownedRef<ws::Listener::IoContext> ioc
+        , util::UnownedPtr<ws::Listener>&& listenerWrapper
       )
         -> bool
       {
         LOG_CALL(VLOG(9));
 
-        ignore_result(listenerWrapper.Take());
+        ignore_result(listenerWrapper);
 
         /// \note can be replaced with memory pool
         /// to increase performance
         NEW_NO_THROW(FROM_HERE,
-          *strand // lhs of assignment
-          , ws::Listener::StrandType(ioc) // rhs of assignment
+          strand.Ref() // lhs of assignment
+          , ws::Listener::StrandType(ioc.Ref()) // rhs of assignment
           , LOG(ERROR) // log allocation failure
         );
 
-        return *strand != nullptr;
+        return strand.Ref() != nullptr;
       });
 
   ws::Listener::DeallocateStrandCallback deallocateStrandCallback
     = base::BindRepeating([
       ](
-        ws::Listener::StrandType** strand
-        , util::ConstCopyWrapper<ws::Listener*>&& listenerWrapper
+        ws::Listener::StrandType*&& strand
+        , util::UnownedPtr<ws::Listener>&& listenerWrapper
       )
         -> bool
       {
         LOG_CALL(VLOG(9));
 
-        ignore_result(listenerWrapper.Take());
+        ignore_result(listenerWrapper);
 
         /// \note can be replaced with memory pool
         /// to increase performance
         DELETE_NOT_ARRAY_TO_NULLPTR(FROM_HERE,
-          *strand);
+          strand);
 
         return true;
       });
 
   listener_
     = std::make_shared<ws::Listener>(
-        RAW_REFERENCED(ioc_)
-        , RAW_REFERENCED(tcpEndpoint_)
+        util::UnownedPtr<ws::Listener::IoContext>(&ioc_)
+        , EndpointType{tcpEndpoint_}
         , std::move(allocateStrandCallback)
         , std::move(deallocateStrandCallback)
       );
 
-  acceptedCallbackSubscription_
-    = listener_->registerAcceptedCallback(
-        base::BindRepeating(
-          &ExampleServer::onAccepted
-          , base::Unretained(this)
-        )
-      );
+  listener_->registerAcceptedCallback(
+    base::BindRepeating(
+      &ExampleServer::onAccepted
+      , base::Unretained(this)
+    )
+  );
 
 #if defined(SIGQUIT)
   signals_set_.add(SIGQUIT);
@@ -342,15 +341,15 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors()
 }
 
 void ExampleServer::onAccepted(
-  util::ConstCopyWrapper<ws::Listener*>&& listenerWrapper
-  , ws::Listener::ErrorCode& ec
-  , ws::Listener::SocketType& socket
-  , ws::Listener::StrandType* perConnectionStrand
+  util::UnownedPtr<ws::Listener>&& listenerWrapper
+  , util::UnownedRef<ws::Listener::ErrorCode> ec
+  , util::UnownedRef<ws::Listener::SocketType> socket
+  , util::UnownedPtr<ws::Listener::StrandType> perConnectionStrand
   , util::ScopedCleanup& scopedDeallocateStrand)
 {
   LOG_CALL(VLOG(9));
 
-  ignore_result(listenerWrapper.Take());
+  ignore_result(listenerWrapper);
 
   // |scopedDeallocateStrand| can be used to control
   // lifetime of |perConnectionStrand|
@@ -360,11 +359,11 @@ void ExampleServer::onAccepted(
     && perConnectionStrand->running_in_this_thread());
 
   // Handle the error, if any
-  if (ec)
+  if (ec.Ref())
   {
     LOG(ERROR)
       << "Listener failed to accept new connection with error: "
-      << ec.message();
+      << ec->message();
     return;
   }
 
@@ -374,9 +373,8 @@ void ExampleServer::onAccepted(
   /// \todo replace unique_ptr with entt registry (pool)
   std::unique_ptr<http::DetectChannel> detectChannel
     = std::make_unique<http::DetectChannel>(
-    ctx_
-    , std::move(socket)
-  );
+        std::move(socket.Ref())
+    );
 
   // we will |std::move(detectChannel)|, so cache pointer to object
   http::DetectChannel* detectChannelPtr
@@ -459,19 +457,16 @@ void ExampleServer::onAccepted(
 
 void ExampleServer::onDetected(
   base::OnceClosure&& deleteDetectorClosure
-  , util::ConstCopyWrapper<http::DetectChannel*>&& detectChannelWrapper
+  , util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper
   , http::DetectChannel::ErrorCode& ec
-  , util::ConstCopyWrapper<bool>&& handshakeResultWrapper
+  , util::MoveOnly<const bool>&& handshakeResultWrapper
   , http::DetectChannel::StreamType&& stream
   , http::DetectChannel::MessageBufferType&& buffer)
 {
   LOG_CALL(VLOG(9));
 
-  const http::DetectChannel* detectChannel
-    = detectChannelWrapper.Take();
-
-  DCHECK(detectChannel
-    && detectChannel->isDetectingInThisThread());
+  DCHECK(detectChannelWrapper
+    && detectChannelWrapper->isDetectingInThisThread());
 
   // Handle the error, if any
   if (ec)
@@ -482,7 +477,7 @@ void ExampleServer::onDetected(
     return;
   }
 
-  const bool handshakeResult = handshakeResultWrapper.Take();
+  const bool handshakeResult = handshakeResultWrapper.TakeConst();
 
   if(handshakeResult) {
     LOG(INFO)
@@ -760,12 +755,12 @@ ExampleServer::~ExampleServer()
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  DCHECK(THREAD_SAFE(ioc_.stopped()));
-
   DCHECK(
+    THREAD_SAFE(ioc_.stopped())
     /// \note not generally thread-safe,
     /// but assumed to be thread-safe here
-    THREAD_SAFE(destructionPromises_).empty());
+    /// because |ioc_.stopped()|
+    && THREAD_SAFE(destructionPromises_).empty());
 }
 
 int main(int argc, char* argv[])
@@ -816,6 +811,7 @@ int main(int argc, char* argv[])
   LOG(INFO)
     << "server is quitting";
 
+  /// \todo remove after ASAN tests
   /*{
     // divide by zero
     int n = 42;

@@ -3,6 +3,11 @@
 #include <base/macros.h> // IWYU pragma: keep
 #include <base/compiler_specific.h> // IWYU pragma: keep
 
+// documents that value must be created/modified/used
+// only from one base::Sequence
+/// \todo integrate with thread-safety annotations
+#define LIVES_ON(sequenceChecker)
+
 // similar to __attribute__((warn_unused_result))
 /// \usage (note order restriction)
 /// [[nodisard]] extern bool foo();
@@ -52,7 +57,7 @@
 // Usually it means that value is guarded by some mutex lock.
 #define THREAD_SAFE(x) x
 
-/// \note prefer |CopyWrapper| to |COPIED|
+/// \note prefer |MoveOnly| to |COPIED|
 // Documents that value will be copied.
 /// \note use it to annotate arguments that are bound to function
 #define COPIED(x) x
@@ -79,6 +84,7 @@
 // i.e. that object lifetime not conrolled.
 // If you found lifetime-related bug,
 // than you can `grep-search` for |UNOWNED_LIFETIME| in code.
+/// \note see also |UnownedPtr|
 /// \note use it to annotate arguments that are bound to function
 /// \example
 ///   beast::async_detect_ssl(
@@ -192,4 +198,12 @@
 #endif // !defined(ALLOW_THIS_IN_INITIALIZER_LIST)
 
 #endif  // COMPILER_MSVC
+
+// Macro used to simplify the task of deleting the new and new[]
+// operators i.e, disallow heap allocations.
+/// \note accepts |ClassName| argument
+/// for documentation purposes and to avoid copy-n-paste errors
+#define DISALLOW_NEW_OPERATOR(ClassName)                         \
+  static void* operator new(size_t) = delete;   \
+  static void* operator new[](size_t) = delete
 

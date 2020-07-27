@@ -2,6 +2,7 @@
 
 #include "flexnet/util/macros.hpp"
 #include "flexnet/util/wrappers.hpp"
+#include "flexnet/util/unowned_ptr.h"
 
 #include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>
@@ -57,41 +58,29 @@ public:
   using AllocateStrandCallback
     = base::RepeatingCallback<
         bool(
-          StrandType** strand
-          , IoContext& ioc
-          , util::ConstCopyWrapper<Listener*>&&)
+          util::UnownedRef<StrandType*> strand
+          , util::UnownedRef<IoContext> ioc
+          , util::UnownedPtr<Listener>&&)
       >;
 
   using DeallocateStrandCallback
     = base::RepeatingCallback<
         bool(
-          StrandType** strand
-          , util::ConstCopyWrapper<Listener*>&&)
+          StrandType*&& strand
+          , util::UnownedPtr<Listener>&&)
       >;
 
   using AcceptedCallback
     = base::RepeatingCallback<
         void(
-          util::ConstCopyWrapper<Listener*>&&
-          , ErrorCode& ec
-          , SocketType& socket
-          , StrandType* perConnectionStrand
+          util::UnownedPtr<Listener>&&
+          , util::UnownedRef<ErrorCode> ec
+          , util::UnownedRef<SocketType> socket
+          , COPIED(util::UnownedPtr<StrandType> perConnectionStrand)
           // |scopedDeallocateStrand| can be used to control
           // lifetime of |perConnectionStrand|
           , util::ScopedCleanup& scopedDeallocateStrand)
       >;
-
-  using AcceptedCallbackList
-    = base::CallbackList<
-        void(
-          util::ConstCopyWrapper<Listener*>&&
-          , ErrorCode& ec
-          , SocketType& socket
-          , StrandType* perConnectionStrand
-          // |scopedDeallocateStrand| can be used to control
-          // lifetime of |perConnectionStrand|
-          , util::ScopedCleanup& scopedDeallocateStrand)
-       >;
 
   using StatusPromise
     = base::Promise<util::Status, base::NoReject>;
@@ -101,8 +90,8 @@ public:
 
 public:
   Listener(
-    IoContext& ioc
-    , const EndpointType& endpoint
+    util::UnownedPtr<IoContext>&& ioc
+    , EndpointType&& endpoint
     , AllocateStrandCallback&& allocateStrandCallback
     , DeallocateStrandCallback&& deallocateStrandCallback);
 
@@ -139,9 +128,7 @@ public:
   MUST_USE_RETURN_VALUE
   ::util::Status stopAcceptor();
 
-  MUST_USE_RETURN_VALUE
-  std::unique_ptr<AcceptedCallbackList::Subscription>
-  registerAcceptedCallback(const AcceptedCallback& cb);
+  void registerAcceptedCallback(const AcceptedCallback& cb);
 
   MUST_USE_RETURN_VALUE
   base::WeakPtr<Listener> weakSelf() const noexcept
@@ -171,7 +158,7 @@ private:
   AcceptorType acceptor_;
 
   // Provides I/O functionality
-  IoContext& ioc_;
+  util::UnownedPtr<IoContext> ioc_;
 
   // acceptor will listen that address
   EndpointType endpoint_;
@@ -180,13 +167,9 @@ private:
   // i.e. acceptor_.open(), acceptor_.close(), etc.
   StrandType acceptorStrand_;
 
-  // Different objects (metrics, cache, database, etc.) may want to
-  // track creation of new connections.
-  // |base::CallbackList| allows to de-register callback
-  // when some of these objects destruct.
   /// \note take care of thread-safety
-  /// i.e. change |acceptedCallbackList_| only when acceptor stopped
-  CAUTION_NOT_THREAD_SAFE(AcceptedCallbackList) acceptedCallbackList_;
+  /// i.e. change |acceptedCallback_| only when acceptor stopped
+  CAUTION_NOT_THREAD_SAFE(AcceptedCallback) acceptedCallback_;
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
@@ -212,6 +195,9 @@ private:
 
   /// \note allow API users to use custom allocators
   /// (like memory pool) to increase performance
+  /// \note usually it is same as
+  /// StrandType* perConnectionStrand
+  ///   = new (std::nothrow) StrandType(ioc_);
   AllocateStrandCallback allocateStrandCallback_;
 
   /// \note allow API users to use custom allocators
