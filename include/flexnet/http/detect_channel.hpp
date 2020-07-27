@@ -3,7 +3,8 @@
 #include "flexnet/util/limited_tcp_stream.hpp"
 #include "flexnet/util/macros.hpp"
 #include "flexnet/util/wrappers.hpp"
-#include "flexnet/util/unowned_ptr.h"
+#include "flexnet/util/unowned_ptr.hpp"
+#include "flexnet/util/unowned_ref.hpp"
 
 #include <base/callback.h>
 #include <base/macros.h>

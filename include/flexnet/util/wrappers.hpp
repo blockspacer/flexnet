@@ -25,12 +25,12 @@ namespace util {
  * }
  */
 template<class U>
-struct dependent_false : std::false_type {};
+struct dependent_false : std::false_type {}; /// \todo move to separate file
 
 // similar to dependent_false
 // used to print type names in static_assert
 template<typename... typeclass>
-struct typename_false : std::false_type {};
+struct typename_false : std::false_type {}; /// \todo move to separate file
 
 /// \todo add ASAN support like in |UnownedPtr|
 // template<typename T>

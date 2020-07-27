@@ -1,7 +1,8 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 
 #include "flexnet/util/macros.hpp"
-#include "flexnet/util/unowned_ptr.h"
+#include "flexnet/util/unowned_ptr.hpp"
+#include "flexnet/util/unowned_ref.hpp"
 
 #include <base/bind.h>
 #include <base/location.h>

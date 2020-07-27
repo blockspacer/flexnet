@@ -2,7 +2,8 @@
 
 #include "flexnet/util/macros.hpp"
 #include "flexnet/util/wrappers.hpp"
-#include "flexnet/util/unowned_ptr.h"
+#include "flexnet/util/unowned_ptr.hpp"
+#include "flexnet/util/unowned_ref.hpp"
 
 #include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>

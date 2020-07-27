@@ -2,7 +2,8 @@
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/util/macros.hpp>
 #include <flexnet/util/wrappers.hpp>
-#include <flexnet/util/unowned_ptr.h>
+#include <flexnet/util/unowned_ptr.hpp>
+#include <flexnet/util/unowned_ref.hpp>
 
 #include <base/path_service.h>
 #include <base/optional.h>
