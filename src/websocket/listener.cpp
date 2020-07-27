@@ -10,8 +10,8 @@
 #include <base/sequence_checker.h>
 
 #include <basis/promise/post_promise.h>
-#include <basis/status/status_macros.hpp>
 #include <basis/scoped_cleanup.hpp>
+#include <basis/status/status_macros.hpp>
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/error.hpp>
@@ -25,10 +25,10 @@
 
 #include <boost/system/error_code.hpp>
 
+#include <algorithm>
+#include <functional>
 #include <iostream>
 #include <memory>
-#include <functional>
-#include <algorithm>
 
 namespace flexnet {
 namespace ws {

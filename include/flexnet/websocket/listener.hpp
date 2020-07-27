@@ -5,21 +5,21 @@
 
 #include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>
-#include <base/sequence_checker.h>
 #include <base/memory/weak_ptr.h>
+#include <base/sequence_checker.h>
 
 #include <basis/promise/promise.h>
-#include <basis/status/status.hpp>
 #include <basis/scoped_cleanup.hpp> // IWYU pragma: keep
+#include <basis/status/status.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/io_service.hpp>
-#include <boost/asio/strand.hpp> // IWYU pragma: keep
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/strand.hpp> // IWYU pragma: keep
 #include <boost/beast/core.hpp>
 
-#include <memory>
 #include <atomic>
+#include <memory>
 
 namespace util { template <class T> class UnownedRef; }
 

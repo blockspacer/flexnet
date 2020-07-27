@@ -6,13 +6,13 @@
 
 #include <base/callback.h>
 #include <base/macros.h>
-#include <base/sequence_checker.h>
 #include <base/memory/weak_ptr.h>
+#include <base/sequence_checker.h>
 
 #include <boost/beast/core.hpp>
 
-#include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/executor.hpp>
+#include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp> // IWYU pragma: keep
 
 #include <basis/promise/promise.h>

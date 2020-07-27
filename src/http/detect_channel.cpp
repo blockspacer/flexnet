@@ -1,8 +1,8 @@
 #include "flexnet/http/detect_channel.hpp" // IWYU pragma: associated
 
 #include "flexnet/util/macros.hpp"
-#include "flexnet/util/unowned_ptr.hpp"
 #include "flexnet/util/move_only.hpp"
+#include "flexnet/util/unowned_ptr.hpp"
 
 #include <base/location.h>
 #include <base/logging.h>
@@ -12,9 +12,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <functional>
 #include <ratio>
 #include <type_traits>
-#include <functional>
 
 namespace beast = boost::beast;
 

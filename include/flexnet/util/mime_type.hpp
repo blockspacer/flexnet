@@ -6,8 +6,8 @@
 #include <base/sequence_checker.h>
 
 #include <functional>
-#include <string>
 #include <map>
+#include <string>
 
 namespace flexnet {
 

@@ -2,8 +2,8 @@
 
 #include "flexnet/util/macros.hpp"
 
-#include <base/sequence_checker.h>
 #include <base/logging.h>
+#include <base/sequence_checker.h>
 
 #include <type_traits>
 

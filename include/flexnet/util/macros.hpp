@@ -1,7 +1,7 @@
 #pragma once
 
-#include <base/macros.h> // IWYU pragma: keep
 #include <base/compiler_specific.h> // IWYU pragma: keep
+#include <base/macros.h> // IWYU pragma: keep
 
 // documents that moved-from object will be in the same state
 // as if constructed using moved-from object the constructor.

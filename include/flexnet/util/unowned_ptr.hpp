@@ -6,8 +6,8 @@
 
 #include "flexnet/util/macros.hpp"
 
-#include <base/macros.h>
 #include <base/logging.h>
+#include <base/macros.h>
 #include <base/threading/thread_collision_warner.h>
 
 #include <cstddef>
