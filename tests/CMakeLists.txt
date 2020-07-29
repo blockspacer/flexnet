@@ -33,7 +33,7 @@ get_target_property (FakeIt_IMPORTED_LOCATION CONAN_PKG::FakeIt INTERFACE_INCLUD
 message( "CONAN_PKG::FakeIt=${FakeIt_IMPORTED_LOCATION}" )
 
 list(APPEND TESTS_3DPARTY_LIBS
-    CONAN_PKG::gtest
+    CONAN_PKG::conan_gtest
     #TODO: doctest
     #CONAN_PKG::doctest
     CONAN_PKG::FakeIt
@@ -97,7 +97,7 @@ macro(set_test_compile_options target)
     CXX_EXTENSIONS OFF
     CMAKE_CXX_STANDARD_REQUIRED ON
     CMAKE_CXX_FLAGS "-frtti /std:c++latest"
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/${CMAKE_BUILD_TYPE}/tests )
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR} )
 endmacro()
 
 macro(tests_add_executable target source_list TEST_ARGS TEST_LIB)
@@ -252,20 +252,21 @@ if(${ROOT_PROJECT_NAME}_BUILD_TESTS)
   )
   tests_add_executable(${ROOT_PROJECT_NAME}-fakeit
     "${fakeit_deps}" "${CATCH2_TEST_ARGS}" "${test_main_catch}")
+
+  #add_to_tests_list(utils)
+
+  #tests_add_executable(check_all ${UNIT_TEST_SOURCE_LIST} ${GTEST_TEST_ARGS})
+  #message(FATAL_ERROR ${UNIT_TEST_SOURCE_LIST})
+
+  message(STATUS "flexlib: copying ${CMAKE_CURRENT_SOURCE_DIR}/data")
+  # "gmock" is one of test program names
+  add_custom_command( TARGET ${ROOT_PROJECT_NAME}-gmock POST_BUILD
+                      COMMAND ${CMAKE_COMMAND} -E copy_directory
+                          ${CMAKE_CURRENT_SOURCE_DIR}/data
+                          ${CMAKE_CURRENT_BINARY_DIR} )
+
+  enable_testing()
 endif()
-
-#add_to_tests_list(utils)
-
-#tests_add_executable(check_all ${UNIT_TEST_SOURCE_LIST} ${GTEST_TEST_ARGS})
-#message(FATAL_ERROR ${UNIT_TEST_SOURCE_LIST})
-
-message(STATUS "flexlib: copying ${CMAKE_CURRENT_SOURCE_DIR}/data")
-# "gmock" is one of test program names
-add_custom_command( TARGET ${ROOT_PROJECT_NAME}-gmock POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_directory
-                        ${CMAKE_CURRENT_SOURCE_DIR}/data ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/tests/data )
-
-enable_testing()
 
 # Run ALL tests with verbose output
 # Usage: cmake --build build --target run_all_tests

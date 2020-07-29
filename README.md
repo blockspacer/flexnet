@@ -47,6 +47,14 @@ Use `--vmodule`.
 Use `enable_asan` or `enable_ubsan`, etc.
 
 ```bash
+export CC=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*bin/clang" | head -n 1)
+
+export CXX=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*bin/clang++" | head -n 1)
+
+# must exist
+file $(dirname $CXX)/../lib/clang/10.0.1/lib/linux/libclang_rt.tsan_cxx-x86_64.a
+
+# NOTE: NO `--profile` argument cause we use `CXX` env. var
 # NOTE: change `build_type=Debug` to `build_type=Release` in production
 CONAN_REVISIONS_ENABLED=1 \
     CONAN_VERBOSE_TRACEBACK=1 \
@@ -57,9 +65,18 @@ CONAN_REVISIONS_ENABLED=1 \
         conan/stable \
         -s build_type=Debug \
         -s llvm_tools:build_type=Release \
-        --profile clang \
+        --build chromium_base \
+        --build chromium_tcmalloc \
+        --build basis \
+        --build flexnet \
         --build missing \
+        --build cascade \
         -s llvm_tools:build_type=Release \
+        -o llvm_tools:enable_tsan=True \
+        -o llvm_tools:include_what_you_use=False \
+        -s llvm_tools:compiler=clang \
+        -s llvm_tools:compiler.version=6.0 \
+        -s llvm_tools:compiler.libcxx=libstdc++11 \
         -e chromium_base:enable_tests=True \
         -o chromium_base:enable_tsan=True \
         -e chromium_base:enable_llvm_tools=True \
@@ -67,12 +84,122 @@ CONAN_REVISIONS_ENABLED=1 \
         -e basis:enable_tests=True \
         -o basis:enable_tsan=True \
         -e basis:enable_llvm_tools=True \
+        -e flexnet:compile_with_llvm_tools=True \
+        -e boost:enable_llvm_tools=True \
+        -o boost:enable_tsan=True \
+        -e boost:compile_with_llvm_tools=True \
+        -s compiler=clang \
+        -s compiler.version=10 \
+        -s compiler.libcxx=libc++ \
         -e flexnet:enable_tests=True \
         -o flexnet:enable_tsan=True \
         -e flexnet:enable_llvm_tools=True \
         -o flexnet:shared=False \
         -o chromium_tcmalloc:use_alloc_shim=False \
         -o openssl:shared=True
+```
+
+Example for local builds:
+
+```bash
+# NOTE: also re-build all deps with sanitizers enabled
+
+mkdir build_tsan
+
+cd build_tsan
+
+export TSAN_OPTIONS="handle_segv=0:disable_coredump=0:abort_on_error=1:report_thread_leaks=0"
+
+# make sure that env. var. TSAN_SYMBOLIZER_PATH points to llvm-symbolizer
+# conan package llvm_tools provides llvm-symbolizer
+# and prints its path during cmake configure step
+# echo $TSAN_SYMBOLIZER_PATH
+export TSAN_SYMBOLIZER_PATH=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*bin/llvm-symbolizer" | head -n 1)
+
+export CC=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*bin/clang" | head -n 1)
+
+export CXX=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*bin/clang++" | head -n 1)
+
+# must exist
+file $(dirname $CXX)/../lib/clang/10.0.1/lib/linux/libclang_rt.tsan_cxx-x86_64.a
+
+# NOTE: NO `--profile` argument cause we use `CXX` env. var
+# NOTE: change `build_type=Debug` to `build_type=Release` in production
+CONAN_REVISIONS_ENABLED=1 \
+    CONAN_VERBOSE_TRACEBACK=1 \
+    CONAN_PRINT_RUN_COMMANDS=1 \
+    CONAN_LOGGING_LEVEL=10 \
+    GIT_SSL_NO_VERIFY=true \
+    conan install .. \
+        conan/stable \
+        -s build_type=Debug \
+        -s llvm_tools:build_type=Release \
+        --build chromium_base \
+        --build basis \
+        --build flexnet \
+        --build missing \
+        --build cascade \
+        -s llvm_tools:build_type=Release \
+        -o llvm_tools:enable_tsan=True \
+        -o llvm_tools:include_what_you_use=False \
+        -s llvm_tools:compiler=clang \
+        -s llvm_tools:compiler.version=6.0 \
+        -s llvm_tools:compiler.libcxx=libstdc++11 \
+        -e chromium_base:enable_tests=True \
+        -o chromium_base:enable_tsan=True \
+        -e chromium_base:enable_llvm_tools=True \
+        -o chromium_base:use_alloc_shim=False \
+        -e basis:enable_tests=True \
+        -o basis:enable_tsan=True \
+        -e basis:enable_llvm_tools=True \
+        -e flexnet:compile_with_llvm_tools=True \
+        -e chromium_base:compile_with_llvm_tools=True \
+        -e basis:compile_with_llvm_tools=True \
+        -e boost:enable_llvm_tools=True \
+        -o boost:enable_tsan=True \
+        -e boost:compile_with_llvm_tools=True \
+        -s compiler=clang \
+        -s compiler.version=10 \
+        -s compiler.libcxx=libc++ \
+        -e flexnet:enable_tests=True \
+        -o flexnet:enable_tsan=True \
+        -e flexnet:enable_llvm_tools=True \
+        -o flexnet:shared=False \
+        -o chromium_tcmalloc:use_alloc_shim=False \
+        -o openssl:shared=True
+
+# NOTE: change `build_type=Debug` to `build_type=Release` in production
+export build_type=Debug
+
+# optional
+# remove old CMakeCache
+(rm CMakeCache.txt || true)
+
+# NOTE: -DENABLE_TSAN=ON
+cmake -E time cmake .. \
+  -DENABLE_TSAN=ON \
+  -DENABLE_TESTS=TRUE \
+  -DBUILD_SHARED_LIBS=FALSE \
+  -DCONAN_AUTO_INSTALL=OFF \
+  -DCMAKE_BUILD_TYPE=${build_type} \
+  -DCOMPILE_WITH_LLVM_TOOLS=TRUE
+
+# remove old build artifacts
+rm -rf bin
+find . -iname '*.o' -exec rm {} \;
+find . -iname '*.a' -exec rm {} \;
+find . -iname '*.dll' -exec rm {} \;
+find . -iname '*.lib' -exec rm {} \;
+
+# build code
+cmake -E time cmake --build . \
+  --config ${build_type} \
+  -- -j8
+
+# run unit tests for flexnet
+cmake -E time cmake --build . \
+  --config ${build_type} \
+  --target flexnet_run_all_tests
 ```
 
 ## For contibutors: conan editable mode

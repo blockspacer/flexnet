@@ -434,14 +434,11 @@ void Listener::onAccept(ErrorCode ec
     logFailure(ec, "accept");
   }
 
-  /// \note we assume that |is_open|
-  /// is thread-safe here
-  /// (but not thread-safe in general)
-  if (CAUTION_NOT_THREAD_SAFE(!acceptor_.is_open()))
+  if (!socket.is_open())
   {
     VLOG(9)
       << "unable to accept new connections"
-      " on closed listener";
+         " on closed socket";
 
     return; // stop onAccept recursion
   }

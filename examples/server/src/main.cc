@@ -197,6 +197,12 @@ class ExampleServer
   GLOBAL_THREAD_SAFETY()
   base::Thread asio_thread_2{"asio_thread_2"};
 
+  GLOBAL_THREAD_SAFETY()
+  base::Thread asio_thread_3{"asio_thread_3"};
+
+  GLOBAL_THREAD_SAFETY()
+  base::Thread asio_thread_4{"asio_thread_4"};
+
   SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(ExampleServer);
@@ -554,6 +560,57 @@ void ExampleServer::runLoop()
     DCHECK(asio_thread_2.IsRunning());
   }
 
+  {
+    base::Thread::Options options;
+    asio_thread_3.StartWithOptions(options);
+    asio_thread_3.task_runner()->PostTask(FROM_HERE
+      , base::BindRepeating(
+          [
+          ](
+            boost::asio::io_context& ioc
+          ){
+            if(ioc.stopped()) {
+              LOG(INFO)
+                << "skipping update of stopped io context";
+              return;
+            }
+            /// \note loops forever and
+            /// blocks |task_runner->PostTask| for that thread!
+            ioc.run();
+          }
+          , REFERENCED(ioc_)
+      )
+    );
+    asio_thread_3.WaitUntilThreadStarted();
+    DCHECK(asio_thread_3.IsRunning());
+  }
+
+  {
+    base::Thread::Options options;
+    asio_thread_4.StartWithOptions(options);
+    asio_thread_4.task_runner()->PostTask(FROM_HERE
+      , base::BindRepeating(
+          [
+          ](
+            boost::asio::io_context& ioc
+          ){
+            if(ioc.stopped()) {
+              LOG(INFO)
+                << "skipping update of stopped io context";
+              return;
+            }
+            /// \note loops forever and
+            /// blocks |task_runner->PostTask| for that thread!
+            ioc.run();
+          }
+          , REFERENCED(ioc_)
+      )
+    );
+    asio_thread_4.WaitUntilThreadStarted();
+    DCHECK(asio_thread_4.IsRunning());
+  }
+
+#if 0 /// \todo TSAN report errors with PeriodicTaskExecutor
   DCHECK(base::ThreadPool::GetInstance());
   scoped_refptr<base::SequencedTaskRunner> asio_task_runner_1 =
     base::ThreadPool::GetInstance()->
@@ -664,6 +721,7 @@ void ExampleServer::runLoop()
 
   periodicAsioExecutor_3.startPeriodicTimer(
     base::TimeDelta::FromMilliseconds(35));
+#endif // 0
 
   run_loop_.Run();
 
@@ -672,6 +730,12 @@ void ExampleServer::runLoop()
 
   asio_thread_2.Stop();
   DCHECK(!asio_thread_2.IsRunning());
+
+  asio_thread_3.Stop();
+  DCHECK(!asio_thread_3.IsRunning());
+
+  asio_thread_4.Stop();
+  DCHECK(!asio_thread_4.IsRunning());
 }
 
 ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor()
