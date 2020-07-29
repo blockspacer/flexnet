@@ -236,7 +236,7 @@
 #define THREAD_ANNOTATION_ATTRIBUTE__(x) __attribute__((x))
 #else
 #define THREAD_ANNOTATION_ATTRIBUTE__(x)  // no-op
-#endif
+#endif // defined(__clang__)
 
 #endif  // !defined(THREAD_ANNOTATION_ATTRIBUTE__)
 
@@ -323,4 +323,30 @@
 #ifndef ASSERT_SHARED_LOCK
 #define ASSERT_SHARED_LOCK(...) \
   THREAD_ANNOTATION_ATTRIBUTE__(assert_shared_lock(__VA_ARGS__))
+#endif
+
+// BAD_CALL_IF()
+//
+// Used on a function overload to trap bad calls: any call that matches the
+// overload will cause a compile-time error. This macro uses a clang-specific
+// "enable_if" attribute, as described at
+// http://clang.llvm.org/docs/AttributeReference.html#enable-if
+//
+// Overloads which use this macro should be bracketed by
+// `#ifdef BAD_CALL_IF`.
+//
+// Example:
+//
+//   int isdigit(int c);
+//   #ifdef BAD_CALL_IF
+//   int isdigit(int c)
+//     BAD_CALL_IF(c <= -1 || c > 255,
+//                       "'c' must have the value of an unsigned char or EOF");
+//   #endif // BAD_CALL_IF
+
+#if defined(__clang__)
+# if __has_attribute(enable_if)
+#  define BAD_CALL_IF(expr, msg) \
+    __attribute__((enable_if(expr, "Bad call trap"), unavailable(msg)))
+# endif
 #endif
