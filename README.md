@@ -244,6 +244,221 @@ conan editable remove \
   flexnet/master@conan/stable
 ```
 
+## For contibutors: conan workspace with sanitizers
+
+Allows to build multiple projects at once, it just creates `CMakeLists.txt` with `add_subdirectory` pointing to each package folder.
+
+NOTE: You can open workspace in IDE as usual CMake based project (change build directory to WorkspaceProject path)!
+
+See for details [https://docs.conan.io/en/latest/developing_packages/workspaces.html](https://docs.conan.io/en/latest/developing_packages/workspaces.html)
+
+For example, we want to build both flexnet and basis at the same time (flexnet requires basis).
+
+```bash
+# change ~ to desired build folder
+cd ~
+
+# Replace paths to yours!
+# Make sure each project in NOT in editable mode!
+cat <<EOF > ~/flexnetws.yml
+editables:
+    chromium_base/master@conan/stable:
+        path: /home/..../chromium_base_conan
+    basis/master@conan/stable:
+        path: /home/..../basis
+    flexnet/master@conan/stable:
+        path: /home/..../flexnet
+layout: layout_flex
+workspace_generator: cmake
+root:
+    - basis/master@conan/stable
+    - flexnet/master@conan/stable
+EOF
+
+cat <<EOF > ~/layout_flex
+# This helps to define the location of CMakeLists.txt within package
+[source_folder]
+.
+
+# This defines where the conanbuildinfo.cmake will be written to
+[build_folder]
+build/{{settings.build_type}}
+EOF
+```
+
+```bash
+export CC=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*bin/clang" | head -n 1)
+
+export CXX=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*bin/clang++" | head -n 1)
+
+# must exist
+file $(dirname $CXX)/../lib/clang/10.0.1/lib/linux/libclang_rt.tsan_cxx-x86_64.a
+
+# see https://github.com/google/sanitizers/wiki/SanitizerCommonFlags
+export MSAN_OPTIONS="poison_in_dtor=1:fast_unwind_on_malloc=0:check_initialization_order=true:handle_segv=0:detect_leaks=1:detect_stack_use_after_return=1:disable_coredump=0:abort_on_error=1"
+# you can also set LSAN_OPTIONS=suppressions=suppr.txt
+
+# make sure that env. var. MSAN_SYMBOLIZER_PATH points to llvm-symbolizer
+# conan package llvm_tools provides llvm-symbolizer
+# and prints its path during cmake configure step
+# echo $MSAN_SYMBOLIZER_PATH
+export MSAN_SYMBOLIZER_PATH=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*bin/llvm-symbolizer" | head -n 1)
+
+export CFLAGS="-fsanitize=memory -fuse-ld=lld -stdlib=libc++ -lc++ -lc++abi -lunwind"
+
+export CXXFLAGS="-fsanitize=memory -fuse-ld=lld -stdlib=libc++ -lc++ -lc++abi -lunwind"
+
+export LDFLAGS="-stdlib=libc++ -lc++ -lc++abi -lunwind"
+
+mkdir build_flexnet
+
+cd build_flexnet
+
+cat <<EOF > CMakeLists.txt
+cmake_minimum_required(VERSION 3.0)
+
+project(WorkspaceProject)
+
+set(chromium_base_LOCAL_BUILD TRUE CACHE BOOL "chromium_base_LOCAL_BUILD")
+
+# path to Find*.cmake file
+list(APPEND CMAKE_MODULE_PATH /home/..../chromium_base_conan/cmake)
+
+set(basis_LOCAL_BUILD TRUE CACHE BOOL "basis_LOCAL_BUILD")
+
+# path to Find*.cmake file
+list(APPEND CMAKE_MODULE_PATH /home/..../basis/cmake)
+
+set(flexnet_LOCAL_BUILD TRUE CACHE BOOL "flexnet_LOCAL_BUILD")
+
+# path to Find*.cmake file
+list(APPEND CMAKE_MODULE_PATH /home/..../flexnet/cmake)
+
+include(\${CMAKE_BINARY_DIR}/conanworkspace.cmake)
+conan_workspace_subdirectories()
+
+add_dependencies(basis chromium_base-static)
+
+add_dependencies(flexnet basis)
+EOF
+
+# must contain `include(${CMAKE_BINARY_DIR}/conanworkspace.cmake)` without `\`
+cat CMakeLists.txt
+
+# combines options from all projects
+conan workspace install \
+  ../flexnetws.yml \
+        -s build_type=Debug \
+        -s llvm_tools:build_type=Release \
+        --build chromium_base \
+        --build basis \
+        --build missing \
+        --build cascade \
+        -s llvm_tools:build_type=Release \
+        -o llvm_tools:include_what_you_use=False \
+        -o llvm_tools:enable_msan=True \
+        -s llvm_tools:compiler=clang \
+        -s llvm_tools:compiler.version=6.0 \
+        -s llvm_tools:compiler.libcxx=libstdc++11 \
+        -e chromium_base:enable_tests=True \
+        -e chromium_base:enable_llvm_tools=True \
+        -o chromium_base:use_alloc_shim=False \
+        -o chromium_base:enable_msan=True \
+        -e chromium_base:compile_with_llvm_tools=True \
+        -e basis:enable_tests=True \
+        -e basis:enable_llvm_tools=True \
+        -o basis:enable_msan=True \
+        -e basis:compile_with_llvm_tools=True \
+        -e flexnet:compile_with_llvm_tools=True \
+        -o flexnet:enable_msan=True \
+        -e flexnet:enable_tests=True \
+        -e flexnet:enable_llvm_tools=True \
+        -o flexnet:shared=False \
+        -s compiler=clang \
+        -s compiler.version=10 \
+        -s compiler.libcxx=libc++ \
+        -o chromium_tcmalloc:use_alloc_shim=False \
+        -e boost:enable_llvm_tools=True \
+        -o boost:enable_msan=True \
+        -e boost:compile_with_llvm_tools=True \
+        -o openssl:shared=True \
+        -e conan_gtest:compile_with_llvm_tools=True \
+        -e conan_gtest:enable_llvm_tools=True \
+        -e chromium_libxml:compile_with_llvm_tools=True \
+        -e chromium_libxml:enable_llvm_tools=True \
+        -e chromium_icu:compile_with_llvm_tools=True \
+        -e chromium_icu:enable_llvm_tools=True \
+        -e chromium_zlib:compile_with_llvm_tools=True \
+        -e chromium_zlib:enable_llvm_tools=True \
+        -e chromium_libevent:compile_with_llvm_tools=True \
+        -e chromium_libevent:enable_llvm_tools=True \
+        -e chromium_xdg_user_dirs:compile_with_llvm_tools=True \
+        -e chromium_xdg_user_dirs:enable_llvm_tools=True \
+        -e chromium_xdg_mime:compile_with_llvm_tools=True \
+        -e chromium_xdg_mime:enable_llvm_tools=True \
+        -e chromium_dynamic_annotations:compile_with_llvm_tools=True \
+        -e chromium_dynamic_annotations:enable_llvm_tools=True \
+        -e chromium_modp_b64:compile_with_llvm_tools=True \
+        -e chromium_modp_b64:enable_llvm_tools=True \
+        -e chromium_compact_enc_det:compile_with_llvm_tools=True \
+        -e chromium_compact_enc_det:enable_llvm_tools=True \
+        -e corrade:compile_with_llvm_tools=True \
+        -e corrade:enable_llvm_tools=True
+```
+
+Build into folder created by `conan workspace install`:
+
+```bash
+# NOTE: change `build_type=Debug` to `build_type=Release` in production
+export build_type=Debug
+
+# optional
+# remove old CMakeCache
+(rm CMakeCache.txt || true)
+
+# NOTE: -DENABLE_MSAN=ON
+cmake -E time cmake . \
+  -DENABLE_MSAN=ON \
+  -DENABLE_TESTS=TRUE \
+  -DBUILD_SHARED_LIBS=FALSE \
+  -DCONAN_AUTO_INSTALL=OFF \
+  -DCMAKE_BUILD_TYPE=${build_type} \
+  -DCOMPILE_WITH_LLVM_TOOLS=TRUE \
+  -DUSE_TEST_SUPPORT=TRUE \
+  -USE_ALLOC_SHIM=FALSE
+
+# remove generated files
+# change paths to yours
+# rm ~/flex_typeclass_plugin/build/Debug/*generated*
+
+# build code
+cmake -E time cmake --build . \
+  --config ${build_type} \
+  -- -j8
+
+# run unit tests for flexnet
+cmake -E time cmake --build . \
+  --config ${build_type} \
+  --target flexnet_run_all_tests
+```
+
+Workspace allows to make quick changes in existing source files.
+
+We use `self.in_local_cache` to detect conan editable mode:
+
+```python
+# Local build
+# see https://docs.conan.io/en/latest/developing_packages/editable_packages.html
+if not self.in_local_cache:
+    self.copy("conanfile.py", dst=".", keep_path=False)
+```
+
+Make sure that all targets have globally unique names.
+
+For example, you can not have in each project target with same name like "test". You can solve that issue by adding project-specific prefix to name of each target like "${ROOT_PROJECT_NAME}-test_main_gtest".
+
+Because `CMAKE_BINARY_DIR` will point to folder created by `conan workspace install` - make sure that you prefer `CMAKE_CURRENT_BINARY_DIR` to `CMAKE_BINARY_DIR` etc.
+
 ## For contibutors: IWYU
 
 Make sure you use `Debug` build with `-e flexnet:enable_llvm_tools=True`

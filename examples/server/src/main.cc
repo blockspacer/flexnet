@@ -764,16 +764,36 @@ int main(int argc, char* argv[])
 
   /// \todo remove after UBSAN tests
   /*
-  */
   int k = 0x7fffffff;
   k += argc;
+  */
 
+  /// \todo remove after UBSAN tests
   /*{
     // divide by zero
     int n = 42;
     int d = 0;
     auto f = n/d;
     LOG(INFO) << f; // do not optimize out
+  }*/
+
+  /// \todo remove after ASAN + LSAN tests
+  // Without the |volatile|, clang optimizes away the next two lines.
+  /*{
+    int* volatile leak = new int[256];  // Leak some memory intentionally.
+    leak[4] = 1;  // Make sure the allocated memory is used.
+    if (leak[4])
+      exit(0);
+  }*/
+
+  /// \todo remove after MSAN tests
+  // use-of-uninitialized-value
+  /*{
+    int *volatile p = (int *)malloc(sizeof(int));
+    *p = 42;
+    free(p);
+    if (*p)
+      exit(0);
   }*/
 
   return
