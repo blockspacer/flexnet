@@ -50,7 +50,7 @@ public:
     : UnownedRef(that.Ref())
   {}
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   UnownedRef(
     UnownedRef&& other)
   {
@@ -64,6 +64,23 @@ public:
       m_pObj = other.Get();
       DCHECK(m_pObj);
     }
+  }
+
+  NOT_THREAD_SAFE_FUNCTION()
+  UnownedRef& operator=(
+    const UnownedRef& that)
+  {
+    DFAKE_SCOPED_LOCK(debug_collision_warner_);
+
+    // can be changed only if not initialized
+    DCHECK(!m_pObj);
+
+    ProbeForLowSeverityLifetimeIssue();
+    if (*this != that) {
+      m_pObj = that.Get();
+      DCHECK(m_pObj);
+    }
+    return *this;
   }
 
   template <
@@ -190,8 +207,6 @@ private:
 
   T* m_pObj = nullptr
     LIVES_ON(debug_collision_warner_);
-
-  DISALLOW_ASSIGN(UnownedRef);
 };
 
 template <typename T, typename U>

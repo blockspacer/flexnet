@@ -53,7 +53,7 @@ Listener::Listener(
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-CAUTION_NOT_THREAD_SAFE()
+NOT_THREAD_SAFE_FUNCTION()
 void Listener::logFailure(
   ErrorCode ec, char const* what)
 {
@@ -129,7 +129,8 @@ void Listener::logFailure(
     << endpoint_.address().to_string();
 
   // sanity check
-  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
+  DCHECK(ALWAYS_THREAD_SAFE()
+    !assume_is_accepting_.load());
 
   acceptor_.open(endpoint_.protocol(), ec);
   if (ec)
@@ -154,7 +155,8 @@ void Listener::logFailure(
   DCHECK(isAcceptingInThisThread());
 
   // sanity check
-  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
+  DCHECK(ALWAYS_THREAD_SAFE()
+    !assume_is_accepting_.load());
 
   ErrorCode ec;
 
@@ -207,7 +209,8 @@ Listener::StatusPromise Listener::configureAndRun()
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
+  DCHECK(ALWAYS_THREAD_SAFE()
+    !assume_is_accepting_.load());
 
   DCHECK(!isAcceptingInThisThread());
   return base::PostPromiseOnAsioExecutor(
@@ -217,8 +220,7 @@ Listener::StatusPromise Listener::configureAndRun()
     , base::BindOnce(
       &Listener::
         configureAndRunAcceptor,
-      SHARED_LIFETIME(
-        shared_from_this()))
+      base::Unretained(this))
     );
 }
 
@@ -229,7 +231,8 @@ Listener::StatusPromise Listener::configureAndRun()
   DCHECK(isAcceptingInThisThread());
 
   // sanity check
-  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
+  DCHECK(ALWAYS_THREAD_SAFE()
+    !assume_is_accepting_.load());
 
   RETURN_IF_ERROR(
     openAcceptor());
@@ -254,7 +257,8 @@ void Listener::doAccept()
 
   DCHECK(isAcceptingInThisThread());
 
-  THREAD_SAFE(assume_is_accepting_) = true;
+  ALWAYS_THREAD_SAFE()
+    assume_is_accepting_ = true;
 
   StrandType* allocatedStrandPtr = nullptr;
 
@@ -294,7 +298,8 @@ void Listener::doAccept()
       *allocatedStrandPtr,
       ::std::bind(
         &Listener::onAccept,
-        SHARED_LIFETIME(shared_from_this())
+        UNOWNED_LIFETIME(
+          this)
         , std::placeholders::_1
         , std::placeholders::_2
         , std::move(allocatedStrandPtr)
@@ -317,7 +322,8 @@ void Listener::doAccept()
     VLOG(9)
       << "unable to stop closed listener";
 
-    THREAD_SAFE(assume_is_accepting_) = false;
+    ALWAYS_THREAD_SAFE()
+      assume_is_accepting_ = false;
 
     return ::util::OkStatus();
   }
@@ -334,7 +340,8 @@ void Listener::doAccept()
     {
       logFailure(ec, "acceptor_cancel");
 
-      THREAD_SAFE(assume_is_accepting_) = isAcceptorOpen();
+      ALWAYS_THREAD_SAFE()
+        assume_is_accepting_ = isAcceptorOpen();
 
       return MAKE_ERROR()
              << "Failed to call acceptor_cancel for acceptor";
@@ -347,7 +354,8 @@ void Listener::doAccept()
     if (ec) {
       logFailure(ec, "acceptor_close");
 
-      THREAD_SAFE(assume_is_accepting_) = isAcceptorOpen();
+      ALWAYS_THREAD_SAFE()
+        assume_is_accepting_ = isAcceptorOpen();
 
       return MAKE_ERROR()
              << "Failed to call acceptor_close for acceptor";
@@ -357,7 +365,8 @@ void Listener::doAccept()
     DCHECK(!isAcceptorOpen());
   }
 
-  THREAD_SAFE(assume_is_accepting_) = false;
+  ALWAYS_THREAD_SAFE()
+    assume_is_accepting_ = false;
 
   return ::util::OkStatus();
 }
@@ -367,7 +376,8 @@ void Listener::registerAcceptedCallback(
 {
   /// \note guarantees thread-safety of |acceptedCallback_|
   /// i.e. change |acceptedCallback_| only when acceptor stopped
-  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
+  DCHECK(ALWAYS_THREAD_SAFE()
+    !assume_is_accepting_.load());
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -380,7 +390,8 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  DCHECK(THREAD_SAFE(assume_is_accepting_).load());
+  DCHECK(ALWAYS_THREAD_SAFE()
+    assume_is_accepting_.load());
 
   DCHECK(!isAcceptingInThisThread());
   return base::PostPromiseOnAsioExecutor(
@@ -389,8 +400,7 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
     , acceptorStrand_
     , base::BindOnce(
       &Listener::stopAcceptor,
-      SHARED_LIFETIME(
-        shared_from_this()))
+      base::Unretained(this))
     );
 }
 
@@ -453,9 +463,10 @@ void Listener::onAccept(ErrorCode ec
   }
 
   // sanity check
-  DCHECK(THREAD_SAFE(assume_is_accepting_).load());
+  DCHECK(ALWAYS_THREAD_SAFE()
+    assume_is_accepting_.load());
 
-  CAUTION_NOT_THREAD_SAFE(acceptedCallback_).Run(
+  NOT_THREAD_SAFE_LIFETIME(acceptedCallback_).Run(
     util::UnownedPtr<Listener>(this)
     , REFERENCED(ec)
     /// \note usually calls |std::move(socket)|
@@ -473,8 +484,7 @@ void Listener::onAccept(ErrorCode ec
         , acceptorStrand_
         , base::BindOnce(
           &Listener::doAccept,
-          SHARED_LIFETIME(
-            shared_from_this()))
+          base::Unretained(this))
         );
   ignore_result(postResult);
 }
@@ -490,11 +500,18 @@ Listener::~Listener()
   /// (but not thread-safe in general)
   /// i.e. do not modify acceptor
   /// from any thread if you reached destructor
-  DCHECK(CAUTION_NOT_THREAD_SAFE(
+  DCHECK(NOT_THREAD_SAFE_LIFETIME(
            !acceptor_.is_open()));
 
   // sanity check
-  DCHECK(!THREAD_SAFE(assume_is_accepting_).load());
+  DCHECK(ALWAYS_THREAD_SAFE()
+    !assume_is_accepting_.load());
+
+  // Callbacks posted on |io_context| can use |this|,
+  // so make sure that |this| outlives |io_context|
+  // (callbacks expected to NOT execute on stopped |io_context|).
+  DCHECK(NOT_THREAD_SAFE_LIFETIME(
+    ioc_->stopped()));
 }
 
 bool Listener::isAcceptorOpen() const

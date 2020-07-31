@@ -33,9 +33,6 @@ namespace ws {
  * Accepts incoming connections and launches the sessions
  **/
 class Listener
-  // We assume that shared_ptr overhead is acceptable for |Listener|
-  // i.e. |Listener| will not be created often
-  : public std::enable_shared_from_this<Listener>
 {
 public:
   using EndpointType
@@ -144,7 +141,7 @@ public:
 private:
   // Report a failure
   /// \note not thread-safe, so keep it for logging purposes only
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   void logFailure(
     ErrorCode ec, char const* what);
 
@@ -161,25 +158,25 @@ private:
 
 private:
   // The acceptor used to listen for incoming connections.
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   AcceptorType acceptor_;
 
   // Provides I/O functionality
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   util::UnownedPtr<IoContext> ioc_;
 
   // acceptor will listen that address
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   EndpointType endpoint_;
 
   // modification of |acceptor_| guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   StrandType acceptorStrand_;
 
   /// \note take care of thread-safety
   /// i.e. change |acceptedCallback_| only when acceptor stopped
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   AcceptedCallback acceptedCallback_;
 
   // base::WeakPtr can be used to ensure that any callback bound
@@ -204,7 +201,7 @@ private:
   // but it is approximation that stores state
   // based on results of previous API calls
   // i.e. it may be NOT same as |acceptor_.is_open()|
-  THREAD_SAFE()
+  ALWAYS_THREAD_SAFE()
   std::atomic<bool> assume_is_accepting_{false};
 
   /// \note allow API users to use custom allocators
@@ -212,12 +209,12 @@ private:
   /// \note usually it is same as
   /// StrandType* perConnectionStrand
   ///   = new (std::nothrow) StrandType(ioc_);
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   AllocateStrandCallback allocateStrandCallback_;
 
   /// \note allow API users to use custom allocators
   /// (like memory pool) to increase performance
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   DeallocateStrandCallback deallocateStrandCallback_;
 
   // check sequence on which class was constructed/destructed/configured

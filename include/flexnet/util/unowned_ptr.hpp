@@ -76,7 +76,7 @@ public:
     ProbeForLowSeverityLifetimeIssue();
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   UnownedPtr(
     UnownedPtr&& other)
   {
@@ -89,7 +89,7 @@ public:
     }
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   UnownedPtr& operator=(
     UnownedPtr&& other)
   {
@@ -103,7 +103,7 @@ public:
     return *this;
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   UnownedPtr& operator=(
     UNOWNED_LIFETIME(T*) that)
   {
@@ -115,7 +115,7 @@ public:
     return *this;
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   UnownedPtr& operator=(
     const UnownedPtr& that)
   {
@@ -129,7 +129,7 @@ public:
     return *this;
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   bool operator==(
     const UnownedPtr& that) const
   {
@@ -138,7 +138,7 @@ public:
     return Get() == that.Get();
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   bool operator!=(
     const UnownedPtr& that) const
   {
@@ -147,7 +147,7 @@ public:
     return !(*this == that);
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   bool operator<(
     const UnownedPtr& that) const
   {
@@ -156,7 +156,7 @@ public:
     return std::less<T*>()(Get(), that.Get());
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   template <typename U>
   bool operator==(
     const U* that) const
@@ -166,7 +166,7 @@ public:
     return Get() == that;
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   template <typename U>
   bool operator!=(
     const U* that) const
@@ -178,7 +178,7 @@ public:
 
   /// \note Do not do stupid things like
   /// `delete unownedPtr.Get();`
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   T* Get() const
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
@@ -186,7 +186,7 @@ public:
     return m_pObj;
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   T* Release()
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
@@ -198,7 +198,7 @@ public:
     return pTemp;
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   explicit operator bool() const
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
@@ -206,7 +206,7 @@ public:
     return !!m_pObj;
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   T& operator*() const
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
@@ -215,7 +215,7 @@ public:
     return *m_pObj;
   }
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   T* operator->() const
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
@@ -241,7 +241,7 @@ private:
   // concurrently.
   DFAKE_MUTEX(debug_collision_warner_);
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   T* m_pObj = nullptr
     LIVES_ON(debug_collision_warner_);
 };

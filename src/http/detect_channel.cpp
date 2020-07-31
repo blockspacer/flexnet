@@ -35,12 +35,15 @@ DetectChannel::DetectChannel(
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-CAUTION_NOT_THREAD_SAFE()
+NOT_THREAD_SAFE_FUNCTION()
 DetectChannel::~DetectChannel()
 {
   LOG_CALL(VLOG(9));
 
   destruction_promise_.Resolve();
+
+  DCHECK(ALWAYS_THREAD_SAFE(
+    atomicCompletedFlag_.IsSet()));
 }
 
 void DetectChannel::registerDetectedCallback(
@@ -140,7 +143,14 @@ void DetectChannel::onDetected(
 
   DCHECK(detectedCallback_);
 
-  CAUTION_NOT_THREAD_SAFE()
+  DCHECK(ALWAYS_THREAD_SAFE(
+    !atomicCompletedFlag_.IsSet()));
+
+  atomicCompletedFlag_.Set();
+
+  /// \note |detectedCallback_| can
+  /// destroy |DetectChannel| object
+  NOT_THREAD_SAFE_LIFETIME()
   std::move(detectedCallback_).Run(
     util::UnownedPtr<DetectChannel>(this)
     , util::MoveOnly<const ErrorCode>::copyFrom(ec)

@@ -151,33 +151,33 @@ class ExampleServer
 
  private:
   // The io_context is required for all I/O
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   boost::asio::io_context ioc_{};
 
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   const boost::asio::ip::address address_
     = ::boost::asio::ip::make_address("127.0.0.1");
 
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   const unsigned short port_
     = 8085;
 
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   const EndpointType tcpEndpoint_{address_, port_};
 
   /// \todo SSL support
-  // GLOBAL_THREAD_SAFETY()
+  // GLOBAL_THREAD_SAFE_LIFETIME()
   // ::boost::asio::ssl::context ctx_
   //   {::boost::asio::ssl::context::tlsv12};
 
-  GLOBAL_THREAD_SAFETY()
-  std::shared_ptr<ws::Listener> listener_;
+  GLOBAL_THREAD_SAFE_LIFETIME()
+  std::unique_ptr<ws::Listener> listener_;
 
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   base::RunLoop run_loop_{};
 
   // Capture SIGINT and SIGTERM to perform a clean shutdown
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   boost::asio::signal_set signals_set_{
     ioc_ /// \note will not handle signals if ioc stopped
     , SIGINT
@@ -187,20 +187,20 @@ class ExampleServer
   VoidPromiseContainer destructionPromises_
     LIVES_ON(sequence_checker_);
 
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     = base::MessageLoop::current()->task_runner();
 
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   base::Thread asio_thread_1{"asio_thread_1"};
 
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   base::Thread asio_thread_2{"asio_thread_2"};
 
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   base::Thread asio_thread_3{"asio_thread_3"};
 
-  GLOBAL_THREAD_SAFETY()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   base::Thread asio_thread_4{"asio_thread_4"};
 
   SEQUENCE_CHECKER(sequence_checker_);
@@ -259,7 +259,7 @@ ExampleServer::ExampleServer()
       });
 
   listener_
-    = std::make_shared<ws::Listener>(
+    = std::make_unique<ws::Listener>(
         util::UnownedPtr<ws::Listener::IoContext>(&ioc_)
         , EndpointType{tcpEndpoint_}
         , std::move(allocateStrandCallback)
@@ -320,6 +320,15 @@ ExampleServer::ExampleServer()
               NESTED_PROMISE(&ExampleServer::promiseDestructionOfConnections)
               , base::Unretained(this)
           )
+        )
+        // reset |listener_|
+        .ThenOn(mainLoopRunner_
+          , FROM_HERE
+          , base::BindOnce(
+              &std::unique_ptr<ws::Listener>::reset
+              , base::Unretained(&listener_)
+              , nullptr // reset unique_ptr to nullptr
+            )
         )
         // stop io context
         .ThenOn(mainLoopRunner_
@@ -610,119 +619,6 @@ void ExampleServer::runLoop()
     DCHECK(asio_thread_4.IsRunning());
   }
 
-#if 0 /// \todo TSAN report errors with PeriodicTaskExecutor
-  DCHECK(base::ThreadPool::GetInstance());
-  scoped_refptr<base::SequencedTaskRunner> asio_task_runner_1 =
-    base::ThreadPool::GetInstance()->
-    CreateSequencedTaskRunnerWithTraits(
-      base::TaskTraits{
-        base::TaskPriority::BEST_EFFORT
-        , base::MayBlock()
-        , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
-      }
-    );
-
-  /// \note will stop periodic timer on scope exit
-  basis::PeriodicTaskExecutor periodicAsioExecutor_1(
-    asio_task_runner_1
-    , base::BindRepeating(
-        [
-        ](
-          boost::asio::io_context& ioc
-        ){
-          if(ioc.stopped()) {
-            LOG(INFO)
-              << "skipping update of stopped io context";
-            return;
-          }
-          /// \note Runs only on one sequence!
-          /// In production create multiple threads
-          /// to run |boost::asio::io_context|
-          ioc.run_one_for(
-            std::chrono::milliseconds{15});
-        }
-        , REFERENCED(ioc_)
-    )
-  );
-
-  periodicAsioExecutor_1.startPeriodicTimer(
-    base::TimeDelta::FromMilliseconds(30));
-
-  DCHECK(base::ThreadPool::GetInstance());
-  scoped_refptr<base::SequencedTaskRunner> asio_task_runner_2 =
-    base::ThreadPool::GetInstance()->
-    CreateSequencedTaskRunnerWithTraits(
-      base::TaskTraits{
-        base::TaskPriority::BEST_EFFORT
-        , base::MayBlock()
-        , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
-      }
-    );
-
-  /// \note will stop periodic timer on scope exit
-  basis::PeriodicTaskExecutor periodicAsioExecutor_2(
-    asio_task_runner_2
-    , base::BindRepeating(
-        [
-        ](
-          boost::asio::io_context& ioc
-        ){
-          if(ioc.stopped()) {
-            LOG(INFO)
-              << "skipping update of stopped io context";
-            return;
-          }
-          /// \note Runs only on one sequence!
-          /// In production create multiple threads
-          /// to run |boost::asio::io_context|
-          ioc.run_one_for(
-            std::chrono::milliseconds{10});
-        }
-        , REFERENCED(ioc_)
-    )
-  );
-
-  periodicAsioExecutor_2.startPeriodicTimer(
-    base::TimeDelta::FromMilliseconds(25));
-
-  DCHECK(base::ThreadPool::GetInstance());
-  scoped_refptr<base::SequencedTaskRunner> asio_task_runner_3 =
-    base::ThreadPool::GetInstance()->
-    CreateSequencedTaskRunnerWithTraits(
-      base::TaskTraits{
-        base::TaskPriority::BEST_EFFORT
-        , base::MayBlock()
-        , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
-      }
-    );
-
-  /// \note will stop periodic timer on scope exit
-  basis::PeriodicTaskExecutor periodicAsioExecutor_3(
-    asio_task_runner_3
-    , base::BindRepeating(
-        [
-        ](
-          boost::asio::io_context& ioc
-        ){
-          if(ioc.stopped()) {
-            LOG(INFO)
-              << "skipping update of stopped io context";
-            return;
-          }
-          /// \note Runs only on one sequence!
-          /// In production create multiple threads
-          /// to run |boost::asio::io_context|
-          ioc.run_one_for(
-            std::chrono::milliseconds{5});
-        }
-        , REFERENCED(ioc_)
-    )
-  );
-
-  periodicAsioExecutor_3.startPeriodicTimer(
-    base::TimeDelta::FromMilliseconds(35));
-#endif // 0
-
   run_loop_.Run();
 
   asio_thread_1.Stop();
@@ -770,11 +666,15 @@ void ExampleServer::stopIOContext()
 {
   LOG_CALL(VLOG(9));
 
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  DCHECK(!listener_);
+
   // Stop the io_context. This will cause run()
   // to return immediately, eventually destroying the
   // io_context and any remaining handlers in it.
-  THREAD_SAFE(ioc_.stop());
-  DCHECK(THREAD_SAFE(ioc_.stopped()));
+  ALWAYS_THREAD_SAFE(ioc_.stop());
+  DCHECK(ALWAYS_THREAD_SAFE(ioc_.stopped()));
 }
 
 void ExampleServer::addToDestructionPromiseChain(
@@ -804,11 +704,9 @@ ExampleServer::~ExampleServer()
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   DCHECK(
-    THREAD_SAFE(ioc_.stopped())
-    /// \note not generally thread-safe,
-    /// but assumed to be thread-safe here
-    /// because |ioc_.stopped()|
-    && THREAD_SAFE(destructionPromises_).empty());
+    ALWAYS_THREAD_SAFE(ioc_.stopped())
+    && ASSUME_THREAD_SAFE_BECAUSE(ioc_.stopped())
+        destructionPromises_.empty());
 }
 
 int main(int argc, char* argv[])
@@ -859,10 +757,42 @@ int main(int argc, char* argv[])
 
   /// \todo remove after ASAN tests
   /*{
+    int *array = new int[100];
+    delete [] array;
+    return array[argc];  // BOOM
+  }*/
+
+  /// \todo remove after UBSAN tests
+  /*
+  */
+  int k = 0x7fffffff;
+  k += argc;
+
+  /*{
     // divide by zero
     int n = 42;
     int d = 0;
     auto f = n/d;
     LOG(INFO) << f; // do not optimize out
   }*/
+
+  return
+    EXIT_SUCCESS;
 }
+
+#include <base/logging.h>
+#include <base/macros.h>
+
+namespace boost
+{
+#ifdef BOOST_NO_EXCEPTIONS
+// see https://stackoverflow.com/a/33691561
+void throw_exception( std::exception const & e )
+{
+  CHECK(false);
+  NOTREACHED();
+  // The application will exit, without returning.
+  exit(0);
+}
+#endif
+}// namespace boost

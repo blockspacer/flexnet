@@ -3,14 +3,17 @@
 #include "flexnet/util/limited_tcp_stream.hpp"
 #include "flexnet/util/macros.hpp"
 #include "flexnet/util/move_only.hpp"
+#include "flexnet/util/unowned_ptr.hpp" // IWYU pragma: keep
 
 #include <base/callback.h>
 #include <base/macros.h>
 #include <base/memory/weak_ptr.h>
 #include <base/sequence_checker.h>
+#include <base/synchronization/atomic_flag.h>
 
 #include <boost/beast/core.hpp>
 
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/executor.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp> // IWYU pragma: keep
@@ -50,6 +53,9 @@ public:
   using StrandType
     = ::boost::asio::strand<StreamType::executor_type>;
 
+  using IoContext
+    = ::boost::asio::io_context;
+
   using DetectedCallback
     = base::OnceCallback<
     void (
@@ -75,7 +81,7 @@ public:
     AsioTcp::socket&& socket);
 
   /// \note can destruct on any thread
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_FUNCTION()
   ~DetectChannel();
 
   void registerDetectedCallback(
@@ -107,7 +113,7 @@ public:
 
   MUST_USE_RETURN_VALUE
   StrandType& perConnectionStrand() noexcept{
-    return CAUTION_NOT_THREAD_SAFE()
+    return NOT_THREAD_SAFE_LIFETIME()
            perConnectionStrand_;
   }
 
@@ -115,7 +121,7 @@ public:
   /// \note make sure that |stream_| exists
   /// and thread-safe when you call |executor()|
   boost::asio::executor executor() noexcept {
-    return CAUTION_NOT_THREAD_SAFE()
+    return NOT_THREAD_SAFE_LIFETIME()
            stream_.get_executor();
   }
 
@@ -137,15 +143,19 @@ private:
 
 private:
   /// \note stream with custom rate limiter
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   StreamType stream_;
 
   /// \note take care of thread-safety
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   DetectedCallback detectedCallback_;
 
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   MessageBufferType buffer_;
+
+  // Provides I/O functionality
+  GLOBAL_THREAD_SAFE_LIFETIME()
+  util::UnownedPtr<IoContext> ioc_;
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
@@ -170,13 +180,15 @@ private:
   /// API user can free |DetectChannel| only if
   /// all its callbacks finished (or failed to schedule).
   /// i.e. API user must wait for |destruction_promise_|
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   base::ManualPromiseResolver<void,
     base::NoReject> destruction_promise_;
 
   // |stream_| and calls to |async_detect*| are guarded by strand
-  CAUTION_NOT_THREAD_SAFE()
+  NOT_THREAD_SAFE_LIFETIME()
   StrandType perConnectionStrand_;
+
+  base::AtomicFlag atomicCompletedFlag_{};
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

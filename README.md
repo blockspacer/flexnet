@@ -47,61 +47,6 @@ Use `--vmodule`.
 Use `enable_asan` or `enable_ubsan`, etc.
 
 ```bash
-export CC=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*bin/clang" | head -n 1)
-
-export CXX=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*bin/clang++" | head -n 1)
-
-# must exist
-file $(dirname $CXX)/../lib/clang/10.0.1/lib/linux/libclang_rt.tsan_cxx-x86_64.a
-
-# NOTE: NO `--profile` argument cause we use `CXX` env. var
-# NOTE: change `build_type=Debug` to `build_type=Release` in production
-CONAN_REVISIONS_ENABLED=1 \
-    CONAN_VERBOSE_TRACEBACK=1 \
-    CONAN_PRINT_RUN_COMMANDS=1 \
-    CONAN_LOGGING_LEVEL=10 \
-    GIT_SSL_NO_VERIFY=true \
-    conan create . \
-        conan/stable \
-        -s build_type=Debug \
-        -s llvm_tools:build_type=Release \
-        --build chromium_base \
-        --build chromium_tcmalloc \
-        --build basis \
-        --build flexnet \
-        --build missing \
-        --build cascade \
-        -s llvm_tools:build_type=Release \
-        -o llvm_tools:enable_tsan=True \
-        -o llvm_tools:include_what_you_use=False \
-        -s llvm_tools:compiler=clang \
-        -s llvm_tools:compiler.version=6.0 \
-        -s llvm_tools:compiler.libcxx=libstdc++11 \
-        -e chromium_base:enable_tests=True \
-        -o chromium_base:enable_tsan=True \
-        -e chromium_base:enable_llvm_tools=True \
-        -o chromium_base:use_alloc_shim=False \
-        -e basis:enable_tests=True \
-        -o basis:enable_tsan=True \
-        -e basis:enable_llvm_tools=True \
-        -e flexnet:compile_with_llvm_tools=True \
-        -e boost:enable_llvm_tools=True \
-        -o boost:enable_tsan=True \
-        -e boost:compile_with_llvm_tools=True \
-        -s compiler=clang \
-        -s compiler.version=10 \
-        -s compiler.libcxx=libc++ \
-        -e flexnet:enable_tests=True \
-        -o flexnet:enable_tsan=True \
-        -e flexnet:enable_llvm_tools=True \
-        -o flexnet:shared=False \
-        -o chromium_tcmalloc:use_alloc_shim=False \
-        -o openssl:shared=True
-```
-
-Example for local builds:
-
-```bash
 # NOTE: also re-build all deps with sanitizers enabled
 
 mkdir build_tsan
@@ -122,6 +67,12 @@ export CXX=$(find ~/.conan/data/llvm_tools/master/conan/stable/package/ -path "*
 
 # must exist
 file $(dirname $CXX)/../lib/clang/10.0.1/lib/linux/libclang_rt.tsan_cxx-x86_64.a
+
+export CFLAGS="-fsanitize=thread -fuse-ld=lld -stdlib=libc++ -lc++ -lc++abi -lunwind"
+
+export CXXFLAGS="-fsanitize=thread -fuse-ld=lld -stdlib=libc++ -lc++ -lc++abi -lunwind"
+
+export LDFLAGS="-stdlib=libc++ -lc++ -lc++abi -lunwind"
 
 # NOTE: NO `--profile` argument cause we use `CXX` env. var
 # NOTE: change `build_type=Debug` to `build_type=Release` in production
@@ -166,7 +117,29 @@ CONAN_REVISIONS_ENABLED=1 \
         -e flexnet:enable_llvm_tools=True \
         -o flexnet:shared=False \
         -o chromium_tcmalloc:use_alloc_shim=False \
-        -o openssl:shared=True
+        -o openssl:shared=True \
+        -e conan_gtest:compile_with_llvm_tools=True \
+        -e conan_gtest:enable_llvm_tools=True \
+        -e chromium_libxml:compile_with_llvm_tools=True \
+        -e chromium_libxml:enable_llvm_tools=True \
+        -e chromium_icu:compile_with_llvm_tools=True \
+        -e chromium_icu:enable_llvm_tools=True \
+        -e chromium_zlib:compile_with_llvm_tools=True \
+        -e chromium_zlib:enable_llvm_tools=True \
+        -e chromium_libevent:compile_with_llvm_tools=True \
+        -e chromium_libevent:enable_llvm_tools=True \
+        -e chromium_xdg_user_dirs:compile_with_llvm_tools=True \
+        -e chromium_xdg_user_dirs:enable_llvm_tools=True \
+        -e chromium_xdg_mime:compile_with_llvm_tools=True \
+        -e chromium_xdg_mime:enable_llvm_tools=True \
+        -e chromium_dynamic_annotations:compile_with_llvm_tools=True \
+        -e chromium_dynamic_annotations:enable_llvm_tools=True \
+        -e chromium_modp_b64:compile_with_llvm_tools=True \
+        -e chromium_modp_b64:enable_llvm_tools=True \
+        -e chromium_compact_enc_det:compile_with_llvm_tools=True \
+        -e chromium_compact_enc_det:enable_llvm_tools=True \
+        -e corrade:compile_with_llvm_tools=True \
+        -e corrade:enable_llvm_tools=True
 
 # NOTE: change `build_type=Debug` to `build_type=Release` in production
 export build_type=Debug
