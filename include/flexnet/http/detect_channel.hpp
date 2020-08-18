@@ -69,6 +69,12 @@ public:
       , MessageBufferType&& buffer)
     >;
 
+  using DestructCallback
+    = base::OnceCallback<
+    void (
+      util::UnownedPtr<DetectChannel>&&)
+    >;
+
   using AsioTcp
     = ::boost::asio::ip::tcp;
 
@@ -86,6 +92,9 @@ public:
 
   void registerDetectedCallback(
     DetectedCallback&& detectedCallback);
+
+  void registerDestructCallback(
+    DestructCallback&& destructCallback);
 
   // calls |beast::async_detect_*|
   void runDetector(
@@ -125,12 +134,6 @@ public:
            stream_.get_executor();
   }
 
-  MUST_USE_RETURN_VALUE
-  VoidPromise destructionPromise() noexcept
-  {
-    return destruction_promise_.promise();
-  }
-
 private:
   void onDetected(
     const ErrorCode& ec
@@ -149,6 +152,10 @@ private:
   /// \note take care of thread-safety
   NOT_THREAD_SAFE_LIFETIME()
   DetectedCallback detectedCallback_;
+
+  /// \note take care of thread-safety
+  NOT_THREAD_SAFE_LIFETIME()
+  DestructCallback destructCallback_;
 
   NOT_THREAD_SAFE_LIFETIME()
   MessageBufferType buffer_;
@@ -175,20 +182,12 @@ private:
   base::WeakPtr<DetectChannel> weak_this_
   LIVES_ON(sequence_checker_);
 
-  /// \note Lifetime of async callbacks
-  /// must be managed externally.
-  /// API user can free |DetectChannel| only if
-  /// all its callbacks finished (or failed to schedule).
-  /// i.e. API user must wait for |destruction_promise_|
-  NOT_THREAD_SAFE_LIFETIME()
-  base::ManualPromiseResolver<void,
-    base::NoReject> destruction_promise_;
-
   // |stream_| and calls to |async_detect*| are guarded by strand
   NOT_THREAD_SAFE_LIFETIME()
   StrandType perConnectionStrand_;
 
-  base::AtomicFlag atomicCompletedFlag_{};
+  // will be set by |onDetected|
+  base::AtomicFlag atomicDetectDoneFlag_{};
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

@@ -171,6 +171,8 @@ private:
 
   // modification of |acceptor_| guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
+  /// \note do not destruct |Listener| while |acceptorStrand_|
+  /// has scheduled or execting tasks
   NOT_THREAD_SAFE_LIFETIME()
   StrandType acceptorStrand_;
 
@@ -199,7 +201,8 @@ private:
 
   // unlike |isAcceptorOpen()| it can be used from any sequence,
   // but it is approximation that stores state
-  // based on results of previous API calls
+  // based on results of previous API calls,
+  // not based on real |acceptor_| state
   // i.e. it may be NOT same as |acceptor_.is_open()|
   ALWAYS_THREAD_SAFE()
   std::atomic<bool> assume_is_accepting_{false};

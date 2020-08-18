@@ -186,6 +186,8 @@ public:
     return m_pObj;
   }
 
+  /// \note it does not destruct |m_pObj|,
+  /// it just sets |m_pObj| to nullptr without memory deallocation
   NOT_THREAD_SAFE_FUNCTION()
   T* Release()
   {

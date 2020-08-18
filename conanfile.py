@@ -40,7 +40,6 @@ class flexnet_conan_project(conan_build_helper.CMakePackage):
 
     options = {
         "shared": [True, False],
-        "use_system_boost": [True, False],
         "enable_ubsan": [True, False],
         "enable_asan": [True, False],
         "enable_msan": [True, False],
@@ -51,28 +50,43 @@ class flexnet_conan_project(conan_build_helper.CMakePackage):
     default_options = (
         #"*:shared=False",
         "shared=False",
-        "use_system_boost=False",
         "enable_ubsan=False",
         "enable_asan=False",
         "enable_msan=False",
         "enable_tsan=False",
         "enable_valgrind=False",
         # boost
-        "boost:without_atomic=True",
-        "boost:without_chrono=True",
-        "boost:without_container=True",
-        "boost:without_context=True",
+        "boost:no_rtti=False",
+        "boost:no_exceptions=True",
+        "boost:without_python=True",
         "boost:without_coroutine=True",
+        "boost:without_stacktrace=True",
+        "boost:without_math=True",
+        "boost:without_wave=True",
+        "boost:without_contract=True",
+        "boost:without_locale=True",
+        "boost:without_random=True",
+        "boost:without_regex=True",
+        "boost:without_mpi=True",
+        "boost:without_timer=True",
+        "boost:without_thread=True",
+        "boost:without_chrono=True",
+        "boost:without_atomic=True",
+        "boost:without_system=True",
+        "boost:without_program_options=True",
+        "boost:without_serialization=True",
+        "boost:without_log=True",
+        "boost:without_type_erasure=True",
+        "boost:without_test=True",
         "boost:without_graph=True",
         "boost:without_graph_parallel=True",
-        "boost:without_log=True",
-        "boost:without_math=True",
-        "boost:without_mpi=True",
-        "boost:without_serialization=True",
-        "boost:without_test=True",
-        "boost:without_timer=True",
-        "boost:without_type_erasure=True",
-        "boost:without_wave=True",
+        "boost:without_iostreams=True",
+        "boost:without_context=True",
+        "boost:without_fiber=True",
+        "boost:without_filesystem=True",
+        "boost:without_date_time=True",
+        "boost:without_exception=True",
+        "boost:without_container=True",
         # FakeIt
         "FakeIt:integration=catch",
         # openssl
@@ -177,6 +191,13 @@ class flexnet_conan_project(conan_build_helper.CMakePackage):
             if not self._is_llvm_tools_enabled():
                 raise ConanInvalidConfiguration("sanitizers require llvm_tools")
 
+        if self.options.enable_ubsan \
+           or self.options.enable_asan \
+           or self.options.enable_msan \
+           or self.options.enable_tsan:
+            if not self.options["boost"].no_exceptions:
+                raise ConanInvalidConfiguration("sanitizers require boost without exceptions")
+
         if self.options.enable_ubsan:
             self.options["flexnet"].enable_ubsan = True
             self.options["basis"].enable_ubsan = True
@@ -245,8 +266,7 @@ class flexnet_conan_project(conan_build_helper.CMakePackage):
       # TODO: support doctest
       #self.requires("doctest/[>=2.3.8]")
 
-      if not self.options.use_system_boost:
-          self.requires("boost/1.71.0@dev/stable")
+      self.requires("boost/1.71.0@dev/stable")
 
       self.requires("chromium_build_util/master@conan/stable")
 

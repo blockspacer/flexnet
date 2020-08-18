@@ -27,7 +27,6 @@ DetectChannel::DetectChannel(
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
     weak_this_(weak_ptr_factory_.GetWeakPtr()))
-  , destruction_promise_(FROM_HERE)
   , perConnectionStrand_(stream_.get_executor())
 {
   LOG_CALL(VLOG(9));
@@ -40,10 +39,15 @@ DetectChannel::~DetectChannel()
 {
   LOG_CALL(VLOG(9));
 
-  destruction_promise_.Resolve();
+  DCHECK(destructCallback_);
+  std::move(destructCallback_).Run(
+    util::UnownedPtr<DetectChannel>(this));
 
+  // we assume that |DetectChannel|
+  // will be destructed only after
+  // |DetectChannel::onDetected| finished
   DCHECK(ALWAYS_THREAD_SAFE(
-    atomicCompletedFlag_.IsSet()));
+    atomicDetectDoneFlag_.IsSet()));
 }
 
 void DetectChannel::registerDetectedCallback(
@@ -55,6 +59,17 @@ void DetectChannel::registerDetectedCallback(
 
   DCHECK(detectedCallback);
   detectedCallback_ = std::move(detectedCallback);
+}
+
+void DetectChannel::registerDestructCallback(
+  DetectChannel::DestructCallback&& destructCallback)
+{
+  LOG_CALL(VLOG(9));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  DCHECK(destructCallback);
+  destructCallback_ = std::move(destructCallback);
 }
 
 void DetectChannel::configureDetector(
@@ -143,10 +158,12 @@ void DetectChannel::onDetected(
 
   DCHECK(detectedCallback_);
 
+  // we assume that |onDetected|
+  // will be called only once
   DCHECK(ALWAYS_THREAD_SAFE(
-    !atomicCompletedFlag_.IsSet()));
+    !atomicDetectDoneFlag_.IsSet()));
 
-  atomicCompletedFlag_.Set();
+  atomicDetectDoneFlag_.Set();
 
   /// \note |detectedCallback_| can
   /// destroy |DetectChannel| object

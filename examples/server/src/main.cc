@@ -10,6 +10,7 @@
 #include <base/optional.h>
 #include <base/bind.h>
 #include <base/run_loop.h>
+#include <base/macros.h>
 #include <base/logging.h>
 #include <base/files/file_path.h>
 #include <base/threading/platform_thread.h>
@@ -26,6 +27,20 @@
 
 #include <memory>
 #include <chrono>
+
+namespace boost {
+#ifdef BOOST_NO_EXCEPTIONS
+// see https://stackoverflow.com/a/33691561
+void throw_exception(const std::exception& ex)
+{
+  NOTREACHED()
+    << "boost thrown exception: "
+    << ex.what();
+  /// \note application will exit, without returning.
+  exit(0);
+}
+#endif // BOOST_NO_EXCEPTIONS
+} // namespace boost
 
 using namespace flexnet;
 
@@ -100,11 +115,22 @@ class ExampleServer
   using VoidPromise
     = base::Promise<void, base::NoReject>;
 
+  /// \note Lifetime of async callbacks
+  /// must be managed externally.
+  /// API user can free |DetectChannel| only if
+  /// all its callbacks finished (or failed to schedule).
+  /// i.e. API user must wait for destruction promise
+  using DetectorDestructionResolver
+    = base::ManualPromiseResolver<void, base::NoReject>;
+
   using StatusPromise
     = base::Promise<::util::Status, base::NoReject>;
 
-  using VoidPromiseContainer =
-      util::PromiseCollection<void, base::NoReject>;
+  using VoidPromiseContainer
+    = util::PromiseCollection<void, base::NoReject>;
+
+  using DetectorDestructionResolversContainer
+    = std::map<http::DetectChannel*, DetectorDestructionResolver>;
 
   using EndpointType
     = ws::Listener::EndpointType;
@@ -127,10 +153,10 @@ class ExampleServer
 
   void stopIOContext();
 
-  void addToDestructionPromiseChain(
+  void addBeforeStopPromise(
     SHARED_LIFETIME(VoidPromise) promise);
 
-  void removeFromDestructionPromiseChain(
+  void removeBeforeStopPromise(
     SHARED_LIFETIME(VoidPromise) promise);
 
  private:
@@ -141,7 +167,7 @@ class ExampleServer
     , util::UnownedPtr<ws::Listener::StrandType> perConnectionStrand
     , util::ScopedCleanup& scopedDeallocateStrand);
 
-  void onDetected(
+  void onDetectorDetected(
     base::OnceClosure&& doneClosure
     , util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper
     , util::MoveOnly<const http::DetectChannel::ErrorCode>&& ecWrapper
@@ -149,7 +175,24 @@ class ExampleServer
     , http::DetectChannel::StreamType&& stream
     , http::DetectChannel::MessageBufferType&& buffer);
 
+  // called from destructor of detector,
+  // on any thread
+  NOT_THREAD_SAFE_FUNCTION()
+  void onDetectorDestruct(
+    util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper);
+
  private:
+  // maps detector with promise
+  // (promise will be resolved on detector destruction)
+  DetectorDestructionResolversContainer detector_destruction_resolvers_
+    LIVES_ON(sequence_checker_);
+
+  void createAndStoreDetectorDestructionResolver(
+    http::DetectChannel* detectChannelPtr);
+
+  void removeAndResolveDetectorDestructionResolver(
+    http::DetectChannel* detectChannelPtr);
+
   // The io_context is required for all I/O
   GLOBAL_THREAD_SAFE_LIFETIME()
   boost::asio::io_context ioc_{};
@@ -184,7 +227,8 @@ class ExampleServer
     , SIGTERM
   };
 
-  VoidPromiseContainer destructionPromises_
+  // all promises that must be resolved before server termination
+  VoidPromiseContainer beforeStopPromises_
     LIVES_ON(sequence_checker_);
 
   GLOBAL_THREAD_SAFE_LIFETIME()
@@ -290,13 +334,13 @@ ExampleServer::ExampleServer()
         LOG(INFO)
           << "got stop signal";
 
+        // stop accepting of new connections
         base::PostPromise(FROM_HERE
           , UNOWNED_LIFETIME(mainLoopRunner_.get())
           , base::BindOnce(
               NESTED_PROMISE(&ExampleServer::stopAcceptors)
               , base::Unretained(this))
         )
-        // do not accept new connections
         .ThenOn(mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
@@ -313,7 +357,7 @@ ExampleServer::ExampleServer()
                }
             })
         )
-        // wait for destruction of existing connections
+        // async-wait for destruction of existing connections
         .ThenOn(mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
@@ -416,9 +460,19 @@ void ExampleServer::onAccepted(
   DCHECK(detectChannelPtr);
   detectChannelPtr->registerDetectedCallback(
     base::BindOnce(
-        &ExampleServer::onDetected
+        &ExampleServer::onDetectorDetected
         , base::Unretained(this)
         , base::Passed(std::move(scheduleDeleteDetectorClosure))
+    )
+  );
+
+  // |scheduleDeleteDetectorClosure| will destroy |detectChannelPtr|
+  // and |detectChannelPtr| will call |onDetectorDestruct|
+  DCHECK(detectChannelPtr);
+  detectChannelPtr->registerDestructCallback(
+    base::BindOnce(
+        &ExampleServer::onDetectorDestruct
+        , base::Unretained(this)
     )
   );
 
@@ -432,10 +486,9 @@ void ExampleServer::onAccepted(
   base::PostPromise(FROM_HERE
     , UNOWNED_LIFETIME(mainLoopRunner_.get())
     , base::BindOnce(
-        // prevent server termination before all connections closed
-        &ExampleServer::addToDestructionPromiseChain
+        &ExampleServer::createAndStoreDetectorDestructionResolver
         , base::Unretained(this)
-        , SHARED_LIFETIME(detectChannelPtr->destructionPromise()))
+        , COPIED(detectChannelPtr))
   )
   .ThenOn(mainLoopRunner_
     , FROM_HERE
@@ -449,23 +502,26 @@ void ExampleServer::onAccepted(
       , std::move(runDetectorClosure)
     ) // BindOnce
   );
+}
 
+NOT_THREAD_SAFE_FUNCTION()
+void ExampleServer::onDetectorDestruct(
+  util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper)
+{
+  LOG_CALL(VLOG(9));
 
-  /// \note tasks below will be scheduled after channel destruction
-  /// i.e. will wait for |destructionPromise|
-  detectChannelPtr->destructionPromise()
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        // destroyed connections do not prevent server termination
-        &ExampleServer::removeFromDestructionPromiseChain
-        , base::Unretained(this)
-        , SHARED_LIFETIME(detectChannelPtr->destructionPromise())
-      )
+  ignore_result(
+    base::PostPromise(FROM_HERE
+      , UNOWNED_LIFETIME(mainLoopRunner_.get())
+      , base::BindOnce(
+          &ExampleServer::removeAndResolveDetectorDestructionResolver
+          , base::Unretained(this)
+          , COPIED(detectChannelWrapper.Get()))
+    )
   );
 }
 
-void ExampleServer::onDetected(
+void ExampleServer::onDetectorDetected(
   base::OnceClosure&& doneClosure
   , util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper
   , util::MoveOnly<const http::DetectChannel::ErrorCode>&& ecWrapper
@@ -659,7 +715,12 @@ ExampleServer::VoidPromise ExampleServer::promiseDestructionOfConnections()
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  return destructionPromises_.All(FROM_HERE);
+#if DCHECK_IS_ON()
+  removeBit(beforeStopPromises_.permissions
+    , VoidPromiseContainer::Permissions::Addable);
+#endif // DCHECK_IS_ON()
+
+  return beforeStopPromises_.All(FROM_HERE);
 }
 
 void ExampleServer::stopIOContext()
@@ -677,24 +738,88 @@ void ExampleServer::stopIOContext()
   DCHECK(ALWAYS_THREAD_SAFE(ioc_.stopped()));
 }
 
-void ExampleServer::addToDestructionPromiseChain(
+void ExampleServer::removeAndResolveDetectorDestructionResolver(
+  http::DetectChannel* detectChannelPtr)
+{
+  LOG_CALL(VLOG(9));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  DCHECK(detectChannelPtr);
+
+  DetectorDestructionResolversContainer::iterator it
+    = detector_destruction_resolvers_.find(detectChannelPtr);
+
+  DCHECK(it != detector_destruction_resolvers_.end());
+
+  it->second.Resolve();
+
+  detector_destruction_resolvers_.erase(it
+    , detector_destruction_resolvers_.end());
+}
+
+void ExampleServer::createAndStoreDetectorDestructionResolver(
+  http::DetectChannel* detectChannelPtr)
+{
+  LOG_CALL(VLOG(9));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  DCHECK(detectChannelPtr);
+
+  // do not add same detector twice
+  DCHECK(detector_destruction_resolvers_.find(detectChannelPtr)
+    == detector_destruction_resolvers_.end());
+
+  std::pair<DetectorDestructionResolversContainer::iterator, bool>
+    emplacedResolver
+      = detector_destruction_resolvers_.emplace(
+          detectChannelPtr
+          , FROM_HERE);
+
+  DCHECK(emplacedResolver.second);
+
+  DetectorDestructionResolver& destruction_resolver
+    = emplacedResolver.first->second;
+
+  /// \note resolver will be moved out, so we cache promise
+  VoidPromise destruction_promise
+    = SHARED_LIFETIME(destruction_resolver.promise());
+
+  /// \note tasks below will be scheduled after channel destruction
+  /// i.e. will async-wait for destruction promise
+  destruction_promise
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
+    , base::BindOnce(
+        // destroyed connections do not prevent server termination
+        &ExampleServer::removeBeforeStopPromise
+        , base::Unretained(this)
+        , SHARED_LIFETIME(destruction_promise)
+      )
+  );
+
+  addBeforeStopPromise(COPIED(destruction_promise));
+}
+
+void ExampleServer::addBeforeStopPromise(
   SHARED_LIFETIME(VoidPromise) promise)
 {
   LOG_CALL(VLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  destructionPromises_.add(promise);
+  beforeStopPromises_.add(promise);
 }
 
-void ExampleServer::removeFromDestructionPromiseChain(
+void ExampleServer::removeBeforeStopPromise(
   SHARED_LIFETIME(VoidPromise) boundPromise)
 {
   LOG_CALL(VLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  destructionPromises_.remove(boundPromise);
+  beforeStopPromises_.remove(boundPromise);
 }
 
 ExampleServer::~ExampleServer()
@@ -706,7 +831,10 @@ ExampleServer::~ExampleServer()
   DCHECK(
     ALWAYS_THREAD_SAFE(ioc_.stopped())
     && ASSUME_THREAD_SAFE_BECAUSE(ioc_.stopped())
-        destructionPromises_.empty());
+        beforeStopPromises_.empty()
+    && ASSUME_THREAD_SAFE_BECAUSE(ioc_.stopped())
+        detector_destruction_resolvers_.empty()
+  );
 }
 
 int main(int argc, char* argv[])
@@ -755,64 +883,6 @@ int main(int argc, char* argv[])
   LOG(INFO)
     << "server is quitting";
 
-  /// \todo remove after ASAN tests
-  /*{
-    int *array = new int[100];
-    delete [] array;
-    return array[argc];  // BOOM
-  }*/
-
-  /// \todo remove after UBSAN tests
-  /*
-  int k = 0x7fffffff;
-  k += argc;
-  */
-
-  /// \todo remove after UBSAN tests
-  /*{
-    // divide by zero
-    int n = 42;
-    int d = 0;
-    auto f = n/d;
-    LOG(INFO) << f; // do not optimize out
-  }*/
-
-  /// \todo remove after ASAN + LSAN tests
-  // Without the |volatile|, clang optimizes away the next two lines.
-  /*{
-    int* volatile leak = new int[256];  // Leak some memory intentionally.
-    leak[4] = 1;  // Make sure the allocated memory is used.
-    if (leak[4])
-      exit(0);
-  }*/
-
-  /// \todo remove after MSAN tests
-  // use-of-uninitialized-value
-  /*{
-    int *volatile p = (int *)malloc(sizeof(int));
-    *p = 42;
-    free(p);
-    if (*p)
-      exit(0);
-  }*/
-
   return
     EXIT_SUCCESS;
 }
-
-#include <base/logging.h>
-#include <base/macros.h>
-
-namespace boost
-{
-#ifdef BOOST_NO_EXCEPTIONS
-// see https://stackoverflow.com/a/33691561
-void throw_exception( std::exception const & e )
-{
-  CHECK(false);
-  NOTREACHED();
-  // The application will exit, without returning.
-  exit(0);
-}
-#endif
-}// namespace boost

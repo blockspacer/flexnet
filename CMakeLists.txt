@@ -144,11 +144,11 @@ endif()
 #  message(FATAL_ERROR "Use corrade from conan")
 #endif()
 
-find_package( X11 REQUIRED )
-message(STATUS "X11_LIBRARIES = ${X11_LIBRARIES}")
-
-find_package( EXPAT REQUIRED )
-message(STATUS "EXPAT_LIBRARIES = ${EXPAT_LIBRARIES}")
+#find_package( X11 REQUIRED )
+#message(STATUS "X11_LIBRARIES = ${X11_LIBRARIES}")
+#
+#find_package( EXPAT REQUIRED )
+#message(STATUS "EXPAT_LIBRARIES = ${EXPAT_LIBRARIES}")
 
 #find_package( ZLIB REQUIRED )
 #message(STATUS "ZLIB_LIBRARIES = ${ZLIB_LIBRARIES}")

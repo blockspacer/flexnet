@@ -393,6 +393,10 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
   DCHECK(ALWAYS_THREAD_SAFE()
     assume_is_accepting_.load());
 
+  /// \note we asume that no more tasks
+  /// will be posted on |acceptorStrand_|
+  /// and it is safe to destruct |Listener|
+  /// (or unpause i.e. re-open it again)
   DCHECK(!isAcceptingInThisThread());
   return base::PostPromiseOnAsioExecutor(
     FROM_HERE

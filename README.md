@@ -173,6 +173,11 @@ cmake -E time cmake --build . \
 cmake -E time cmake --build . \
   --config ${build_type} \
   --target flexnet_run_all_tests
+
+# do not forget to reset compile flags
+unset CFLAGS
+unset CXXFLAGS
+unset LDFLAGS
 ```
 
 ## For contibutors: conan editable mode
@@ -271,6 +276,7 @@ editables:
 layout: layout_flex
 workspace_generator: cmake
 root:
+    - chromium_base/master@conan/stable
     - basis/master@conan/stable
     - flexnet/master@conan/stable
 EOF
@@ -319,22 +325,12 @@ cmake_minimum_required(VERSION 3.0)
 
 project(WorkspaceProject)
 
-set(chromium_base_LOCAL_BUILD TRUE CACHE BOOL "chromium_base_LOCAL_BUILD")
-
-# path to Find*.cmake file
-list(APPEND CMAKE_MODULE_PATH /home/..../chromium_base_conan/cmake)
-
-set(basis_LOCAL_BUILD TRUE CACHE BOOL "basis_LOCAL_BUILD")
-
-# path to Find*.cmake file
-list(APPEND CMAKE_MODULE_PATH /home/..../basis/cmake)
-
-set(flexnet_LOCAL_BUILD TRUE CACHE BOOL "flexnet_LOCAL_BUILD")
-
-# path to Find*.cmake file
-list(APPEND CMAKE_MODULE_PATH /home/..../flexnet/cmake)
-
 include(\${CMAKE_BINARY_DIR}/conanworkspace.cmake)
+
+list(PREPEND CMAKE_MODULE_PATH "\${PACKAGE_chromium_base_SRC}/cmake")
+list(PREPEND CMAKE_MODULE_PATH "\${PACKAGE_basis_SRC}/cmake")
+list(PREPEND CMAKE_MODULE_PATH "\${PACKAGE_flexnet_SRC}/cmake")
+
 conan_workspace_subdirectories()
 
 add_dependencies(basis chromium_base-static)
@@ -342,7 +338,7 @@ add_dependencies(basis chromium_base-static)
 add_dependencies(flexnet basis)
 EOF
 
-# must contain `include(${CMAKE_BINARY_DIR}/conanworkspace.cmake)` without `\`
+# must contain `include(${CMAKE_BINARY_DIR}/conanworkspace.cmake)` without slash `\` (slash added for bash cat command)
 cat CMakeLists.txt
 
 # combines options from all projects
@@ -425,7 +421,7 @@ cmake -E time cmake . \
   -DCMAKE_BUILD_TYPE=${build_type} \
   -DCOMPILE_WITH_LLVM_TOOLS=TRUE \
   -DUSE_TEST_SUPPORT=TRUE \
-  -USE_ALLOC_SHIM=FALSE
+  -DUSE_ALLOC_SHIM=FALSE
 
 # remove generated files
 # change paths to yours
@@ -440,6 +436,11 @@ cmake -E time cmake --build . \
 cmake -E time cmake --build . \
   --config ${build_type} \
   --target flexnet_run_all_tests
+
+# do not forget to reset compile flags
+unset CFLAGS
+unset CXXFLAGS
+unset LDFLAGS
 ```
 
 Workspace allows to make quick changes in existing source files.
@@ -458,6 +459,64 @@ Make sure that all targets have globally unique names.
 For example, you can not have in each project target with same name like "test". You can solve that issue by adding project-specific prefix to name of each target like "${ROOT_PROJECT_NAME}-test_main_gtest".
 
 Because `CMAKE_BINARY_DIR` will point to folder created by `conan workspace install` - make sure that you prefer `CMAKE_CURRENT_BINARY_DIR` to `CMAKE_BINARY_DIR` etc.
+
+Example if you want to build code without sanitizers:
+
+```bash
+export CXX=clang++-6.0
+export CC=clang-6.0
+
+# NOTE: change `build_type=Debug` to `build_type=Release` in production
+export build_type=Debug
+
+# combines options from all projects
+conan workspace install \
+  ../flexnetws.yml \
+        --profile=clang \
+        -s compiler=clang \
+        -s compiler.version=6.0 \
+        -s llvm_tools:compiler.libcxx=libstdc++11 \
+        -s build_type=${build_type} \
+        -s llvm_tools:build_type=Release \
+        -s llvm_tools:compiler=clang \
+        -s llvm_tools:compiler.version=6.0 \
+        -s llvm_tools:compiler.libcxx=libstdc++11 \
+        --build missing \
+        --build cascade \
+        --build chromium_tcmalloc \
+        --build conan_gtest \
+        --build boost
+
+# optional
+# remove old CMakeCache
+(rm CMakeCache.txt || true)
+
+# NOTE: -DENABLE_TSAN=ON
+cmake -E time cmake . \
+  -DENABLE_TESTS=TRUE \
+  -DBUILD_SHARED_LIBS=FALSE \
+  -DCONAN_AUTO_INSTALL=OFF \
+  -DUSE_TEST_SUPPORT=TRUE \
+  -DCMAKE_BUILD_TYPE=${build_type} \
+  -DUSE_ALLOC_SHIM=TRUE
+
+# remove old build artifacts
+rm -rf bin
+find . -iname '*.o' -exec rm {} \;
+find . -iname '*.a' -exec rm {} \;
+find . -iname '*.dll' -exec rm {} \;
+find . -iname '*.lib' -exec rm {} \;
+
+# build code
+cmake -E time cmake --build . \
+  --config ${build_type} \
+  -- -j8
+
+# run unit tests for flexnet
+cmake -E time cmake --build . \
+  --config ${build_type} \
+  --target flexnet_run_all_tests
+```
 
 ## For contibutors: IWYU
 
