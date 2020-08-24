@@ -1,10 +1,7 @@
+#include <flexnet/ECS/asio_registry.hpp>
+
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
-#include <flexnet/util/macros.hpp>
-#include <flexnet/util/move_only.hpp>
-#include <flexnet/util/unowned_ptr.hpp>
-#include <flexnet/util/unowned_ref.hpp>
-#include <flexnet/util/promise_collection.hpp>
 
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -18,6 +15,11 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
 
+#include <basis/ECS/simulation_registry.hpp>
+#include <basis/ECS/global_context.hpp>
+#include <basis/move_only.hpp>
+#include <basis/unowned_ptr.hpp>
+#include <basis/unowned_ref.hpp>
 #include <basis/base_environment.hpp>
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
@@ -27,20 +29,6 @@
 
 #include <memory>
 #include <chrono>
-
-namespace boost {
-#ifdef BOOST_NO_EXCEPTIONS
-// see https://stackoverflow.com/a/33691561
-void throw_exception(const std::exception& ex)
-{
-  NOTREACHED()
-    << "boost thrown exception: "
-    << ex.what();
-  /// \note application will exit, without returning.
-  exit(0);
-}
-#endif // BOOST_NO_EXCEPTIONS
-} // namespace boost
 
 using namespace flexnet;
 
@@ -66,6 +54,447 @@ bool isCalledOnSameSingleThread()
 }
 
 } // namespace
+
+// Create ECS groups
+// Groups offer a faster alternative to multi component views.
+// See for details:
+// https://github.com/skypjack/entt/wiki/Crash-Course:-entity-component-system#groups
+void setEnttGroups()
+{
+  /// \todo
+  //SCOPED_UMA_HISTOGRAM_TIMER( /// \note measures up to 10 seconds
+  //  "Startup." + FROM_HERE.ToString());
+
+  ECS::GlobalContext* globals
+    = ECS::GlobalContext::GetInstance();
+  DCHECK(globals);
+
+  ECS::SimulationRegistry& enttManager
+    = globals->ctx_unlocked<ECS::SimulationRegistry>(FROM_HERE);
+
+  ECS::Registry& registry
+    = enttManager.ref_registry(FROM_HERE);
+}
+
+namespace ECS {
+
+void updateCleanupSystem(
+  ECS::AsioRegistry& asio_registry)
+{
+  DCHECK(
+    asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
+
+  ECS::Registry& registry
+    = asio_registry.ref_registry(FROM_HERE);
+
+  auto registry_group
+    = registry.view<ECS::NeedToDestroyTag>();
+
+#if !defined(NDEBUG)
+  if(registry_group.size()) {
+    DVLOG(99)
+      << " cleaning up entities, total number: "
+      << registry_group.size();
+  }
+  registry_group
+    .each(
+      [&registry]
+      (const Entity& entity
+       , const ECS::NeedToDestroyTag& dead_tag)
+      mutable
+    {
+      DCHECK(registry.valid(entity));
+    });
+#endif // NDEBUG
+
+  registry.destroy(
+    registry_group.begin()
+    , registry_group.end());
+}
+
+} // namespace ECS
+
+namespace ECS {
+
+static std::unique_ptr<basis::PeriodicTaskExecutor> waitCleanupExecutor
+  = nullptr;
+
+static scoped_refptr<base::SequencedTaskRunner> waitCleanupRunner
+  = nullptr;
+
+base::Promise<void, base::NoReject> waitCleanupConnectionResources(
+  ECS::AsioRegistry& asio_registry)
+{
+  base::ManualPromiseResolver<
+      void, base::NoReject
+    >
+    promiseResolver(FROM_HERE);
+
+  DCHECK(waitCleanupRunner
+    && waitCleanupRunner->RunsTasksInCurrentSequence());
+
+  waitCleanupExecutor = std::make_unique<basis::PeriodicTaskExecutor>(
+    waitCleanupRunner
+    , base::BindRepeating(
+        [
+        ](
+          ECS::AsioRegistry& asio_registry
+          , base::OnceClosure resolveCallback
+        ){
+          LOG(INFO)
+            << "waiting for cleanup of asio registry...";
+
+          ::boost::asio::post(
+            asio_registry.ref_strand(FROM_HERE)
+            , ::boost::beast::bind_front_handler([
+              ](
+                ECS::AsioRegistry& asio_registry
+                , base::OnceClosure resolveCallback
+              ){
+                DCHECK(
+                  asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
+                ECS::Registry& registry
+                  /// \note take care of thread-safety
+                  = asio_registry
+                  .ref_registry_unsafe(FROM_HERE);
+                if(registry.empty()) {
+                  DVLOG(9)
+                    << "registry is empty";
+                  std::move(resolveCallback).Run();
+                  /// \note will stop periodic timer on scope exit
+                  DCHECK(waitCleanupRunner);
+                  DCHECK(waitCleanupExecutor);
+                  waitCleanupRunner->DeleteSoon(FROM_HERE
+                    , std::move(waitCleanupExecutor));
+                } else {
+                  DVLOG(9)
+                    << "registry is NOT empty";
+                }
+              }
+              , REFERENCED(asio_registry)
+              , std::move(resolveCallback)
+            )
+          );
+        }
+        , REFERENCED(asio_registry)
+        , promiseResolver.GetRepeatingResolveCallback()
+    )
+  );
+
+  waitCleanupExecutor->startPeriodicTimer(
+    base::TimeDelta::FromMilliseconds(500));
+
+  return promiseResolver.promise();
+}
+
+} // namespace ECS
+
+namespace ECS {
+
+void updateUnusedSystem(
+  ECS::AsioRegistry& asio_registry)
+{
+  DCHECK(
+    asio_registry
+    .ref_strand(FROM_HERE)
+    .running_in_this_thread());
+
+  ECS::Registry& registry
+    = asio_registry
+    .ref_registry(FROM_HERE);
+
+  auto registry_group
+    = registry.view<ECS::UnusedTag>(
+        entt::exclude<
+          // entity in destruction
+          ECS::NeedToDestroyTag
+        >);
+
+#if !defined(NDEBUG)
+  if(registry_group.size()) {
+    DVLOG(99)
+      << " found unused entities, total number: "
+      << registry_group.size();
+  }
+#endif // NDEBUG
+
+  registry_group
+    .each(
+      [&registry]
+      (const Entity& entity
+       , const ECS::UnusedTag& dead_tag)
+      mutable
+    {
+      DCHECK(registry.valid(entity));
+      registry.assign<ECS::NeedToDestroyTag>(entity);
+    });
+}
+
+} // namespace ECS
+
+namespace ECS {
+
+void handleAcceptNewConnectionResult(
+  ECS::AsioRegistry& asio_registry
+  , const ECS::Entity& entity_id
+  , flexnet::ws::Listener::AcceptNewConnectionResult& acceptResult)
+{
+  using namespace ::flexnet::ws;
+  using namespace ::flexnet::http;
+
+  DCHECK(
+    asio_registry
+    .ref_strand(FROM_HERE)
+    .running_in_this_thread());
+
+  ECS::Registry& registry
+    = asio_registry
+    .ref_registry(FROM_HERE);
+
+  ECS::AsioRegistry::StrandType asioRegistryStrand
+    = asio_registry
+    .ref_strand(FROM_HERE);
+
+  DCHECK(asioRegistryStrand.running_in_this_thread());
+
+  // Handle the error, if any
+  if (acceptResult.ec)
+  {
+    LOG(ERROR)
+      << "Listener failed to accept new connection with error: "
+      << acceptResult.ec.message();
+
+    // it is safe to destroy entity now
+    if(!registry.has<ECS::UnusedTag>(entity_id)) {
+      registry.assign<ECS::UnusedTag>(entity_id);
+    }
+
+    return;
+  }
+
+  LOG(INFO)
+    << "Listener accepted new connection";
+
+  /// \todo replace unique_ptr with entt registry (pool)
+  std::unique_ptr<http::DetectChannel> detectChannel
+    = std::make_unique<http::DetectChannel>(
+        std::move(acceptResult.socket)
+        , RAW_REFERENCED(asio_registry)
+        , entity_id
+    );
+
+  DCHECK(asioRegistryStrand.running_in_this_thread());
+  http::DetectChannel* detectChannelPtr
+    = registry
+      .assign<std::unique_ptr<http::DetectChannel>>(
+        entity_id
+        , std::move(detectChannel)).get();
+
+  ::boost::asio::post(
+    detectChannelPtr->perConnectionStrand()
+    , ::boost::beast::bind_front_handler([
+      ](
+        base::OnceClosure&& task
+      ){
+        DCHECK(task);
+        std::move(task).Run();
+      }
+      , base::BindOnce(
+        &http::DetectChannel::runDetector
+        , UNOWNED_LIFETIME(base::Unretained(detectChannelPtr))
+        // expire timeout for SSL detection
+        , std::chrono::seconds(3)
+      )
+    )
+  );
+}
+
+CREATE_ECS_TAG(UnusedAcceptResultTag)
+
+void updateNewConnections(
+  ECS::AsioRegistry& asio_registry)
+{
+  using namespace ::flexnet::ws;
+
+  using view_component
+    = std::unique_ptr<ws::Listener::AcceptNewConnectionResult>;
+
+  DCHECK(
+    asio_registry
+    .ref_strand(FROM_HERE)
+    .running_in_this_thread());
+
+  ECS::Registry& registry
+    = asio_registry.
+      ref_registry(FROM_HERE);
+
+  // Avoid extra allocations
+  // with memory pool in ECS style using |ECS::UnusedTag|
+  // (objects that are no more in use can return into pool)
+  /// \note do not forget to free some memory in pool periodically
+  auto registry_group
+    = registry.view<view_component>(
+        entt::exclude<
+          // entity in destruction
+          ECS::NeedToDestroyTag
+          // entity is unused
+          , ECS::UnusedTag
+          // components related to acceptor are unused
+          , ECS::UnusedAcceptResultTag
+        >
+      );
+
+  registry_group
+    .each(
+      [&registry, &asio_registry]
+      (const Entity& entity
+       , const view_component& component)
+      mutable
+    {
+      DCHECK(registry.valid(entity));
+
+      handleAcceptNewConnectionResult(asio_registry, entity, *component);
+
+      // do not process twice
+      // similar to
+      // `registry.remove<view_component>(entity);`
+      // except avoids extra allocations
+      // i.e. can be used with memory pool
+      if(!registry.has<ECS::UnusedAcceptResultTag>(entity)) {
+        registry.assign<ECS::UnusedAcceptResultTag>(entity);
+      }
+    });
+}
+
+} // namespace ECS
+
+namespace ECS {
+
+void handleSSLDetectResult(
+  ECS::AsioRegistry& asio_registry
+  , const ECS::Entity& entity_id
+  , flexnet::http::DetectChannel::SSLDetectResult& detectResult)
+{
+  using namespace ::flexnet::ws;
+  using namespace ::flexnet::http;
+
+  DCHECK(
+    asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
+
+  ECS::Registry& registry
+    = asio_registry
+      .ref_registry(FROM_HERE);
+
+  ECS::AsioRegistry::StrandType asioRegistryStrand
+    = asio_registry.ref_strand(FROM_HERE);
+
+  DCHECK(asioRegistryStrand.running_in_this_thread());
+
+  LOG_CALL(VLOG(9));
+
+  auto closeAndReleaseResources
+    = [&detectResult, &registry, entity_id]()
+  {
+    // Send shutdown
+    if(detectResult.stream.socket().is_open())
+    {
+      DVLOG(9) << "shutdown of stream...";
+      boost::beast::error_code ec;
+      detectResult.stream.socket().shutdown(
+        boost::asio::ip::tcp::socket::shutdown_send, ec);
+      if (ec) {
+        LOG(WARNING)
+          << "error during stream shutdown: "
+          << ec.message();
+      }
+    }
+
+    // it is safe to destroy entity now
+    if(!registry.has<ECS::UnusedTag>(entity_id)) {
+      registry.assign<ECS::UnusedTag>(entity_id);
+    }
+  };
+
+  // Handle the error, if any
+  if (detectResult.ec)
+  {
+    LOG(ERROR)
+      << "Handshake failed for new connection with error: "
+      << detectResult.ec.message();
+
+    closeAndReleaseResources();
+
+    return;
+  }
+
+  DCHECK(!detectResult.stream.socket().is_open());
+
+  if(detectResult.handshakeResult) {
+    LOG(INFO)
+      << "Completed secure handshake of new connection";
+  } else {
+    LOG(INFO)
+      << "Completed NOT secure handshake of new connection";
+  }
+
+  /// \todo: create channel here
+  // Create the session and run it
+  //std::make_shared<session>(std::move(detectResult.stream.socket()))->run();
+  closeAndReleaseResources();
+}
+
+CREATE_ECS_TAG(UnusedSSLDetectResultTag)
+
+void updateSSLDetection(
+  ECS::AsioRegistry& asio_registry)
+{
+  using namespace ::flexnet::ws;
+
+  using view_component
+    = std::unique_ptr<http::DetectChannel::SSLDetectResult>;
+
+  DCHECK(
+    asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
+
+  ECS::Registry& registry
+    = asio_registry
+      .ref_registry(FROM_HERE);
+
+  auto registry_group
+    = registry.view<view_component>(
+        entt::exclude<
+          // entity in destruction
+          ECS::NeedToDestroyTag
+          // entity is unused
+          , ECS::UnusedTag
+          // components related to SSL detection are unused
+          , ECS::UnusedSSLDetectResultTag
+        >
+      );
+
+  registry_group
+    .each(
+      [&registry, &asio_registry]
+      (const Entity& entity
+       , const view_component& component)
+      mutable
+    {
+      DCHECK(registry.valid(entity));
+
+      handleSSLDetectResult(asio_registry, entity, *component);
+
+      // do not process twice
+      // similar to
+      // `registry.remove<view_component>(entity);`
+      // except avoids extra allocations
+      // i.e. can be used with memory pool
+      if(!registry.has<ECS::UnusedSSLDetectResultTag>(entity)) {
+        registry.assign<ECS::UnusedSSLDetectResultTag>(entity);
+      }
+    });
+}
+
+} // namespace ECS
 
 // init common application systems,
 // initialization order matters!
@@ -106,6 +535,36 @@ base::Optional<int> initEnv(
     }
   }
 
+  // Stores vector of arbitrary typed objects,
+  // each object can be found by its type (using entt::type_info).
+  ECS::GlobalContext* globals
+    = ECS::GlobalContext::GetInstance();
+  DCHECK(globals);
+
+  // |GlobalContext| is not thread-safe,
+  // so modify it only from one sequence
+  globals->unlockModification();
+
+  // main ECS registry
+  ECS::SimulationRegistry& enttManager
+    = globals->set_once<ECS::SimulationRegistry>(FROM_HERE,
+        "ECS::SimulationRegistry");
+
+  DCHECK(base::ThreadPool::GetInstance());
+  scoped_refptr<base::SequencedTaskRunner> entt_task_runner =
+    base::ThreadPool::GetInstance()->
+    CreateSequencedTaskRunnerWithTraits(
+      base::TaskTraits{
+        base::TaskPriority::BEST_EFFORT
+        , base::MayBlock()
+        , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+      }
+    );
+
+  // ECS registry is not thread-safe
+  // i.e. manipulate sessions in single sequence.
+  enttManager.set_task_runner(entt_task_runner);
+
   return base::nullopt;
 }
 
@@ -115,22 +574,8 @@ class ExampleServer
   using VoidPromise
     = base::Promise<void, base::NoReject>;
 
-  /// \note Lifetime of async callbacks
-  /// must be managed externally.
-  /// API user can free |DetectChannel| only if
-  /// all its callbacks finished (or failed to schedule).
-  /// i.e. API user must wait for destruction promise
-  using DetectorDestructionResolver
-    = base::ManualPromiseResolver<void, base::NoReject>;
-
   using StatusPromise
     = base::Promise<::util::Status, base::NoReject>;
-
-  using VoidPromiseContainer
-    = util::PromiseCollection<void, base::NoReject>;
-
-  using DetectorDestructionResolversContainer
-    = std::map<http::DetectChannel*, DetectorDestructionResolver>;
 
   using EndpointType
     = ws::Listener::EndpointType;
@@ -149,50 +594,11 @@ class ExampleServer
   VoidPromise configureAndRunAcceptor();
 
   MUST_USE_RETURN_VALUE
-  VoidPromise promiseDestructionOfConnections();
+  VoidPromise waitNetworkResourcesFreed();
 
   void stopIOContext();
 
-  void addBeforeStopPromise(
-    SHARED_LIFETIME(VoidPromise) promise);
-
-  void removeBeforeStopPromise(
-    SHARED_LIFETIME(VoidPromise) promise);
-
  private:
-  void onAccepted(
-    util::UnownedPtr<ws::Listener>&& listenerWrapper
-    , util::UnownedRef<ws::Listener::ErrorCode> ec
-    , util::UnownedRef<ws::Listener::SocketType> socket
-    , util::UnownedPtr<ws::Listener::StrandType> perConnectionStrand
-    , util::ScopedCleanup& scopedDeallocateStrand);
-
-  void onDetectorDetected(
-    base::OnceClosure&& doneClosure
-    , util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper
-    , util::MoveOnly<const http::DetectChannel::ErrorCode>&& ecWrapper
-    , util::MoveOnly<const bool>&& handshakeResultWrapper
-    , http::DetectChannel::StreamType&& stream
-    , http::DetectChannel::MessageBufferType&& buffer);
-
-  // called from destructor of detector,
-  // on any thread
-  NOT_THREAD_SAFE_FUNCTION()
-  void onDetectorDestruct(
-    util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper);
-
- private:
-  // maps detector with promise
-  // (promise will be resolved on detector destruction)
-  DetectorDestructionResolversContainer detector_destruction_resolvers_
-    LIVES_ON(sequence_checker_);
-
-  void createAndStoreDetectorDestructionResolver(
-    http::DetectChannel* detectChannelPtr);
-
-  void removeAndResolveDetectorDestructionResolver(
-    http::DetectChannel* detectChannelPtr);
-
   // The io_context is required for all I/O
   GLOBAL_THREAD_SAFE_LIFETIME()
   boost::asio::io_context ioc_{};
@@ -217,6 +623,9 @@ class ExampleServer
   std::unique_ptr<ws::Listener> listener_;
 
   GLOBAL_THREAD_SAFE_LIFETIME()
+  ECS::AsioRegistry asioRegistry_;
+
+  GLOBAL_THREAD_SAFE_LIFETIME()
   base::RunLoop run_loop_{};
 
   // Capture SIGINT and SIGTERM to perform a clean shutdown
@@ -226,10 +635,6 @@ class ExampleServer
     , SIGINT
     , SIGTERM
   };
-
-  // all promises that must be resolved before server termination
-  VoidPromiseContainer beforeStopPromises_
-    LIVES_ON(sequence_checker_);
 
   GLOBAL_THREAD_SAFE_LIFETIME()
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
@@ -253,69 +658,18 @@ class ExampleServer
 };
 
 ExampleServer::ExampleServer()
+  : asioRegistry_(util::UnownedPtr<ws::Listener::IoContext>(&ioc_))
 {
   LOG_CALL(VLOG(9));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  ws::Listener::AllocateStrandCallback allocateStrandCallback
-    = base::BindRepeating([
-      ](
-        util::UnownedRef<ws::Listener::StrandType*> strand
-        , util::UnownedRef<ws::Listener::IoContext> ioc
-        , util::UnownedPtr<ws::Listener>&& listenerWrapper
-      )
-        -> bool
-      {
-        LOG_CALL(VLOG(9));
-
-        ignore_result(listenerWrapper);
-
-        /// \note can be replaced with memory pool
-        /// to increase performance
-        NEW_NO_THROW(FROM_HERE,
-          strand.Ref() // lhs of assignment
-          , ws::Listener::StrandType(ioc.Ref()) // rhs of assignment
-          , LOG(ERROR) // log allocation failure
-        );
-
-        return strand.Ref() != nullptr;
-      });
-
-  ws::Listener::DeallocateStrandCallback deallocateStrandCallback
-    = base::BindRepeating([
-      ](
-        ws::Listener::StrandType*&& strand
-        , util::UnownedPtr<ws::Listener>&& listenerWrapper
-      )
-        -> bool
-      {
-        LOG_CALL(VLOG(9));
-
-        ignore_result(listenerWrapper);
-
-        /// \note can be replaced with memory pool
-        /// to increase performance
-        DELETE_NOT_ARRAY_AND_NULLIFY(FROM_HERE,
-          strand);
-
-        return true;
-      });
-
   listener_
     = std::make_unique<ws::Listener>(
         util::UnownedPtr<ws::Listener::IoContext>(&ioc_)
         , EndpointType{tcpEndpoint_}
-        , std::move(allocateStrandCallback)
-        , std::move(deallocateStrandCallback)
+        , RAW_REFERENCED(asioRegistry_)
       );
-
-  listener_->registerAcceptedCallback(
-    base::BindRepeating(
-      &ExampleServer::onAccepted
-      , base::Unretained(this)
-    )
-  );
 
 #if defined(SIGQUIT)
   signals_set_.add(SIGQUIT);
@@ -354,6 +708,7 @@ ExampleServer::ExampleServer()
                  LOG(ERROR)
                    << "failed to stop acceptor with status: "
                    << stopAcceptorResult.ToString();
+                 NOTREACHED();
                }
             })
         )
@@ -361,7 +716,18 @@ ExampleServer::ExampleServer()
         .ThenOn(mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
-              NESTED_PROMISE(&ExampleServer::promiseDestructionOfConnections)
+              NESTED_PROMISE(&ExampleServer::waitNetworkResourcesFreed)
+              , base::Unretained(this)
+          )
+        )
+        // stop io context
+        /// \note you can not use `::boost::asio::post`
+        /// if `ioc_->stopped()`
+        /// i.e. can not use strand of registry e.t.c.
+        .ThenOn(mainLoopRunner_
+          , FROM_HERE
+          , base::BindOnce(
+              NESTED_PROMISE(&ExampleServer::stopIOContext)
               , base::Unretained(this)
           )
         )
@@ -374,13 +740,23 @@ ExampleServer::ExampleServer()
               , nullptr // reset unique_ptr to nullptr
             )
         )
-        // stop io context
         .ThenOn(mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
-              NESTED_PROMISE(&ExampleServer::stopIOContext)
-              , base::Unretained(this)
-          )
+              // |GlobalContext| is not thread-safe,
+              // so modify it only from one sequence
+              &ECS::GlobalContext::unlockModification
+              , base::Unretained(ECS::GlobalContext::GetInstance())
+            )
+        )
+        // delete |ECS::SimulationRegistry|
+        .ThenOn(mainLoopRunner_
+          , FROM_HERE
+          , base::BindOnce(
+              &ECS::GlobalContext::unset<ECS::SimulationRegistry>
+              , base::Unretained(ECS::GlobalContext::GetInstance())
+              , FROM_HERE
+            )
         )
         .ThenOn(mainLoopRunner_
           , FROM_HERE
@@ -401,179 +777,71 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors()
     , listener_->stopAcceptorAsync());
 }
 
-void ExampleServer::onAccepted(
-  util::UnownedPtr<ws::Listener>&& listenerWrapper
-  , util::UnownedRef<ws::Listener::ErrorCode> ec
-  , util::UnownedRef<ws::Listener::SocketType> socket
-  , util::UnownedPtr<ws::Listener::StrandType> perConnectionStrand
-  , util::ScopedCleanup& scopedDeallocateStrand)
-{
-  LOG_CALL(VLOG(9));
-
-  ignore_result(listenerWrapper);
-
-  // |scopedDeallocateStrand| can be used to control
-  // lifetime of |perConnectionStrand|
-  ignore_result(scopedDeallocateStrand);
-
-  DCHECK(perConnectionStrand
-    && perConnectionStrand->running_in_this_thread());
-
-  // Handle the error, if any
-  if (ec.Ref())
-  {
-    LOG(ERROR)
-      << "Listener failed to accept new connection with error: "
-      << ec->message();
-    return;
-  }
-
-  LOG(INFO)
-    << "Listener accepted new connection";
-
-  /// \todo replace unique_ptr with entt registry (pool)
-  std::unique_ptr<http::DetectChannel> detectChannel
-    = std::make_unique<http::DetectChannel>(
-        std::move(socket.Ref())
-    );
-
-  // we will |std::move(detectChannel)|, so cache pointer to object
-  http::DetectChannel* detectChannelPtr
-    = detectChannel.get();
-
-  base::OnceClosure scheduleDeleteDetectorClosure
-    = base::BindOnce(
-        [
-        ](
-          std::unique_ptr<http::DetectChannel>&& detectChannel
-          , scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner
-        ){
-          LOG_CALL(VLOG(9));
-          DCHECK(detectChannel);
-          DCHECK(mainLoopRunner);
-          mainLoopRunner->DeleteSoon(FROM_HERE, std::move(detectChannel));
-        }
-        , base::Passed(std::move(detectChannel))
-        , mainLoopRunner_
-      );
-
-  DCHECK(detectChannelPtr);
-  detectChannelPtr->registerDetectedCallback(
-    base::BindOnce(
-        &ExampleServer::onDetectorDetected
-        , base::Unretained(this)
-        , base::Passed(std::move(scheduleDeleteDetectorClosure))
-    )
-  );
-
-  // |scheduleDeleteDetectorClosure| will destroy |detectChannelPtr|
-  // and |detectChannelPtr| will call |onDetectorDestruct|
-  DCHECK(detectChannelPtr);
-  detectChannelPtr->registerDestructCallback(
-    base::BindOnce(
-        &ExampleServer::onDetectorDestruct
-        , base::Unretained(this)
-    )
-  );
-
-  base::OnceClosure runDetectorClosure
-    = base::BindOnce(
-        &http::DetectChannel::runDetector
-        , UNOWNED_LIFETIME(base::Unretained(detectChannelPtr))
-        , std::chrono::seconds(30) // expire timeout
-      );
-
-  base::PostPromise(FROM_HERE
-    , UNOWNED_LIFETIME(mainLoopRunner_.get())
-    , base::BindOnce(
-        &ExampleServer::createAndStoreDetectorDestructionResolver
-        , base::Unretained(this)
-        , COPIED(detectChannelPtr))
-  )
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-      NESTED_PROMISE(&base::PostPromiseOnAsioExecutor<
-        base::OnceClosure
-      >)
-      , FROM_HERE
-      , CONST_REFERENCED(detectChannelPtr->perConnectionStrand())
-      /// \note manage lifetime of |perConnectionStrand|
-      , std::move(runDetectorClosure)
-    ) // BindOnce
-  );
-}
-
-NOT_THREAD_SAFE_FUNCTION()
-void ExampleServer::onDetectorDestruct(
-  util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper)
-{
-  LOG_CALL(VLOG(9));
-
-  ignore_result(
-    base::PostPromise(FROM_HERE
-      , UNOWNED_LIFETIME(mainLoopRunner_.get())
-      , base::BindOnce(
-          &ExampleServer::removeAndResolveDetectorDestructionResolver
-          , base::Unretained(this)
-          , COPIED(detectChannelWrapper.Get()))
-    )
-  );
-}
-
-void ExampleServer::onDetectorDetected(
-  base::OnceClosure&& doneClosure
-  , util::UnownedPtr<http::DetectChannel>&& detectChannelWrapper
-  , util::MoveOnly<const http::DetectChannel::ErrorCode>&& ecWrapper
-  , util::MoveOnly<const bool>&& handshakeResultWrapper
-  , http::DetectChannel::StreamType&& stream
-  , http::DetectChannel::MessageBufferType&& buffer)
-{
-  LOG_CALL(VLOG(9));
-
-  const http::DetectChannel::ErrorCode& ec
-    = ecWrapper.TakeConst();
-
-  util::ScopedCleanup scopedDoneClosure{[
-      &doneClosure
-    ](
-    ){
-      // reset |DetectChannel| (we do not need it anymore)
-      std::move(doneClosure).Run();
-    }
-  };
-
-  DCHECK(detectChannelWrapper
-    && detectChannelWrapper->isDetectingInThisThread());
-
-  // Handle the error, if any
-  if (ec)
-  {
-    LOG(ERROR)
-      << "Handshake failed for new connection with error: "
-      << ec.message();
-    return;
-  }
-
-  const bool& handshakeResult
-    = handshakeResultWrapper.TakeConst();
-
-  if(handshakeResult) {
-    LOG(INFO)
-      << "Completed secure handshake of new connection";
-  } else {
-    LOG(INFO)
-      << "Completed NOT secure handshake of new connection";
-  }
-
-  /// \todo: create channel here
-}
-
 void ExampleServer::runLoop()
 {
   LOG_CALL(VLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  /// \note will stop periodic timer on scope exit
+  basis::PeriodicTaskExecutor periodicAsioExecutor(
+    base::ThreadPool::GetInstance()->
+      CreateSequencedTaskRunnerWithTraits(
+        base::TaskTraits{
+          base::TaskPriority::BEST_EFFORT
+          , base::MayBlock()
+          , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+        }
+      )
+    , base::BindRepeating(
+        [
+        ](
+          ECS::AsioRegistry& asio_registry
+          , boost::asio::io_context& ioc
+        ){
+          /// \note you can not use `::boost::asio::post`
+          /// if `ioc_->stopped()`
+          if(ioc.stopped()) {
+            LOG(ERROR)
+              << "skipping update of registry"
+                 " because of stopped io context";
+            NOTREACHED();
+            return;
+          }
+
+          ::boost::asio::post(
+            asio_registry.ref_strand(FROM_HERE)
+            , ::boost::beast::bind_front_handler([
+              ](
+                ECS::AsioRegistry& asio_registry
+              ){
+                DVLOG(9)
+                  << "updating asio registry...";
+
+                DCHECK(
+                  asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
+                ECS::Registry& registry
+                  /// \note take care of thread-safety
+                  = asio_registry
+                    .ref_registry_unsafe(FROM_HERE);
+                ECS::updateNewConnections(asio_registry);
+                ECS::updateSSLDetection(asio_registry);
+                /// \todo cutomizable cleanup period
+                ECS::updateUnusedSystem(asio_registry);
+                /// \todo cutomizable cleanup period
+                ECS::updateCleanupSystem(asio_registry);
+              }
+              , REFERENCED(asio_registry)
+            )
+          );
+        }
+        , REFERENCED(asioRegistry_)
+        , REFERENCED(ioc_)
+    )
+  );
+
+  periodicAsioExecutor.startPeriodicTimer(
+    base::TimeDelta::FromMilliseconds(100));
 
   {
     base::Thread::Options options;
@@ -589,9 +857,18 @@ void ExampleServer::runLoop()
                 << "skipping update of stopped io context";
               return;
             }
-            /// \note loops forever and
+
+            // we want to loop |ioc| forever
+            // i.e. until manual termination
+            boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
+              = boost::asio::make_work_guard(ioc);
+
+            /// \note loops forever (if has work) and
             /// blocks |task_runner->PostTask| for that thread!
             ioc.run();
+
+            LOG(INFO)
+              << "stopped io context thread";
           }
           , REFERENCED(ioc_)
       )
@@ -614,9 +891,18 @@ void ExampleServer::runLoop()
                 << "skipping update of stopped io context";
               return;
             }
-            /// \note loops forever and
+
+            // we want to loop |ioc| forever
+            // i.e. until manual termination
+            boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
+              = boost::asio::make_work_guard(ioc);
+
+            /// \note loops forever (if has work) and
             /// blocks |task_runner->PostTask| for that thread!
             ioc.run();
+
+            LOG(INFO)
+              << "stopped io context thread";
           }
           , REFERENCED(ioc_)
       )
@@ -639,9 +925,18 @@ void ExampleServer::runLoop()
                 << "skipping update of stopped io context";
               return;
             }
-            /// \note loops forever and
+
+            // we want to loop |ioc| forever
+            // i.e. until manual termination
+            boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
+              = boost::asio::make_work_guard(ioc);
+
+            /// \note loops forever (if has work) and
             /// blocks |task_runner->PostTask| for that thread!
             ioc.run();
+
+            LOG(INFO)
+              << "stopped io context thread";
           }
           , REFERENCED(ioc_)
       )
@@ -664,9 +959,18 @@ void ExampleServer::runLoop()
                 << "skipping update of stopped io context";
               return;
             }
-            /// \note loops forever and
+
+            // we want to loop |ioc| forever
+            // i.e. until manual termination
+            boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
+              = boost::asio::make_work_guard(ioc);
+
+            /// \note loops forever (if has work) and
             /// blocks |task_runner->PostTask| for that thread!
             ioc.run();
+
+            LOG(INFO)
+              << "stopped io context thread";
           }
           , REFERENCED(ioc_)
       )
@@ -676,6 +980,9 @@ void ExampleServer::runLoop()
   }
 
   run_loop_.Run();
+
+  DVLOG(9)
+    << "Main run loop finished";
 
   asio_thread_1.Stop();
   DCHECK(!asio_thread_1.IsRunning());
@@ -688,6 +995,42 @@ void ExampleServer::runLoop()
 
   asio_thread_4.Stop();
   DCHECK(!asio_thread_4.IsRunning());
+}
+
+ExampleServer::VoidPromise ExampleServer::waitNetworkResourcesFreed()
+{
+  LOG_CALL(VLOG(9));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  ECS::waitCleanupRunner
+    = base::ThreadPool::GetInstance()->
+      CreateSequencedTaskRunnerWithTraits(
+        base::TaskTraits{
+          base::TaskPriority::BEST_EFFORT
+          , base::MayBlock()
+          , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+        }
+      );
+
+  /// \todo crash on timeout
+  return base::PostPromise(
+    FROM_HERE
+    // Post our work to the strand, to prevent data race
+    , ECS::waitCleanupRunner.get()
+    , base::BindOnce(
+        NESTED_PROMISE(&ECS::waitCleanupConnectionResources)
+        /// \note take care of thread-safety
+        , REFERENCED(asioRegistry_))
+    )
+    // reset |waitCleanupRunner|
+    .ThenOn(base::MessageLoop::current()->task_runner()
+      , FROM_HERE
+      , base::BindOnce(
+          &scoped_refptr<base::SequencedTaskRunner>::reset
+          , base::Unretained(&ECS::waitCleanupRunner)
+        )
+    );
 }
 
 ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor()
@@ -709,117 +1052,17 @@ ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor()
   ));
 }
 
-ExampleServer::VoidPromise ExampleServer::promiseDestructionOfConnections()
-{
-  LOG_CALL(VLOG(9));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-#if DCHECK_IS_ON()
-  removeBit(beforeStopPromises_.permissions
-    , VoidPromiseContainer::Permissions::Addable);
-#endif // DCHECK_IS_ON()
-
-  return beforeStopPromises_.All(FROM_HERE);
-}
-
 void ExampleServer::stopIOContext()
 {
   LOG_CALL(VLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  DCHECK(!listener_);
-
   // Stop the io_context. This will cause run()
   // to return immediately, eventually destroying the
   // io_context and any remaining handlers in it.
   ALWAYS_THREAD_SAFE(ioc_.stop());
   DCHECK(ALWAYS_THREAD_SAFE(ioc_.stopped()));
-}
-
-void ExampleServer::removeAndResolveDetectorDestructionResolver(
-  http::DetectChannel* detectChannelPtr)
-{
-  LOG_CALL(VLOG(9));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  DCHECK(detectChannelPtr);
-
-  DetectorDestructionResolversContainer::iterator it
-    = detector_destruction_resolvers_.find(detectChannelPtr);
-
-  DCHECK(it != detector_destruction_resolvers_.end());
-
-  it->second.Resolve();
-
-  detector_destruction_resolvers_.erase(it
-    , detector_destruction_resolvers_.end());
-}
-
-void ExampleServer::createAndStoreDetectorDestructionResolver(
-  http::DetectChannel* detectChannelPtr)
-{
-  LOG_CALL(VLOG(9));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  DCHECK(detectChannelPtr);
-
-  // do not add same detector twice
-  DCHECK(detector_destruction_resolvers_.find(detectChannelPtr)
-    == detector_destruction_resolvers_.end());
-
-  std::pair<DetectorDestructionResolversContainer::iterator, bool>
-    emplacedResolver
-      = detector_destruction_resolvers_.emplace(
-          detectChannelPtr
-          , FROM_HERE);
-
-  DCHECK(emplacedResolver.second);
-
-  DetectorDestructionResolver& destruction_resolver
-    = emplacedResolver.first->second;
-
-  /// \note resolver will be moved out, so we cache promise
-  VoidPromise destruction_promise
-    = SHARED_LIFETIME(destruction_resolver.promise());
-
-  /// \note tasks below will be scheduled after channel destruction
-  /// i.e. will async-wait for destruction promise
-  destruction_promise
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        // destroyed connections do not prevent server termination
-        &ExampleServer::removeBeforeStopPromise
-        , base::Unretained(this)
-        , SHARED_LIFETIME(destruction_promise)
-      )
-  );
-
-  addBeforeStopPromise(COPIED(destruction_promise));
-}
-
-void ExampleServer::addBeforeStopPromise(
-  SHARED_LIFETIME(VoidPromise) promise)
-{
-  LOG_CALL(VLOG(9));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  beforeStopPromises_.add(promise);
-}
-
-void ExampleServer::removeBeforeStopPromise(
-  SHARED_LIFETIME(VoidPromise) boundPromise)
-{
-  LOG_CALL(VLOG(9));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  beforeStopPromises_.remove(boundPromise);
 }
 
 ExampleServer::~ExampleServer()
@@ -830,10 +1073,6 @@ ExampleServer::~ExampleServer()
 
   DCHECK(
     ALWAYS_THREAD_SAFE(ioc_.stopped())
-    && ASSUME_THREAD_SAFE_BECAUSE(ioc_.stopped())
-        beforeStopPromises_.empty()
-    && ASSUME_THREAD_SAFE_BECAUSE(ioc_.stopped())
-        detector_destruction_resolvers_.empty()
   );
 }
 
@@ -867,6 +1106,15 @@ int main(int argc, char* argv[])
             , base::Unretained(&exampleServer)
         )
     )
+  .ThenOn(base::MessageLoop::current()->task_runner()
+    , FROM_HERE
+    , base::BindOnce(
+        // |GlobalContext| is not thread-safe,
+        // so modify it only from one sequence
+        &ECS::GlobalContext::lockModification
+        , base::Unretained(ECS::GlobalContext::GetInstance())
+      )
+  )
   .ThenOn(base::MessageLoop::current()->task_runner()
     , FROM_HERE
     , base::BindOnce(

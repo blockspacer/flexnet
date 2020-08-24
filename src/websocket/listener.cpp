@@ -1,17 +1,18 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 
-#include "flexnet/util/macros.hpp"
-#include "flexnet/util/unowned_ptr.hpp"
-#include "flexnet/util/unowned_ref.hpp" // IWYU pragma: keep
-
 #include <base/bind.h>
 #include <base/location.h>
 #include <base/logging.h>
+#include <base/macros.h>
 #include <base/sequence_checker.h>
 
+#include <base/threading/thread.h>
+#include <base/task/thread_pool/thread_pool.h>
 #include <basis/promise/post_promise.h>
 #include <basis/scoped_cleanup.hpp>
 #include <basis/status/status_macros.hpp>
+#include <basis/unowned_ptr.hpp>
+#include <basis/unowned_ref.hpp> // IWYU pragma: keep
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/error.hpp>
@@ -36,17 +37,15 @@ namespace ws {
 Listener::Listener(
   util::UnownedPtr<IoContext>&& ioc
   , EndpointType&& endpoint
-  , AllocateStrandCallback&& allocateStrandCallback
-  , DeallocateStrandCallback&& deallocateStrandCallback)
+  , ECS::AsioRegistry& asioRegistry)
   : acceptor_(*ioc.Get())
+  , asioRegistry_(asioRegistry)
   , UNOWNED_LIFETIME(ioc_(ioc))
   , endpoint_(endpoint)
   , acceptorStrand_(*ioc.Get())
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
     weak_this_(weak_ptr_factory_.GetWeakPtr()))
-  , allocateStrandCallback_(std::move(allocateStrandCallback))
-  , deallocateStrandCallback_(std::move(deallocateStrandCallback))
 {
   LOG_CALL(VLOG(9));
 
@@ -55,7 +54,7 @@ Listener::Listener(
 
 NOT_THREAD_SAFE_FUNCTION()
 void Listener::logFailure(
-  ErrorCode ec, char const* what)
+  const ErrorCode& ec, char const* what)
 {
   LOG_CALL(VLOG(9));
 
@@ -128,10 +127,6 @@ void Listener::logFailure(
     << "opening acceptor for "
     << endpoint_.address().to_string();
 
-  // sanity check
-  DCHECK(ALWAYS_THREAD_SAFE()
-    !assume_is_accepting_.load());
-
   acceptor_.open(endpoint_.protocol(), ec);
   if (ec)
   {
@@ -153,10 +148,6 @@ void Listener::logFailure(
   LOG_CALL(VLOG(9));
 
   DCHECK(isAcceptingInThisThread());
-
-  // sanity check
-  DCHECK(ALWAYS_THREAD_SAFE()
-    !assume_is_accepting_.load());
 
   ErrorCode ec;
 
@@ -209,9 +200,6 @@ Listener::StatusPromise Listener::configureAndRun()
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  DCHECK(ALWAYS_THREAD_SAFE()
-    !assume_is_accepting_.load());
-
   DCHECK(!isAcceptingInThisThread());
   return base::PostPromiseOnAsioExecutor(
     FROM_HERE
@@ -229,10 +217,6 @@ Listener::StatusPromise Listener::configureAndRun()
   LOG_CALL(VLOG(9));
 
   DCHECK(isAcceptingInThisThread());
-
-  // sanity check
-  DCHECK(ALWAYS_THREAD_SAFE()
-    !assume_is_accepting_.load());
 
   RETURN_IF_ERROR(
     openAcceptor());
@@ -257,28 +241,63 @@ void Listener::doAccept()
 
   DCHECK(isAcceptingInThisThread());
 
-  ALWAYS_THREAD_SAFE()
-    assume_is_accepting_ = true;
-
-  StrandType* allocatedStrandPtr = nullptr;
-
+  // prevent infinite recursion
+  if(!isAcceptorOpen())
   {
-    DCHECK(allocateStrandCallback_);
-    bool allocateOk
-      = allocateStrandCallback_.Run(
-          REFERENCED(allocatedStrandPtr)
-          , REFERENCED(*ioc_.Get())
-          , util::UnownedPtr<Listener>(this));
-    if(!allocateOk) {
-      LOG(ERROR)
-        << "failed to allocate strand for created connection";
-      return;
-    } else {
-      VLOG(9)
-        << "allocated strand for created connection";
-    }
-    DCHECK(allocatedStrandPtr);
+    DVLOG(9)
+      << "accept recursion stopped"
+      << " because acceptor is not open";
+    return;
   }
+
+  // Accept another connection
+  ::boost::asio::post(
+    asioRegistry_.ref_strand(FROM_HERE)
+    , ::std::bind(
+        &Listener::allocateTcpResourceAndAccept
+        , this)
+  );
+}
+
+void Listener::allocateTcpResourceAndAccept()
+{
+  LOG_CALL(VLOG(9));
+
+  DCHECK(asioRegistry_.ref_strand(FROM_HERE).running_in_this_thread());
+
+  ECS::Entity tcp_entity_id
+    = asioRegistry_
+      .ref_registry(FROM_HERE)
+      .create();
+
+  std::unique_ptr<StrandType>& asioStrand
+    = asioRegistry_
+      .ref_registry(FROM_HERE)
+      .assign<std::unique_ptr<StrandType>>(
+        tcp_entity_id
+        /// \todo replace unique_ptr with entt registry (pool)
+        , std::make_unique<StrandType>(*ioc_.Get()));
+
+  util::UnownedPtr<StrandType> unownedPerConnectionStrand
+    = util::UnownedPtr<StrandType>(asioStrand.get());
+
+  // Accept another connection
+  ::boost::asio::post(
+    acceptorStrand_
+    , ::std::bind(
+        &Listener::asyncAccept
+        , this
+        , COPIED(unownedPerConnectionStrand)
+        , COPIED(tcp_entity_id))
+  );
+}
+
+void Listener::asyncAccept(
+  util::UnownedPtr<StrandType> unownedPerConnectionStrand
+  , ECS::Entity tcp_entity_id)
+{
+  DCHECK(isAcceptingInThisThread());
+  DCHECK(isAcceptorOpen());
 
   /// Start an asynchronous accept.
   /**
@@ -294,16 +313,20 @@ void Listener::doAccept()
      * performed within a strand.
      */
     // new connection needs its own strand
-    boost::asio::bind_executor(
-      *allocatedStrandPtr,
-      ::std::bind(
-        &Listener::onAccept,
-        UNOWNED_LIFETIME(
-          this)
-        , std::placeholders::_1
-        , std::placeholders::_2
-        , std::move(allocatedStrandPtr)
-        )
+    // created socket will be associated with strand
+    // that was passed to |async_accept|
+    *unownedPerConnectionStrand.Get()
+    , boost::asio::bind_executor(
+        *unownedPerConnectionStrand.Get()
+        , ::std::bind(
+          &Listener::onAccept,
+          UNOWNED_LIFETIME(
+            this)
+          , COPIED(unownedPerConnectionStrand)
+          , COPIED(tcp_entity_id)
+          , std::placeholders::_1
+          , std::placeholders::_2
+          )
       )
     );
 }
@@ -322,9 +345,6 @@ void Listener::doAccept()
     VLOG(9)
       << "unable to stop closed listener";
 
-    ALWAYS_THREAD_SAFE()
-      assume_is_accepting_ = false;
-
     return ::util::OkStatus();
   }
 
@@ -340,9 +360,6 @@ void Listener::doAccept()
     {
       logFailure(ec, "acceptor_cancel");
 
-      ALWAYS_THREAD_SAFE()
-        assume_is_accepting_ = isAcceptorOpen();
-
       return MAKE_ERROR()
              << "Failed to call acceptor_cancel for acceptor";
     }
@@ -354,9 +371,6 @@ void Listener::doAccept()
     if (ec) {
       logFailure(ec, "acceptor_close");
 
-      ALWAYS_THREAD_SAFE()
-        assume_is_accepting_ = isAcceptorOpen();
-
       return MAKE_ERROR()
              << "Failed to call acceptor_close for acceptor";
     }
@@ -365,23 +379,7 @@ void Listener::doAccept()
     DCHECK(!isAcceptorOpen());
   }
 
-  ALWAYS_THREAD_SAFE()
-    assume_is_accepting_ = false;
-
   return ::util::OkStatus();
-}
-
-void Listener::registerAcceptedCallback(
-  const Listener::AcceptedCallback &cb)
-{
-  /// \note guarantees thread-safety of |acceptedCallback_|
-  /// i.e. change |acceptedCallback_| only when acceptor stopped
-  DCHECK(ALWAYS_THREAD_SAFE()
-    !assume_is_accepting_.load());
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  acceptedCallback_ = std::move(cb);
 }
 
 Listener::StatusPromise Listener::stopAcceptorAsync()
@@ -389,9 +387,6 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
   LOG_CALL(VLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  DCHECK(ALWAYS_THREAD_SAFE()
-    assume_is_accepting_.load());
 
   /// \note we asume that no more tasks
   /// will be posted on |acceptorStrand_|
@@ -408,40 +403,16 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
     );
 }
 
-void Listener::onAccept(ErrorCode ec
-                        , SocketType socket
-                        , StrandType* perConnectionStrand)
+void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
+                        , ECS::Entity tcp_entity_id
+                        , const ErrorCode& ec
+                        , SocketType&& socket)
 {
   LOG_CALL(VLOG(9));
-
-  util::UnownedPtr<StrandType> unownedPerConnectionStrand
-    = util::UnownedPtr<StrandType>(perConnectionStrand);
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(unownedPerConnectionStrand
          && unownedPerConnectionStrand->running_in_this_thread());
-
-  util::ScopedCleanup scopedDeallocateStrand{
-    [
-      this
-      , &unownedPerConnectionStrand
-    ](){
-      LOG_CALL(VLOG(9));
-      DCHECK(deallocateStrandCallback_);
-      bool deallocateOk
-        = deallocateStrandCallback_.Run(
-            unownedPerConnectionStrand.Release()
-            , util::UnownedPtr<Listener>(this));
-      if(!deallocateOk) {
-        LOG(ERROR)
-          << "failed to deallocate strand for created connection";
-      } else {
-        VLOG(9)
-          << "deallocated strand for created connection";
-      }
-      DCHECK(!unownedPerConnectionStrand);
-    }
-  };
 
   if (ec)
   {
@@ -451,13 +422,11 @@ void Listener::onAccept(ErrorCode ec
   if (!socket.is_open())
   {
     VLOG(9)
-      << "unable to accept new connections"
-         " on closed socket";
-
-    return; // stop onAccept recursion
-  }
-
-  {
+      << "accepted connection"
+         " has closed socket";
+    /// \note do not forget to free allocated resources
+    /// i.e. handle error code
+  } else {
     DCHECK(socket.is_open());
     const EndpointType& remote_endpoint
       = socket.remote_endpoint();
@@ -466,31 +435,53 @@ void Listener::onAccept(ErrorCode ec
         << remote_endpoint;
   }
 
-  // sanity check
-  DCHECK(ALWAYS_THREAD_SAFE()
-    assume_is_accepting_.load());
-
-  NOT_THREAD_SAFE_LIFETIME(acceptedCallback_).Run(
-    util::UnownedPtr<Listener>(this)
-    , REFERENCED(ec)
-    /// \note usually calls |std::move(socket)|
-    , REFERENCED(COPY_ON_MOVE(socket))
-    , COPIED(unownedPerConnectionStrand)
-    // |scopedDeallocateStrand| can be used to control
-    // lifetime of |unownedPerConnectionStrand|
-    , REFERENCED(scopedDeallocateStrand));
+  // mark connection as newly created
+  // (or as failed with error code)
+  ::boost::asio::post(
+    asioRegistry_.ref_strand(FROM_HERE)
+    , ::boost::beast::bind_front_handler([
+      ](
+        base::OnceClosure&& boundTask
+      ){
+        std::move(boundTask).Run();
+      }
+      , base::BindOnce(
+          &Listener::setAcceptNewConnectionResult
+          , base::Unretained(this)
+          , COPIED(tcp_entity_id)
+          , std::move(ec)
+          , std::move(socket)
+        )
+    )
+  );
 
   // Accept another connection
-  VoidPromise postResult
-    = base::PostPromiseOnAsioExecutor(
-        FROM_HERE
-        // Post our work to the strand, to prevent data race
-        , acceptorStrand_
-        , base::BindOnce(
-          &Listener::doAccept,
-          base::Unretained(this))
-        );
-  ignore_result(postResult);
+  ::boost::asio::post(
+    acceptorStrand_
+    , ::std::bind(
+        &Listener::doAccept
+        , this)
+  );
+}
+
+void Listener::setAcceptNewConnectionResult(
+  ECS::Entity tcp_entity_id
+  , ErrorCode&& ec
+  , SocketType&& socket)
+{
+  DCHECK(asioRegistry_.ref_strand(FROM_HERE).running_in_this_thread());
+
+  DVLOG(1)
+    << " added new connection";
+
+  asioRegistry_
+    .ref_registry(FROM_HERE)
+    .assign<std::unique_ptr<Listener::AcceptNewConnectionResult>>(
+      tcp_entity_id
+      /// \todo replace unique_ptr with entt registry (pool)
+      , std::make_unique<Listener::AcceptNewConnectionResult>(
+          std::move(ec)
+          , std::move(socket)));
 }
 
 Listener::~Listener()
@@ -507,20 +498,30 @@ Listener::~Listener()
   DCHECK(NOT_THREAD_SAFE_LIFETIME(
            !acceptor_.is_open()));
 
-  // sanity check
-  DCHECK(ALWAYS_THREAD_SAFE()
-    !assume_is_accepting_.load());
+  // make sure that all allocated
+  // `per-connection resources` are freed
+  /// \note we can not use `::boost::asio::post`
+  /// because `ioc_->stopped()`
+  /// i.e. can not use strand of registry,
+  /// so make sure code access to |asioRegistry_|
+  /// is thread-safe here
+  ASSUME_THREAD_SAFE_BECAUSE(ioc_->stopped())
+  DCHECK(asioRegistry_.ref_registry_unsafe(FROM_HERE).empty());
 
-  // Callbacks posted on |io_context| can use |this|,
-  // so make sure that |this| outlives |io_context|
-  // (callbacks expected to NOT execute on stopped |io_context|).
+  /// \note Callbacks posted on |io_context| can use |this|,
+  /// so make sure that |this| outlives |io_context|
+  /// (callbacks expected to NOT execute on stopped |io_context|).
   DCHECK(NOT_THREAD_SAFE_LIFETIME(
     ioc_->stopped()));
+
+  DVLOG(1)
+    << " Listener freed";
 }
 
 bool Listener::isAcceptorOpen() const
 {
   /// \note |is_open| is not thread-safe in general
+  /// i.e. provide thread-safety checks
   DCHECK(isAcceptingInThisThread());
 
   return acceptor_.is_open();
@@ -528,7 +529,7 @@ bool Listener::isAcceptorOpen() const
 
 bool Listener::isAcceptingInThisThread() const noexcept
 {
-  /// \note assumed to be thread-safe
+  /// \note `running_in_this_thread()` assumed to be thread-safe
   return acceptorStrand_.running_in_this_thread();
 }
 

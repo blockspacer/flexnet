@@ -1,7 +1,6 @@
 #pragma once
 
-#include "flexnet/util/macros.hpp"
-#include "flexnet/util/unowned_ptr.hpp" // IWYU pragma: keep
+#include "flexnet/ECS/asio_registry.hpp"
 
 #include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>
@@ -9,8 +8,9 @@
 #include <base/sequence_checker.h>
 
 #include <basis/promise/promise.h>
-#include <basis/scoped_cleanup.hpp> // IWYU pragma: keep
 #include <basis/status/status.hpp>
+#include <basis/unowned_ptr.hpp> // IWYU pragma: keep
+#include <basis/ECS/simulation_registry.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/io_service.hpp>
@@ -29,9 +29,7 @@ namespace flexnet {
 
 namespace ws {
 
-/**
- * Accepts incoming connections and launches the sessions
- **/
+// Accepts incoming connections
 class Listener
 {
 public:
@@ -53,45 +51,33 @@ public:
   using StrandType
     = ::boost::asio::io_service::strand;
 
-  using AllocateStrandCallback
-    = base::RepeatingCallback<
-    bool (
-      util::UnownedRef<StrandType*> strand
-      , util::UnownedRef<IoContext> ioc
-      , util::UnownedPtr<Listener>&&)
-    >;
-
-  using DeallocateStrandCallback
-    = base::RepeatingCallback<
-    bool (
-      StrandType*&& strand
-      , util::UnownedPtr<Listener>&&)
-    >;
-
-  using AcceptedCallback
-    = base::RepeatingCallback<
-    void (
-      util::UnownedPtr<Listener>&&
-      , util::UnownedRef<ErrorCode> ec
-      , util::UnownedRef<SocketType> socket
-      , COPIED(util::UnownedPtr<StrandType> perConnectionStrand)
-      // |scopedDeallocateStrand| can be used to control
-      // lifetime of |perConnectionStrand|
-      , util::ScopedCleanup& scopedDeallocateStrand)
-    >;
-
   using StatusPromise
     = base::Promise<util::Status, base::NoReject>;
 
   using VoidPromise
     = base::Promise<void, base::NoReject>;
 
+  // result of |acceptor_.async_accept(...)|
+  // i.e. stores created socket
+  struct AcceptNewConnectionResult {
+    explicit AcceptNewConnectionResult(
+      ErrorCode&& ec
+      , SocketType&& socket)
+      : ec(std::move(ec))
+        , socket(std::move(socket))
+      {}
+
+    ErrorCode ec;
+    // socket created per each connection
+    SocketType socket;
+  };
+
 public:
   Listener(
     util::UnownedPtr<IoContext>&& ioc
     , EndpointType&& endpoint
-    , AllocateStrandCallback&& allocateStrandCallback
-    , DeallocateStrandCallback&& deallocateStrandCallback);
+    // ECS registry used to create `per-connection entity`
+    , ECS::AsioRegistry& asioRegistry);
 
   ~Listener();
 
@@ -99,18 +85,16 @@ public:
   MUST_USE_RETURN_VALUE
   StatusPromise configureAndRun();
 
-  /**
-   * @brief checks whether server is accepting new connections
-   */
+  // checks whether server is accepting new connections
   MUST_USE_RETURN_VALUE
   bool isAcceptorOpen() const;
 
-  /**
-   * @brief handles new connections and starts sessions
-   */
-  void onAccept(ErrorCode ec
-                , SocketType socket
-                , StrandType* perConnectionStrand);
+  // handles new connections
+  void onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
+                // `per-connection entity`
+                , ECS::Entity tcp_entity_id
+                , const ErrorCode& ec
+                , SocketType&& socket);
 
   MUST_USE_RETURN_VALUE
   StatusPromise stopAcceptorAsync();
@@ -126,8 +110,6 @@ public:
   MUST_USE_RETURN_VALUE
     ::util::Status stopAcceptor();
 
-  void registerAcceptedCallback(const AcceptedCallback& cb);
-
   MUST_USE_RETURN_VALUE
   base::WeakPtr<Listener> weakSelf() const noexcept
   {
@@ -139,11 +121,29 @@ public:
   }
 
 private:
+  // uses provided `per-connection entity`
+  // to accept new connection
+  // i.e. `per-connection data` will be stored
+  // in `per-connection entity`
+  void asyncAccept(
+    util::UnownedPtr<StrandType> unownedPerConnectionStrand
+    , ECS::Entity tcp_entity_id);
+
+  void allocateTcpResourceAndAccept();
+
+  // store result of |acceptor_.async_accept(...)|
+  // in `per-connection entity`
+  void setAcceptNewConnectionResult(
+     // `per-connection entity`
+      ECS::Entity tcp_entity_id
+      , ErrorCode&& ec
+      , SocketType&& socket);
+
   // Report a failure
   /// \note not thread-safe, so keep it for logging purposes only
   NOT_THREAD_SAFE_FUNCTION()
   void logFailure(
-    ErrorCode ec, char const* what);
+    const ErrorCode& ec, char const* what);
 
   MUST_USE_RETURN_VALUE
     ::util::Status configureAcceptor();
@@ -169,6 +169,8 @@ private:
   NOT_THREAD_SAFE_LIFETIME()
   EndpointType endpoint_;
 
+  ECS::AsioRegistry& asioRegistry_;
+
   // modification of |acceptor_| guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
   /// \note do not destruct |Listener| while |acceptorStrand_|
@@ -176,10 +178,8 @@ private:
   NOT_THREAD_SAFE_LIFETIME()
   StrandType acceptorStrand_;
 
-  /// \note take care of thread-safety
-  /// i.e. change |acceptedCallback_| only when acceptor stopped
-  NOT_THREAD_SAFE_LIFETIME()
-  AcceptedCallback acceptedCallback_;
+  //ECS::SimulationRegistry listenerRegistry_{}
+  //LIVES_ON(acceptorStrand_);
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
@@ -198,27 +198,6 @@ private:
   // |weak_ptr_factory_.GetWeakPtr() which is not).
   base::WeakPtr<Listener> weak_this_
   LIVES_ON(sequence_checker_);
-
-  // unlike |isAcceptorOpen()| it can be used from any sequence,
-  // but it is approximation that stores state
-  // based on results of previous API calls,
-  // not based on real |acceptor_| state
-  // i.e. it may be NOT same as |acceptor_.is_open()|
-  ALWAYS_THREAD_SAFE()
-  std::atomic<bool> assume_is_accepting_{false};
-
-  /// \note allow API users to use custom allocators
-  /// (like memory pool) to increase performance
-  /// \note usually it is same as
-  /// StrandType* perConnectionStrand
-  ///   = new (std::nothrow) StrandType(ioc_);
-  NOT_THREAD_SAFE_LIFETIME()
-  AllocateStrandCallback allocateStrandCallback_;
-
-  /// \note allow API users to use custom allocators
-  /// (like memory pool) to increase performance
-  NOT_THREAD_SAFE_LIFETIME()
-  DeallocateStrandCallback deallocateStrandCallback_;
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

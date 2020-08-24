@@ -15,13 +15,6 @@ list(APPEND flexnet_SOURCES
   #
   ${flexnet_include_DIR}/util/limited_tcp_stream.hpp
   #
-  ${flexnet_include_DIR}/util/macros.hpp
-  #
-  ${flexnet_include_DIR}/util/move_only.hpp
-  #
-  ${flexnet_include_DIR}/util/unowned_ptr.hpp
-  #
-  ${flexnet_include_DIR}/util/unowned_ref.hpp
-  #
-  ${flexnet_include_DIR}/util/promise_collection.hpp
+  ${flexnet_src_DIR}/ECS/asio_registry.cc
+  ${flexnet_include_DIR}/ECS/asio_registry.hpp
 )

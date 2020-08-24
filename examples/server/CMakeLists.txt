@@ -2,10 +2,15 @@
 
 add_executable(example_server
   ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/boost_throw_exception.cc
 )
 
 target_link_libraries(example_server PRIVATE
   ${LIB_NAME}
+)
+
+target_include_directories(example_server PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 set_target_properties(example_server PROPERTIES

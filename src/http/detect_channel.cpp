@@ -1,11 +1,15 @@
 #include "flexnet/http/detect_channel.hpp" // IWYU pragma: associated
 
-#include "flexnet/util/macros.hpp"
-#include "flexnet/util/move_only.hpp"
-#include "flexnet/util/unowned_ptr.hpp"
-
 #include <base/location.h>
+#include <base/macros.h>
 #include <base/logging.h>
+#include <base/threading/thread.h>
+#include <base/task/thread_pool/thread_pool.h>
+
+#include <basis/move_only.hpp>
+#include <basis/unowned_ptr.hpp>
+#include <basis/task/periodic_check.hpp>
+#include <basis/promise/post_promise.h>
 
 #include <boost/asio/basic_stream_socket.hpp>
 #include <boost/asio/bind_executor.hpp>
@@ -22,12 +26,16 @@ namespace flexnet {
 namespace http {
 
 DetectChannel::DetectChannel(
-  AsioTcp::socket&& socket)
+  AsioTcp::socket&& socket
+  , ECS::AsioRegistry& asioRegistry
+  , const ECS::Entity entity_id)
   : stream_(std::move(COPY_ON_MOVE(socket)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
     weak_this_(weak_ptr_factory_.GetWeakPtr()))
   , perConnectionStrand_(stream_.get_executor())
+  , asioRegistry_(asioRegistry)
+  , entity_id_(entity_id)
 {
   LOG_CALL(VLOG(9));
 
@@ -39,37 +47,11 @@ DetectChannel::~DetectChannel()
 {
   LOG_CALL(VLOG(9));
 
-  DCHECK(destructCallback_);
-  std::move(destructCallback_).Run(
-    util::UnownedPtr<DetectChannel>(this));
-
   // we assume that |DetectChannel|
   // will be destructed only after
   // |DetectChannel::onDetected| finished
   DCHECK(ALWAYS_THREAD_SAFE(
     atomicDetectDoneFlag_.IsSet()));
-}
-
-void DetectChannel::registerDetectedCallback(
-  DetectChannel::DetectedCallback&& detectedCallback)
-{
-  LOG_CALL(VLOG(9));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  DCHECK(detectedCallback);
-  detectedCallback_ = std::move(detectedCallback);
-}
-
-void DetectChannel::registerDestructCallback(
-  DetectChannel::DestructCallback&& destructCallback)
-{
-  LOG_CALL(VLOG(9));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  DCHECK(destructCallback);
-  destructCallback_ = std::move(destructCallback);
 }
 
 void DetectChannel::configureDetector(
@@ -100,6 +82,50 @@ void DetectChannel::runDetector(
 
   configureDetector(expire_timeout);
 
+#if DCHECK_IS_ON()
+  // used to limit execution time of async function
+  // that resolves promise
+  base::ManualPromiseResolver<void, base::NoReject>
+    timeoutPromiseResolver(FROM_HERE);
+
+  DCHECK(base::ThreadPool::GetInstance());
+  // wait and signal on different task runners
+  scoped_refptr<base::SequencedTaskRunner> timeout_task_runner =
+    base::ThreadPool::GetInstance()->
+    CreateSequencedTaskRunnerWithTraits(
+      base::TaskTraits{
+        base::TaskPriority::BEST_EFFORT
+        , base::MayBlock()
+        , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+      }
+    );
+
+  ignore_result(base::PostPromise(FROM_HERE
+  , timeout_task_runner.get()
+  , base::BindOnce(
+    // limit execution time
+    &basis::setPeriodicTimeoutCheckerOnSequence
+    , FROM_HERE
+    , timeout_task_runner
+    , basis::EndingTimeout{
+        base::TimeDelta::FromSeconds(7)}
+    , basis::PeriodicCheckUntil::CheckPeriod{
+        base::TimeDelta::FromMinutes(1)}
+    , "detection of new connection hanged")));
+
+  /// \note promise has shared lifetime,
+  /// so we expect it to exist until (at least)
+  /// it is resolved using `GetRepeatingResolveCallback`
+  timeoutPromiseResolver
+  .promise()
+  // reset check of execution time
+  .ThenOn(timeout_task_runner
+    , FROM_HERE
+    , base::BindOnce(&basis::unsetPeriodicTimeoutCheckerOnSequence)
+  )
+  ;
+#endif // DCHECK_IS_ON()
+
   /// \note Lifetime of async callbacks
   /// must be managed externally.
   /// API user can free |DetectChannel| only if
@@ -110,6 +136,9 @@ void DetectChannel::runDetector(
         &DetectChannel::onDetected
         , UNOWNED_LIFETIME(
           COPIED(this))
+#if DCHECK_IS_ON()
+        , timeoutPromiseResolver.GetRepeatingResolveCallback()
+#endif // DCHECK_IS_ON()
         , std::placeholders::_1
         , std::placeholders::_2
         );
@@ -147,34 +176,78 @@ void DetectChannel::runDetector(
 }
 
 void DetectChannel::onDetected(
-  const ErrorCode& ec
+#if DCHECK_IS_ON()
+  COPIED() base::RepeatingClosure timeoutResolver
+#endif // DCHECK_IS_ON()
+  , const ErrorCode& ec
   , const bool& handshakeResult)
 {
   LOG_CALL(VLOG(9));
 
   DCHECK(isDetectingInThisThread());
 
-  DCHECK(stream_.socket().is_open());
-
-  DCHECK(detectedCallback_);
+  DCHECK(ec ? true : stream_.socket().is_open());
 
   // we assume that |onDetected|
   // will be called only once
   DCHECK(ALWAYS_THREAD_SAFE(
     !atomicDetectDoneFlag_.IsSet()));
 
+#if DCHECK_IS_ON()
+  DCHECK(timeoutResolver);
+  timeoutResolver.Run();
+#endif // DCHECK_IS_ON()
+
   atomicDetectDoneFlag_.Set();
 
-  /// \note |detectedCallback_| can
-  /// destroy |DetectChannel| object
-  NOT_THREAD_SAFE_LIFETIME()
-  std::move(detectedCallback_).Run(
-    util::UnownedPtr<DetectChannel>(this)
-    , util::MoveOnly<const ErrorCode>::copyFrom(ec)
-    , util::MoveOnly<const bool>::copyFrom(handshakeResult)
-    , std::move(stream_)
-    , std::move(buffer_)
-    );
+  // mark SSL detection completed
+  ::boost::asio::post(
+    asioRegistry_.ref_strand(FROM_HERE)
+    , ::boost::beast::bind_front_handler([
+      ](
+        base::OnceClosure&& boundTask
+      ){
+        std::move(boundTask).Run();
+      }
+      , base::BindOnce(
+          &DetectChannel::setSSLDetectResult
+          , base::Unretained(this)
+          /// \note do not forget to free allocated resources
+          /// in case of error code
+          , std::move(ec)
+          , std::move(handshakeResult)
+          , std::move(stream_)
+          , std::move(buffer_)
+        )
+    )
+  );
+}
+
+void DetectChannel::setSSLDetectResult(
+  ErrorCode&& ec
+  // handshake result
+  // i.e. `true` if the buffer contains a TLS client handshake
+  // and no error occurred, otherwise `false`.
+  , bool&& handshakeResult
+  , StreamType&& stream
+  , MessageBufferType&& buffer)
+{
+  DCHECK(asioRegistry_.ref_strand(FROM_HERE).running_in_this_thread());
+
+  DVLOG(1)
+    << " detected connection as "
+    << (handshakeResult ? "secure" : "unsecure");
+
+  asioRegistry_
+    .ref_registry(FROM_HERE)
+    .assign<std::unique_ptr<DetectChannel::SSLDetectResult>>(
+      entity_id_
+      /// \todo replace unique_ptr with entt registry (pool)
+      , std::make_unique<DetectChannel::SSLDetectResult>(
+          std::move(ec)
+          , std::move(handshakeResult)
+          , std::move(stream)
+          , std::move(buffer)));
 }
 
 } // namespace http

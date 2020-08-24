@@ -217,6 +217,7 @@ list(APPEND USED_3DPARTY_LIBS
   #CONAN_PKG::clang_folly_conan
   CONAN_PKG::boost
   CONAN_PKG::openssl
+  CONAN_PKG::entt
   #CONAN_PKG::double-conversion
   #CONAN_PKG::glog
   #CONAN_PKG::lz4

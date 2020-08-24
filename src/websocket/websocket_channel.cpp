@@ -1,7 +1,5 @@
 #include "flexnet/websocket/websocket_channel.hpp" // IWYU pragma: associated
 
-#include "flexnet/util/macros.hpp"
-
 #include "algo/DispatchQueue.hpp"
 #include <basis/log/Logger.hpp>
 #include <algorithm>
@@ -27,6 +25,7 @@
 
 #include <base/bind.h>
 #include <base/logging.h>
+#include <base/macros.h>
 
 #include <basis/task_run/task_run_util.hpp>
 

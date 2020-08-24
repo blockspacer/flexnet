@@ -1,9 +1,7 @@
 #pragma once
 
 #include "flexnet/util/limited_tcp_stream.hpp"
-#include "flexnet/util/macros.hpp"
-#include "flexnet/util/move_only.hpp"
-#include "flexnet/util/unowned_ptr.hpp" // IWYU pragma: keep
+#include "flexnet/ECS/asio_registry.hpp"
 
 #include <base/callback.h>
 #include <base/macros.h>
@@ -11,14 +9,15 @@
 #include <base/sequence_checker.h>
 #include <base/synchronization/atomic_flag.h>
 
+#include <basis/move_only.hpp>
+#include <basis/unowned_ptr.hpp> // IWYU pragma: keep
+
 #include <boost/beast/core.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/executor.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp> // IWYU pragma: keep
-
-#include <basis/promise/promise.h>
 
 #include <chrono>
 #include <cstddef>
@@ -56,45 +55,38 @@ public:
   using IoContext
     = ::boost::asio::io_context;
 
-  using DetectedCallback
-    = base::OnceCallback<
-    void (
-      util::UnownedPtr<DetectChannel>&&
-      , util::MoveOnly<const ErrorCode>&&
-      // handshake result
-      // i.e. `true` if the buffer contains a TLS client handshake
-      // and no error occurred, otherwise `false`.
-      , util::MoveOnly<const bool>&&
-      , StreamType&& stream
-      , MessageBufferType&& buffer)
-    >;
-
-  using DestructCallback
-    = base::OnceCallback<
-    void (
-      util::UnownedPtr<DetectChannel>&&)
-    >;
-
   using AsioTcp
     = ::boost::asio::ip::tcp;
 
-  using VoidPromise
-    = base::Promise<void, base::NoReject>;
+  // result of |beast::async_detect_ssl|
+  struct SSLDetectResult {
+    explicit SSLDetectResult(
+      ErrorCode&& ec
+      , const bool&& handshakeResult
+      , StreamType&& stream
+      , MessageBufferType&& buffer)
+      : ec(std::move(ec))
+      , handshakeResult(std::move(handshakeResult))
+      , stream(std::move(stream))
+      , buffer(std::move(buffer))
+      {}
+
+    ErrorCode ec;
+    bool handshakeResult;
+    StreamType stream;
+    MessageBufferType buffer;
+  };
 
 public:
   DetectChannel(
     // Take ownership of the socket
-    AsioTcp::socket&& socket);
+    AsioTcp::socket&& socket
+    , ECS::AsioRegistry& asioRegistry
+    , const ECS::Entity entity_id);
 
   /// \note can destruct on any thread
   NOT_THREAD_SAFE_FUNCTION()
   ~DetectChannel();
-
-  void registerDetectedCallback(
-    DetectedCallback&& detectedCallback);
-
-  void registerDestructCallback(
-    DestructCallback&& destructCallback);
 
   // calls |beast::async_detect_*|
   void runDetector(
@@ -136,10 +128,24 @@ public:
 
 private:
   void onDetected(
-    const ErrorCode& ec
+#if DCHECK_IS_ON()
+    COPIED() base::RepeatingClosure timeoutResolver
+#endif // DCHECK_IS_ON()
+    , const ErrorCode& ec
     // `true` if the buffer contains a TLS client handshake
     // and no error occurred, otherwise `false`.
     , const bool& handshakeResult);
+
+  // uses `per-connection entity` to
+  // store result of |beast::async_detect_ssl|
+  void setSSLDetectResult(
+    ErrorCode&& ec
+    // handshake result
+    // i.e. `true` if the buffer contains a TLS client handshake
+    // and no error occurred, otherwise `false`.
+    , bool&& handshakeResult
+    , StreamType&& stream
+    , MessageBufferType&& buffer);
 
   void configureDetector
     (const std::chrono::seconds &expire_timeout);
@@ -148,14 +154,6 @@ private:
   /// \note stream with custom rate limiter
   NOT_THREAD_SAFE_LIFETIME()
   StreamType stream_;
-
-  /// \note take care of thread-safety
-  NOT_THREAD_SAFE_LIFETIME()
-  DetectedCallback detectedCallback_;
-
-  /// \note take care of thread-safety
-  NOT_THREAD_SAFE_LIFETIME()
-  DestructCallback destructCallback_;
 
   NOT_THREAD_SAFE_LIFETIME()
   MessageBufferType buffer_;
@@ -188,6 +186,13 @@ private:
 
   // will be set by |onDetected|
   base::AtomicFlag atomicDetectDoneFlag_{};
+
+  // used by |entity_id_|
+  ECS::AsioRegistry& asioRegistry_;
+
+  // `per-connection entity`
+  // i.e. per-connection data storage
+  ECS::Entity entity_id_;
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
