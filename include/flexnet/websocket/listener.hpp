@@ -4,10 +4,12 @@
 
 #include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>
+#include <base/location.h>
 #include <base/memory/weak_ptr.h>
 #include <base/sequence_checker.h>
 
 #include <basis/promise/promise.h>
+#include <basis/promise/post_promise.h>
 #include <basis/status/status.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/ECS/simulation_registry.hpp>
@@ -84,6 +86,18 @@ public:
   // Start accepting incoming connections
   MUST_USE_RETURN_VALUE
   StatusPromise configureAndRun();
+
+  template <typename CallbackT>
+  auto postTaskOnAcceptorStrand(
+    const base::Location& from_here
+    , CallbackT&& task)
+  {
+    return base::PostPromiseOnAsioExecutor(
+      from_here
+      // Post our work to the strand, to prevent data race
+      , acceptorStrand_
+      , std::forward<CallbackT>(task));
+  }
 
   // checks whether server is accepting new connections
   MUST_USE_RETURN_VALUE
@@ -169,6 +183,7 @@ private:
   NOT_THREAD_SAFE_LIFETIME()
   EndpointType endpoint_;
 
+  // used to create `per-connection entity`
   ECS::AsioRegistry& asioRegistry_;
 
   // modification of |acceptor_| guarded by |acceptorStrand_|
@@ -177,9 +192,6 @@ private:
   /// has scheduled or execting tasks
   NOT_THREAD_SAFE_LIFETIME()
   StrandType acceptorStrand_;
-
-  //ECS::SimulationRegistry listenerRegistry_{}
-  //LIVES_ON(acceptorStrand_);
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
@@ -198,6 +210,17 @@ private:
   // |weak_ptr_factory_.GetWeakPtr() which is not).
   base::WeakPtr<Listener> weak_this_
   LIVES_ON(sequence_checker_);
+
+  /// \todo replace with internal state like `paused`
+#if DCHECK_IS_ON()
+  // unlike |isAcceptorOpen()| it can be used from any sequence,
+  // but it is approximation that stores state
+  // based on results of previous API calls,
+  // not based on real |acceptor_| state
+  // i.e. it may be NOT same as |acceptor_.is_open()|
+  ALWAYS_THREAD_SAFE()
+  std::atomic<bool> assume_is_accepting_{false};
+#endif // DCHECK_IS_ON()
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

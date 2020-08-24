@@ -123,6 +123,10 @@ void Listener::logFailure(
 
   ErrorCode ec;
 
+  // sanity check
+  DCHECK(ALWAYS_THREAD_SAFE()
+    !assume_is_accepting_.load());
+
   VLOG(9)
     << "opening acceptor for "
     << endpoint_.address().to_string();
@@ -148,6 +152,10 @@ void Listener::logFailure(
   LOG_CALL(VLOG(9));
 
   DCHECK(isAcceptingInThisThread());
+
+  // sanity check
+  DCHECK(ALWAYS_THREAD_SAFE()
+    !assume_is_accepting_.load());
 
   ErrorCode ec;
 
@@ -201,15 +209,12 @@ Listener::StatusPromise Listener::configureAndRun()
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   DCHECK(!isAcceptingInThisThread());
-  return base::PostPromiseOnAsioExecutor(
+  return postTaskOnAcceptorStrand(
     FROM_HERE
-    // Post our work to the strand, to prevent data race
-    , acceptorStrand_
     , base::BindOnce(
       &Listener::
         configureAndRunAcceptor,
-      base::Unretained(this))
-    );
+      base::Unretained(this)));
 }
 
 ::util::Status Listener::configureAndRunAcceptor()
@@ -217,6 +222,10 @@ Listener::StatusPromise Listener::configureAndRun()
   LOG_CALL(VLOG(9));
 
   DCHECK(isAcceptingInThisThread());
+
+  // sanity check
+  DCHECK(ALWAYS_THREAD_SAFE()
+    !assume_is_accepting_.load());
 
   RETURN_IF_ERROR(
     openAcceptor());
@@ -249,6 +258,11 @@ void Listener::doAccept()
       << " because acceptor is not open";
     return;
   }
+
+#if DCHECK_IS_ON()
+  ALWAYS_THREAD_SAFE()
+    assume_is_accepting_ = true;
+#endif // DCHECK_IS_ON()
 
   // Accept another connection
   ::boost::asio::post(
@@ -299,6 +313,9 @@ void Listener::asyncAccept(
   DCHECK(isAcceptingInThisThread());
   DCHECK(isAcceptorOpen());
 
+  DCHECK(ALWAYS_THREAD_SAFE()
+    assume_is_accepting_.load());
+
   /// Start an asynchronous accept.
   /**
    * This function is used to asynchronously accept a new connection. The
@@ -337,6 +354,11 @@ void Listener::asyncAccept(
 
   DCHECK(isAcceptingInThisThread());
 
+#if DCHECK_IS_ON()
+  ALWAYS_THREAD_SAFE()
+    assume_is_accepting_ = false;
+#endif // DCHECK_IS_ON()
+
   /// \note we usually post `stopAcceptor()` using `boost::asio::post`,
   /// so need to check if acceptor was closed during delay
   /// added by `boost::asio::post`
@@ -353,7 +375,7 @@ void Listener::asyncAccept(
   if (isAcceptorOpen())
   {
     VLOG(9)
-      << "close acceptor...";
+      << "closing acceptor...";
 
     acceptor_.cancel(ec);
     if (ec)
@@ -393,14 +415,11 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
   /// and it is safe to destruct |Listener|
   /// (or unpause i.e. re-open it again)
   DCHECK(!isAcceptingInThisThread());
-  return base::PostPromiseOnAsioExecutor(
+  return postTaskOnAcceptorStrand(
     FROM_HERE
-    // Post our work to the strand, to prevent data race
-    , acceptorStrand_
     , base::BindOnce(
       &Listener::stopAcceptor,
-      base::Unretained(this))
-    );
+      base::Unretained(this)));
 }
 
 void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
@@ -497,6 +516,11 @@ Listener::~Listener()
   /// from any thread if you reached destructor
   DCHECK(NOT_THREAD_SAFE_LIFETIME(
            !acceptor_.is_open()));
+
+  /// \note we expect that API user will call
+  /// `close` for acceptor before acceptor destructon
+  DCHECK(ALWAYS_THREAD_SAFE()
+    !assume_is_accepting_.load());
 
   // make sure that all allocated
   // `per-connection resources` are freed

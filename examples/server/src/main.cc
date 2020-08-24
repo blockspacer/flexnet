@@ -424,10 +424,10 @@ void handleSSLDetectResult(
 
     closeAndReleaseResources();
 
+    DCHECK(!detectResult.stream.socket().is_open());
+
     return;
   }
-
-  DCHECK(!detectResult.stream.socket().is_open());
 
   if(detectResult.handshakeResult) {
     LOG(INFO)
@@ -436,6 +436,8 @@ void handleSSLDetectResult(
     LOG(INFO)
       << "Completed NOT secure handshake of new connection";
   }
+
+  DCHECK(detectResult.stream.socket().is_open());
 
   /// \todo: create channel here
   // Create the session and run it
