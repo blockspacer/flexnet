@@ -1,6 +1,7 @@
 #include "flexnet/http/detect_channel.hpp" // IWYU pragma: associated
 
 #include <base/rvalue_cast.h>
+#include <base/optional.h>
 #include <base/location.h>
 #include <base/macros.h>
 #include <base/logging.h>
@@ -26,12 +27,6 @@ namespace beast = boost::beast;
 namespace flexnet {
 namespace http {
 
-// static
-std::atomic<int> DetectChannel::num_constructions = 0;
-
-// static
-std::atomic<int> DetectChannel::num_destructions = 0;
-
 DetectChannel::DetectChannel(
   AsioTcp::socket&& socket
   , ECS::AsioRegistry& asioRegistry
@@ -47,16 +42,12 @@ DetectChannel::DetectChannel(
   LOG_CALL(VLOG(9));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
-
-  num_constructions++;
 }
 
 NOT_THREAD_SAFE_FUNCTION()
 DetectChannel::~DetectChannel()
 {
   LOG_CALL(VLOG(9));
-
-  num_destructions++;
 }
 
 void DetectChannel::configureDetector(
@@ -260,29 +251,28 @@ void DetectChannel::setSSLDetectResult(
   ECS::Registry& registry
     = asioRegistry_->ref_registry(FROM_HERE);
 
-  using UniqueSSLDetectResult
-    = std::unique_ptr<DetectChannel::SSLDetectResult>;
+  using UniqueSSLDetectComponent
+    = base::Optional<DetectChannel::SSLDetectResult>;
 
   const bool useCache
-    = registry.has<UniqueSSLDetectResult>(entity_id_);
+    = registry.has<UniqueSSLDetectComponent>(entity_id_);
 
   registry.remove_if_exists<ECS::UnusedSSLDetectResultTag>(entity_id_);
 
-  UniqueSSLDetectResult& detectResult
+  UniqueSSLDetectComponent& detectResult
     = useCache
-      ? registry.get<UniqueSSLDetectResult>(entity_id_)
-      : registry.assign<UniqueSSLDetectResult>(
+      ? registry.get<UniqueSSLDetectComponent>(entity_id_)
+      : registry.emplace<UniqueSSLDetectComponent>(
           entity_id_
-          , std::make_unique<DetectChannel::SSLDetectResult>(
-              base::rvalue_cast(ec)
-              , base::rvalue_cast(handshakeResult)
-              , base::rvalue_cast(stream)
-              , base::rvalue_cast(buffer)));
+          , base::in_place
+          , base::rvalue_cast(ec)
+          , base::rvalue_cast(handshakeResult)
+          , base::rvalue_cast(stream)
+          , base::rvalue_cast(buffer));
 
   if(useCache) {
     DCHECK(detectResult);
-    *(detectResult.get())
-      = DetectChannel::SSLDetectResult(
+    detectResult.emplace(
           base::rvalue_cast(ec)
           , base::rvalue_cast(handshakeResult)
           , base::rvalue_cast(stream)

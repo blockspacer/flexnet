@@ -46,12 +46,6 @@ class DetectChannel
 public:
   static const size_t kMaxMessageSizeBytes = 100000;
 
-  /// \todo remove
-  static std::atomic<int> num_constructions;
-
-  /// \todo remove
-  static std::atomic<int> num_destructions;
-
 public:
   using MessageBufferType
     = ::boost::beast::flat_static_buffer<kMaxMessageSizeBytes>;

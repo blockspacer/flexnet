@@ -221,7 +221,7 @@ public:
   {
     DCHECK(asioRegistryStrand_.running_in_this_thread());
     DCHECK(ref_registry(from_here).valid(entity));
-    ref_registry(from_here).assign<Component>(entity, std::forward<Args>(args)...);
+    ref_registry(from_here).emplace<Component>(entity, std::forward<Args>(args)...);
   }
 
   /// \note Prefer this function anyway because it has slightly better performance.

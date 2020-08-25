@@ -297,7 +297,7 @@ void Listener::allocateTcpResourceAndAccept()
    << " and unused entities can be freed"
       " with proper frequency.";
 
-  using UniqueStrand
+  using StrandComponent
     = std::unique_ptr<StrandType>;
 
   ECS::Entity tcp_entity_id
@@ -308,7 +308,7 @@ void Listener::allocateTcpResourceAndAccept()
   // (objects that are no more in use can return into pool)
   /// \note do not forget to free some memory in pool periodically
   auto registry_group
-    = registry.view<UniqueStrand, ECS::UnusedTag>(
+    = registry.view<StrandComponent, ECS::UnusedTag>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -333,12 +333,12 @@ void Listener::allocateTcpResourceAndAccept()
   DCHECK(registry.valid(tcp_entity_id));
 
   const bool useCache
-    = registry.has<UniqueStrand>(tcp_entity_id);
+    = registry.has<StrandComponent>(tcp_entity_id);
 
-  UniqueStrand& asioStrand
+  StrandComponent& asioStrand
     = useCache
-      ? registry.get<UniqueStrand>(tcp_entity_id)
-      : registry.assign<UniqueStrand>(
+      ? registry.get<StrandComponent>(tcp_entity_id)
+      : registry.emplace<StrandComponent>(
           tcp_entity_id
           , std::make_unique<StrandType>(ioc_.Get()->get_executor()));
 
@@ -558,29 +558,28 @@ void Listener::setAcceptNewConnectionResult(
     = asioRegistry_
     .ref_registry(FROM_HERE);
 
-  using UniqueAcceptResult
-    = std::unique_ptr<Listener::AcceptNewConnectionResult>;
+  using UniqueAcceptComponent
+    = base::Optional<Listener::AcceptNewConnectionResult>;
 
   const bool useCache
-    = registry.has<UniqueAcceptResult>(tcp_entity_id);
+    = registry.has<UniqueAcceptComponent>(tcp_entity_id);
 
   registry.remove_if_exists<ECS::UnusedAcceptResultTag>(tcp_entity_id);
 
-  UniqueAcceptResult& acceptResult
+  UniqueAcceptComponent& acceptResult
     = useCache
-      ? registry.get<UniqueAcceptResult>(tcp_entity_id)
-      : registry.assign<UniqueAcceptResult>(
+      ? registry.get<UniqueAcceptComponent>(tcp_entity_id)
+      : registry.emplace<UniqueAcceptComponent>(
           tcp_entity_id
-          , std::make_unique<Listener::AcceptNewConnectionResult>(
-              base::rvalue_cast(ec)
-              , base::rvalue_cast(socket)));
+          , base::in_place
+          , base::rvalue_cast(ec)
+          , base::rvalue_cast(socket));
 
   if(useCache) {
     DCHECK(acceptResult);
-    *(acceptResult.get())
-      = Listener::AcceptNewConnectionResult(
-          base::rvalue_cast(ec)
-          , base::rvalue_cast(socket));
+    acceptResult.emplace(
+      base::rvalue_cast(ec)
+      , base::rvalue_cast(socket));
     DVLOG(99)
       << "using preallocated AcceptNewConnectionResult";
   } else {

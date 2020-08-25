@@ -24,6 +24,7 @@
 #include <basis/base_environment.hpp>
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
+#include <basis/task/periodic_check.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -100,9 +101,7 @@ void updateCleanupSystem(
   registry_group
     .each(
       [&registry]
-      (const Entity& entity
-       , const ECS::NeedToDestroyTag& dead_tag)
-      mutable
+      (const ECS::Entity& entity)
     {
       DCHECK(registry.valid(entity));
     });
@@ -222,13 +221,11 @@ void updateUnusedSystem(
   registry_group
     .each(
       [&registry]
-      (const Entity& entity
-       , const ECS::UnusedTag& dead_tag)
-      mutable
+      (const auto& entity)
     {
       DCHECK(registry.valid(entity)
         && !registry.has<ECS::NeedToDestroyTag>(entity));
-      registry.assign<ECS::NeedToDestroyTag>(entity);
+      registry.emplace<ECS::NeedToDestroyTag>(entity);
     });
 }
 
@@ -268,7 +265,7 @@ void handleAcceptNewConnectionResult(
 
     // it is safe to destroy entity now
     if(!registry.has<ECS::UnusedTag>(entity_id)) {
-      registry.assign<ECS::UnusedTag>(entity_id);
+      registry.emplace<ECS::UnusedTag>(entity_id);
     }
 
     return;
@@ -277,38 +274,31 @@ void handleAcceptNewConnectionResult(
   LOG(INFO)
     << "Listener accepted new connection";
 
-  using UniqueDetectChannel
-    = http::DetectChannel;
+  using DetectChannelComponent
+    = base::Optional<http::DetectChannel>;
 
   const bool useCache
-    = registry.has<UniqueDetectChannel>(entity_id);
+    = registry.has<DetectChannelComponent>(entity_id);
 
   DCHECK(asioRegistryStrand.running_in_this_thread());
-  UniqueDetectChannel& detectChannelRef
+  DetectChannelComponent& detectChannelRef
     = useCache
-      ? registry.get<UniqueDetectChannel>(entity_id)
+      ? registry.get<DetectChannelComponent>(entity_id)
       : registry
-      .assign_or_replace<UniqueDetectChannel>(
+      .emplace<DetectChannelComponent>(
         entity_id
+        , base::in_place
         , base::rvalue_cast(acceptResult.socket)
-          , RAW_REFERENCED(asio_registry)
-          , entity_id);
-  DCHECK(registry.has<UniqueDetectChannel>(entity_id));
+        , RAW_REFERENCED(asio_registry)
+        , entity_id);
+  DCHECK(registry.has<DetectChannelComponent>(entity_id));
 
   if(useCache) {
-    // call destructor manually because we use `placement new`
-    /// \note final destruction will be done implicitly
-    /// i.e. without need to call destructor for last created object
-    detectChannelRef.~DetectChannel();
-    // use `placement new` to re-use preallocated memory (memory pool)
-    // do not forget to destruct the previously constructed object
-    /// \note first construction was done implicitly
-    /// i.e. without need to call constructor for first created object
-    http::DetectChannel* ptr
-      = new (&detectChannelRef) http::DetectChannel(
-          base::rvalue_cast(acceptResult.socket)
-          , RAW_REFERENCED(asio_registry)
-          , entity_id);
+    DCHECK(detectChannelRef);
+    detectChannelRef.emplace(
+      base::rvalue_cast(acceptResult.socket)
+      , RAW_REFERENCED(asio_registry)
+      , entity_id);
     DVLOG(99)
       << "using preallocated DetectChannel";
   } else {
@@ -318,7 +308,7 @@ void handleAcceptNewConnectionResult(
 
   // working executor required by |::boost::asio::post|
   ::boost::asio::post(
-    detectChannelRef.perConnectionStrand()
+    detectChannelRef.value().perConnectionStrand()
     , ::boost::beast::bind_front_handler([
       ](
         base::OnceClosure&& task
@@ -328,7 +318,7 @@ void handleAcceptNewConnectionResult(
       }
       , base::BindOnce(
         &http::DetectChannel::runDetector
-        , UNOWNED_LIFETIME(base::Unretained(&detectChannelRef))
+        , UNOWNED_LIFETIME(base::Unretained(&detectChannelRef.value()))
         // expire timeout for SSL detection
         , std::chrono::seconds(3)
       )
@@ -342,7 +332,7 @@ void updateNewConnections(
   using namespace ::flexnet::ws;
 
   using view_component
-    = std::unique_ptr<ws::Listener::AcceptNewConnectionResult>;
+    = base::Optional<Listener::AcceptNewConnectionResult>;
 
   DCHECK(
     asio_registry
@@ -372,13 +362,15 @@ void updateNewConnections(
   registry_group
     .each(
       [&registry, &asio_registry]
-      (const Entity& entity
-       , const view_component& component)
-      mutable
+      (const auto& entity
+       , const auto& component)
     {
       DCHECK(registry.valid(entity));
 
-      handleAcceptNewConnectionResult(asio_registry, entity, *component);
+      handleAcceptNewConnectionResult(
+        asio_registry
+        , entity
+        , registry.get<view_component>(entity).value());
 
       // do not process twice
       // similar to
@@ -386,7 +378,7 @@ void updateNewConnections(
       // except avoids extra allocations
       // i.e. can be used with memory pool
       if(!registry.has<ECS::UnusedAcceptResultTag>(entity)) {
-        registry.assign<ECS::UnusedAcceptResultTag>(entity);
+        registry.emplace<ECS::UnusedAcceptResultTag>(entity);
       }
     });
 }
@@ -436,7 +428,7 @@ void handleSSLDetectResult(
 
     // it is safe to destroy entity now
     if(!registry.has<ECS::UnusedTag>(entity_id)) {
-      registry.assign<ECS::UnusedTag>(entity_id);
+      registry.emplace<ECS::UnusedTag>(entity_id);
     }
   };
 
@@ -474,9 +466,10 @@ void updateSSLDetection(
   ECS::AsioRegistry& asio_registry)
 {
   using namespace ::flexnet::ws;
+  using namespace ::flexnet::http;
 
   using view_component
-    = std::unique_ptr<http::DetectChannel::SSLDetectResult>;
+    = base::Optional<DetectChannel::SSLDetectResult>;
 
   DCHECK(
     asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
@@ -500,13 +493,15 @@ void updateSSLDetection(
   registry_group
     .each(
       [&registry, &asio_registry]
-      (const Entity& entity
-       , const view_component& component)
-      mutable
+      (const auto& entity
+       , const auto& component)
     {
       DCHECK(registry.valid(entity));
 
-      handleSSLDetectResult(asio_registry, entity, *component);
+      handleSSLDetectResult(
+        asio_registry
+        , entity
+        , registry.get<view_component>(entity).value());
 
       // do not process twice
       // similar to
@@ -514,7 +509,7 @@ void updateSSLDetection(
       // except avoids extra allocations
       // i.e. can be used with memory pool
       if(!registry.has<ECS::UnusedSSLDetectResultTag>(entity)) {
-        registry.assign<ECS::UnusedSSLDetectResultTag>(entity);
+        registry.emplace<ECS::UnusedSSLDetectResultTag>(entity);
       }
     });
 }
@@ -1031,6 +1026,31 @@ ExampleServer::VoidPromise ExampleServer::waitNetworkResourcesFreed()
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  DCHECK(base::ThreadPool::GetInstance());
+  // wait and signal on different task runners
+  scoped_refptr<base::SequencedTaskRunner> timeout_task_runner =
+    base::ThreadPool::GetInstance()->
+    CreateSequencedTaskRunnerWithTraits(
+      base::TaskTraits{
+        base::TaskPriority::BEST_EFFORT
+        , base::MayBlock()
+        , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+      }
+    );
+
+  ignore_result(base::PostPromise(FROM_HERE
+  , timeout_task_runner.get()
+  , base::BindOnce(
+    // limit execution time
+    &basis::setPeriodicTimeoutCheckerOnSequence
+    , FROM_HERE
+    , timeout_task_runner
+    , basis::EndingTimeout{
+        base::TimeDelta::FromSeconds(30)}
+    , basis::PeriodicCheckUntil::CheckPeriod{
+        base::TimeDelta::FromSeconds(1)}
+    , "destruction of allocated connections hanged")));
+
   ECS::waitCleanupRunner
     = base::ThreadPool::GetInstance()->
       CreateSequencedTaskRunnerWithTraits(
@@ -1041,7 +1061,6 @@ ExampleServer::VoidPromise ExampleServer::waitNetworkResourcesFreed()
         }
       );
 
-  /// \todo crash on timeout
   return base::PostPromise(
     FROM_HERE
     // Post our work to the strand, to prevent data race
@@ -1058,7 +1077,16 @@ ExampleServer::VoidPromise ExampleServer::waitNetworkResourcesFreed()
           &scoped_refptr<base::SequencedTaskRunner>::reset
           , base::Unretained(&ECS::waitCleanupRunner)
         )
-    );
+    )
+    /// \note promise has shared lifetime,
+    /// so we expect it to exist until (at least)
+    /// it is resolved using `GetRepeatingResolveCallback`
+    // reset check of execution time
+    .ThenOn(timeout_task_runner
+      , FROM_HERE
+      , base::BindOnce(&basis::unsetPeriodicTimeoutCheckerOnSequence)
+    )
+    ;
 }
 
 ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor()
@@ -1158,15 +1186,6 @@ int main(int argc, char* argv[])
 
   LOG(INFO)
     << "server is quitting";
-
-  LOG(INFO)
-    << "http::DetectChannel::num_constructions"
-    << http::DetectChannel::num_constructions;
-  LOG(INFO)
-    << "http::DetectChannel::num_destructions"
-    << http::DetectChannel::num_destructions;
-  DCHECK(http::DetectChannel::num_constructions
-    == http::DetectChannel::num_destructions);
 
   return
     EXIT_SUCCESS;
