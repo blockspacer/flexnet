@@ -1,8 +1,12 @@
 #include "net/http/server/ServerSession.hpp" // IWYU pragma: associated
 #include "net/ws/server/ServerSession.hpp"
 #include "algo/DispatchQueue.hpp"
+
 #include <base/logging.h>
+#include <base/rvalue_cast.h>
+
 #include <algorithm>
+
 #include <boost/asio.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/assert.hpp>
@@ -10,6 +14,7 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/core/ignore_unused.hpp>
 #include <boost/system/error_code.hpp>
+
 #include <chrono>
 #include <cinttypes>
 #include <cstdint>
@@ -165,19 +170,19 @@ handle_request(
         res.set(beast::http::field::content_type, mime_type(path));
         res.content_length(size);
         res.keep_alive(req.keep_alive());
-        return send(std::move(res));
+        return send(base::rvalue_cast(res));
     }
 
     // Respond to GET request
     beast::http::response<beast::http::file_body> res{
         std::piecewise_construct,
-        std::make_tuple(std::move(body)),
+        std::make_tuple(base::rvalue_cast(body)),
         std::make_tuple(beast::http::status::ok, req.version())};
     res.set(beast::http::field::server, BOOST_BEAST_VERSION_STRING);
     res.set(beast::http::field::content_type, mime_type(path));
     res.content_length(size);
     res.keep_alive(req.keep_alive());
-    return send(std::move(res));
+    return send(base::rvalue_cast(res));
 }
 
 } // namespace
@@ -188,8 +193,8 @@ namespace http {
 
 
 // @note ::tcp::socket socket represents the local end of a connection between two peers
-// NOTE: Following the std::move, the moved-from object is in the same state
-// as if constructed using the basic_stream_socket(io_service&) constructor.
+// NOTE: Following the base::rvalue_cast, the moved-from object is in the same state
+// as if constructed using the basic_stream_socket(io_context&) constructor.
 // boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/basic_stream_socket/basic_stream_socket/overload5.html
 ServerSession::ServerSession(::boost::beast::limited_tcp_stream&& stream,
   gloer::net::http::DetectSession::buffer_t&& buffer,
@@ -197,9 +202,9 @@ ServerSession::ServerSession(::boost::beast::limited_tcp_stream&& stream,
   const http::SessionGUID& id)
     : SessionBase<http::SessionGUID>(id)
       //,
-      , buffer_(/*std::move*/(buffer))
+      , buffer_(/*base::rvalue_cast*/(buffer))
       , ctx_(ctx)
-      , stream_(std::move(stream))
+      , stream_(base::rvalue_cast(stream))
 //      , request_deadline_{stream_.socket().get_executor(), (std::chrono::steady_clock::time_point::max)()}
 {
 
@@ -446,7 +451,7 @@ void ServerSession::on_read(beast::error_code ec, std::size_t bytes_transferred)
 
   handle_request(
       "/",//state_->doc_root(),
-      /*std::move*/(parser_->release()),
+      /*base::rvalue_cast*/(parser_->release()),
       http_resonse_on_fail,
       [this](auto&& response)
       {

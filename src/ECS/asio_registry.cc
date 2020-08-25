@@ -21,7 +21,7 @@ namespace ECS {
 AsioRegistry::AsioRegistry(
   util::UnownedPtr<IoContext>&& ioc)
   : weak_this_factory_(this)
-  , asioRegistryStrand_(*ioc.Get())
+  , asioRegistryStrand_(ioc.Get()->get_executor())
 {
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }

@@ -23,6 +23,7 @@
 #include <type_traits>
 #include <utility>
 
+#include <base/rvalue_cast.h>
 #include <base/bind.h>
 #include <base/logging.h>
 #include <base/macros.h>
@@ -43,7 +44,7 @@ WebsocketChannel::WebsocketChannel(
   ::boost::beast::limited_tcp_stream&& stream
   , ::boost::asio::ssl::context& ctx)
     : ctx_(ctx)
-      , ws_(std::move(COPY_ON_MOVE(stream)))
+      , ws_(base::rvalue_cast(COPY_ON_MOVE(stream)))
       , isSendBusy_(false)
 {
   DETACH_FROM_SEQUENCE(sequence_checker_);

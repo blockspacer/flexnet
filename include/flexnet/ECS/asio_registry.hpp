@@ -14,7 +14,6 @@
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/io_service.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp> // IWYU pragma: keep
 #include <boost/beast/core.hpp>
@@ -33,7 +32,7 @@ namespace ECS {
 class AsioRegistry {
 public:
   using StrandType
-    = ::boost::asio::io_service::strand;
+    = ::boost::asio::strand<::boost::asio::io_context::executor_type>;
 
   using IoContext
     = ::boost::asio::io_context;

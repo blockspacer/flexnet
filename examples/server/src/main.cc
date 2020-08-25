@@ -3,6 +3,7 @@
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 
+#include <base/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
 #include <base/bind.h>
@@ -160,19 +161,19 @@ base::Promise<void, base::NoReject> waitCleanupConnectionResources(
                 if(registry.empty()) {
                   DVLOG(9)
                     << "registry is empty";
-                  std::move(resolveCallback).Run();
+                  base::rvalue_cast(resolveCallback).Run();
                   /// \note will stop periodic timer on scope exit
                   DCHECK(waitCleanupRunner);
                   DCHECK(waitCleanupExecutor);
                   waitCleanupRunner->DeleteSoon(FROM_HERE
-                    , std::move(waitCleanupExecutor));
+                    , base::rvalue_cast(waitCleanupExecutor));
                 } else {
                   DVLOG(9)
                     << "registry is NOT empty";
                 }
               }
               , REFERENCED(asio_registry)
-              , std::move(resolveCallback)
+              , base::rvalue_cast(resolveCallback)
             )
           );
         }
@@ -225,7 +226,8 @@ void updateUnusedSystem(
        , const ECS::UnusedTag& dead_tag)
       mutable
     {
-      DCHECK(registry.valid(entity));
+      DCHECK(registry.valid(entity)
+        && !registry.has<ECS::NeedToDestroyTag>(entity));
       registry.assign<ECS::NeedToDestroyTag>(entity);
     });
 }
@@ -275,41 +277,64 @@ void handleAcceptNewConnectionResult(
   LOG(INFO)
     << "Listener accepted new connection";
 
-  /// \todo replace unique_ptr with entt registry (pool)
-  std::unique_ptr<http::DetectChannel> detectChannel
-    = std::make_unique<http::DetectChannel>(
-        std::move(acceptResult.socket)
-        , RAW_REFERENCED(asio_registry)
-        , entity_id
-    );
+  using UniqueDetectChannel
+    = http::DetectChannel;
+
+  const bool useCache
+    = registry.has<UniqueDetectChannel>(entity_id);
 
   DCHECK(asioRegistryStrand.running_in_this_thread());
-  http::DetectChannel* detectChannelPtr
-    = registry
-      .assign<std::unique_ptr<http::DetectChannel>>(
+  UniqueDetectChannel& detectChannelRef
+    = useCache
+      ? registry.get<UniqueDetectChannel>(entity_id)
+      : registry
+      .assign_or_replace<UniqueDetectChannel>(
         entity_id
-        , std::move(detectChannel)).get();
+        , base::rvalue_cast(acceptResult.socket)
+          , RAW_REFERENCED(asio_registry)
+          , entity_id);
+  DCHECK(registry.has<UniqueDetectChannel>(entity_id));
 
+  if(useCache) {
+    // call destructor manually because we use `placement new`
+    /// \note final destruction will be done implicitly
+    /// i.e. without need to call destructor for last created object
+    detectChannelRef.~DetectChannel();
+    // use `placement new` to re-use preallocated memory (memory pool)
+    // do not forget to destruct the previously constructed object
+    /// \note first construction was done implicitly
+    /// i.e. without need to call constructor for first created object
+    http::DetectChannel* ptr
+      = new (&detectChannelRef) http::DetectChannel(
+          base::rvalue_cast(acceptResult.socket)
+          , RAW_REFERENCED(asio_registry)
+          , entity_id);
+    DVLOG(99)
+      << "using preallocated DetectChannel";
+  } else {
+    DVLOG(99)
+      << "allocating new DetectChannel";
+  }
+
+  // working executor required by |::boost::asio::post|
   ::boost::asio::post(
-    detectChannelPtr->perConnectionStrand()
+    detectChannelRef.perConnectionStrand()
     , ::boost::beast::bind_front_handler([
       ](
         base::OnceClosure&& task
       ){
         DCHECK(task);
-        std::move(task).Run();
+        base::rvalue_cast(task).Run();
       }
       , base::BindOnce(
         &http::DetectChannel::runDetector
-        , UNOWNED_LIFETIME(base::Unretained(detectChannelPtr))
+        , UNOWNED_LIFETIME(base::Unretained(&detectChannelRef))
         // expire timeout for SSL detection
         , std::chrono::seconds(3)
       )
     )
   );
 }
-
-CREATE_ECS_TAG(UnusedAcceptResultTag)
 
 void updateNewConnections(
   ECS::AsioRegistry& asio_registry)
@@ -396,11 +421,11 @@ void handleSSLDetectResult(
     = [&detectResult, &registry, entity_id]()
   {
     // Send shutdown
-    if(detectResult.stream.socket().is_open())
+    if(detectResult.stream.value().socket().is_open())
     {
       DVLOG(9) << "shutdown of stream...";
       boost::beast::error_code ec;
-      detectResult.stream.socket().shutdown(
+      detectResult.stream.value().socket().shutdown(
         boost::asio::ip::tcp::socket::shutdown_send, ec);
       if (ec) {
         LOG(WARNING)
@@ -424,7 +449,7 @@ void handleSSLDetectResult(
 
     closeAndReleaseResources();
 
-    DCHECK(!detectResult.stream.socket().is_open());
+    DCHECK(!detectResult.stream.value().socket().is_open());
 
     return;
   }
@@ -437,15 +462,13 @@ void handleSSLDetectResult(
       << "Completed NOT secure handshake of new connection";
   }
 
-  DCHECK(detectResult.stream.socket().is_open());
+  DCHECK(detectResult.stream.value().socket().is_open());
 
   /// \todo: create channel here
   // Create the session and run it
-  //std::make_shared<session>(std::move(detectResult.stream.socket()))->run();
+  //std::make_shared<session>(base::rvalue_cast(detectResult.stream.value().socket()))->run();
   closeAndReleaseResources();
 }
-
-CREATE_ECS_TAG(UnusedSSLDetectResultTag)
 
 void updateSSLDetection(
   ECS::AsioRegistry& asio_registry)
@@ -595,6 +618,9 @@ class ExampleServer
   MUST_USE_RETURN_VALUE
   VoidPromise configureAndRunAcceptor();
 
+  /// \note make sure connections recieved `stop` message
+  /// and acceptors stopped
+  /// i.e. do not allocate new connections
   MUST_USE_RETURN_VALUE
   VoidPromise waitNetworkResourcesFreed();
 
@@ -765,7 +791,7 @@ ExampleServer::ExampleServer()
           , run_loop_.QuitClosure());
       };
 
-  signals_set_.async_wait(std::move(sigQuitCallback));
+  signals_set_.async_wait(base::rvalue_cast(sigQuitCallback));
 }
 
 ExampleServer::StatusPromise ExampleServer::stopAcceptors()
@@ -1132,6 +1158,15 @@ int main(int argc, char* argv[])
 
   LOG(INFO)
     << "server is quitting";
+
+  LOG(INFO)
+    << "http::DetectChannel::num_constructions"
+    << http::DetectChannel::num_constructions;
+  LOG(INFO)
+    << "http::DetectChannel::num_destructions"
+    << http::DetectChannel::num_destructions;
+  DCHECK(http::DetectChannel::num_constructions
+    == http::DetectChannel::num_destructions);
 
   return
     EXIT_SUCCESS;

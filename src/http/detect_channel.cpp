@@ -1,5 +1,6 @@
 #include "flexnet/http/detect_channel.hpp" // IWYU pragma: associated
 
+#include <base/rvalue_cast.h>
 #include <base/location.h>
 #include <base/macros.h>
 #include <base/logging.h>
@@ -25,21 +26,29 @@ namespace beast = boost::beast;
 namespace flexnet {
 namespace http {
 
+// static
+std::atomic<int> DetectChannel::num_constructions = 0;
+
+// static
+std::atomic<int> DetectChannel::num_destructions = 0;
+
 DetectChannel::DetectChannel(
   AsioTcp::socket&& socket
   , ECS::AsioRegistry& asioRegistry
   , const ECS::Entity entity_id)
-  : stream_(std::move(COPY_ON_MOVE(socket)))
+  : stream_(base::rvalue_cast(COPY_ON_MOVE(socket)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
     weak_this_(weak_ptr_factory_.GetWeakPtr()))
-  , perConnectionStrand_(stream_.get_executor())
-  , asioRegistry_(asioRegistry)
+  , perConnectionStrand_(stream_.value().get_executor())
+  , asioRegistry_(REFERENCED(asioRegistry))
   , entity_id_(entity_id)
 {
   LOG_CALL(VLOG(9));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
+
+  num_constructions++;
 }
 
 NOT_THREAD_SAFE_FUNCTION()
@@ -47,11 +56,7 @@ DetectChannel::~DetectChannel()
 {
   LOG_CALL(VLOG(9));
 
-  // we assume that |DetectChannel|
-  // will be destructed only after
-  // |DetectChannel::onDetected| finished
-  DCHECK(ALWAYS_THREAD_SAFE(
-    atomicDetectDoneFlag_.IsSet()));
+  num_destructions++;
 }
 
 void DetectChannel::configureDetector(
@@ -61,15 +66,19 @@ void DetectChannel::configureDetector(
 
   DCHECK(isDetectingInThisThread());
 
-  stream_.expires_after(expire_timeout);
+  DCHECK(stream_.has_value());
+
+  stream_.value().expires_after(expire_timeout);
 
   // The policy object, which is default constructed, or
   // decay-copied upon construction, is attached to the stream
   // and may be accessed through the function `rate_policy`.
   //
   // Here we set individual rate limits for reading and writing
-  stream_.rate_policy().read_limit(10000); // bytes per second
-  stream_.rate_policy().write_limit(850000); // bytes per second
+  // limit in bytes per second
+  stream_.value().rate_policy().read_limit(10000);
+  // limit in bytes per second
+  stream_.value().rate_policy().write_limit(850000);
 }
 
 // Launch the detector
@@ -167,11 +176,13 @@ void DetectChannel::runDetector(
       detector returns true, or be otherwise consumed by the caller based
       on the expected protocol.
   */
+  DCHECK(stream_.has_value());
   beast::async_detect_ssl(
-    stream_, // The stream to read from
-    buffer_, // The dynamic buffer to use
+    RAW_REFERENCED(stream_.value()), // The stream to read from
+    RAW_REFERENCED(buffer_), // The dynamic buffer to use
     boost::asio::bind_executor(
-      perConnectionStrand_, std::move(onDetectedCb))
+      perConnectionStrand_
+      , base::rvalue_cast(onDetectedCb))
     );
 }
 
@@ -186,41 +197,49 @@ void DetectChannel::onDetected(
 
   DCHECK(isDetectingInThisThread());
 
-  DCHECK(ec ? true : stream_.socket().is_open());
+  DCHECK(ec
+    ? true
+    : stream_.has_value()
+      && stream_.value().socket().is_open());
 
   // we assume that |onDetected|
   // will be called only once
   DCHECK(ALWAYS_THREAD_SAFE(
-    !atomicDetectDoneFlag_.IsSet()));
+    !atomicDetectDoneFlag_.load()));
 
 #if DCHECK_IS_ON()
   DCHECK(timeoutResolver);
   timeoutResolver.Run();
 #endif // DCHECK_IS_ON()
 
-  atomicDetectDoneFlag_.Set();
+  atomicDetectDoneFlag_ = true;
 
   // mark SSL detection completed
   ::boost::asio::post(
-    asioRegistry_.ref_strand(FROM_HERE)
+    asioRegistry_->ref_strand(FROM_HERE)
     , ::boost::beast::bind_front_handler([
       ](
         base::OnceClosure&& boundTask
       ){
-        std::move(boundTask).Run();
+        base::rvalue_cast(boundTask).Run();
       }
       , base::BindOnce(
           &DetectChannel::setSSLDetectResult
           , base::Unretained(this)
           /// \note do not forget to free allocated resources
           /// in case of error code
-          , std::move(ec)
-          , std::move(handshakeResult)
-          , std::move(stream_)
-          , std::move(buffer_)
+          , CAN_COPY_ON_MOVE("moving const") std::move(ec)
+          , CAN_COPY_ON_MOVE("moving const") std::move(handshakeResult)
+          , MAKES_INVALID(stream_) base::rvalue_cast(stream_.value())
+          , MAKES_INVALID(buffer_) base::rvalue_cast(buffer_)
         )
     )
   );
+
+  // NOTE: moved out object will be
+  // destructed again by optional
+  DCHECK(stream_.has_value()
+    && !stream_.value().socket().is_open());
 }
 
 void DetectChannel::setSSLDetectResult(
@@ -232,22 +251,48 @@ void DetectChannel::setSSLDetectResult(
   , StreamType&& stream
   , MessageBufferType&& buffer)
 {
-  DCHECK(asioRegistry_.ref_strand(FROM_HERE).running_in_this_thread());
+  DCHECK(asioRegistry_->ref_strand(FROM_HERE).running_in_this_thread());
 
   DVLOG(1)
     << " detected connection as "
     << (handshakeResult ? "secure" : "unsecure");
 
-  asioRegistry_
-    .ref_registry(FROM_HERE)
-    .assign<std::unique_ptr<DetectChannel::SSLDetectResult>>(
-      entity_id_
-      /// \todo replace unique_ptr with entt registry (pool)
-      , std::make_unique<DetectChannel::SSLDetectResult>(
-          std::move(ec)
-          , std::move(handshakeResult)
-          , std::move(stream)
-          , std::move(buffer)));
+  ECS::Registry& registry
+    = asioRegistry_->ref_registry(FROM_HERE);
+
+  using UniqueSSLDetectResult
+    = std::unique_ptr<DetectChannel::SSLDetectResult>;
+
+  const bool useCache
+    = registry.has<UniqueSSLDetectResult>(entity_id_);
+
+  registry.remove_if_exists<ECS::UnusedSSLDetectResultTag>(entity_id_);
+
+  UniqueSSLDetectResult& detectResult
+    = useCache
+      ? registry.get<UniqueSSLDetectResult>(entity_id_)
+      : registry.assign<UniqueSSLDetectResult>(
+          entity_id_
+          , std::make_unique<DetectChannel::SSLDetectResult>(
+              base::rvalue_cast(ec)
+              , base::rvalue_cast(handshakeResult)
+              , base::rvalue_cast(stream)
+              , base::rvalue_cast(buffer)));
+
+  if(useCache) {
+    DCHECK(detectResult);
+    *(detectResult.get())
+      = DetectChannel::SSLDetectResult(
+          base::rvalue_cast(ec)
+          , base::rvalue_cast(handshakeResult)
+          , base::rvalue_cast(stream)
+          , base::rvalue_cast(buffer));
+    DVLOG(99)
+      << "using preallocated SSLDetectResult";
+  } else {
+    DVLOG(99)
+      << "allocating new SSLDetectResult";
+  }
 }
 
 } // namespace http

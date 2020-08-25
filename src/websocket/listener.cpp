@@ -1,5 +1,6 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 
+#include <base/rvalue_cast.h>
 #include <base/bind.h>
 #include <base/location.h>
 #include <base/logging.h>
@@ -42,7 +43,7 @@ Listener::Listener(
   , asioRegistry_(asioRegistry)
   , UNOWNED_LIFETIME(ioc_(ioc))
   , endpoint_(endpoint)
-  , acceptorStrand_(*ioc.Get())
+  , acceptorStrand_(ioc.Get()->get_executor())
   , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
     weak_this_(weak_ptr_factory_.GetWeakPtr()))
@@ -279,21 +280,80 @@ void Listener::allocateTcpResourceAndAccept()
 
   DCHECK(asioRegistry_.ref_strand(FROM_HERE).running_in_this_thread());
 
+  ECS::Registry& registry
+    = asioRegistry_
+    .ref_registry(FROM_HERE);
+
+  const size_t kWarnBigRegistrySize = 100000;
+  LOG_IF(WARNING
+    , registry.size() > kWarnBigRegistrySize)
+   << "Asio registry has more than "
+   << kWarnBigRegistrySize
+   << " entities."
+   << " That may signal about some problem in code"
+   << " or DDOS."
+   << " Make sure registry stores only"
+   << " entities used by network connections"
+   << " and unused entities can be freed"
+      " with proper frequency.";
+
+  using UniqueStrand
+    = std::unique_ptr<StrandType>;
+
   ECS::Entity tcp_entity_id
-    = asioRegistry_
-      .ref_registry(FROM_HERE)
-      .create();
+    = ECS::NULL_ENTITY;
 
-  std::unique_ptr<StrandType>& asioStrand
-    = asioRegistry_
-      .ref_registry(FROM_HERE)
-      .assign<std::unique_ptr<StrandType>>(
-        tcp_entity_id
-        /// \todo replace unique_ptr with entt registry (pool)
-        , std::make_unique<StrandType>(*ioc_.Get()));
+  // Avoid extra allocations
+  // with memory pool in ECS style using |ECS::UnusedTag|
+  // (objects that are no more in use can return into pool)
+  /// \note do not forget to free some memory in pool periodically
+  auto registry_group
+    = registry.view<UniqueStrand, ECS::UnusedTag>(
+        entt::exclude<
+          // entity in destruction
+          ECS::NeedToDestroyTag
+        >
+      );
 
-  util::UnownedPtr<StrandType> unownedPerConnectionStrand
-    = util::UnownedPtr<StrandType>(asioStrand.get());
+  // reuse unused entity (if found)
+  if(!registry_group.empty()) {
+    for(const ECS::Entity& entity_id : registry_group) {
+      tcp_entity_id = entity_id;
+      // need only first
+      break;
+    }
+    registry.remove<ECS::UnusedTag>(tcp_entity_id);
+    DVLOG(99)
+      << "using preallocated network entity";
+  } else {
+    tcp_entity_id = registry.create();
+    DVLOG(99)
+      << "allocating new network entity";
+  }
+  DCHECK(registry.valid(tcp_entity_id));
+
+  const bool useCache
+    = registry.has<UniqueStrand>(tcp_entity_id);
+
+  UniqueStrand& asioStrand
+    = useCache
+      ? registry.get<UniqueStrand>(tcp_entity_id)
+      : registry.assign<UniqueStrand>(
+          tcp_entity_id
+          , std::make_unique<StrandType>(ioc_.Get()->get_executor()));
+
+  if(useCache) {
+    // we expect that all allocated strands
+    // have same io context executor
+    DCHECK(asioStrand
+      && asioStrand->get_inner_executor()
+         == ioc_.Get()->get_executor());
+    DVLOG(99)
+      << "using preallocated strand";
+  } else {
+    DVLOG(99)
+      << "allocating new strand";
+  }
 
   // Accept another connection
   ::boost::asio::post(
@@ -301,7 +361,8 @@ void Listener::allocateTcpResourceAndAccept()
     , ::std::bind(
         &Listener::asyncAccept
         , this
-        , COPIED(unownedPerConnectionStrand)
+        , COPIED(
+            util::UnownedPtr<StrandType>(asioStrand.get()))
         , COPIED(tcp_entity_id))
   );
 }
@@ -462,14 +523,14 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
       ](
         base::OnceClosure&& boundTask
       ){
-        std::move(boundTask).Run();
+        base::rvalue_cast(boundTask).Run();
       }
       , base::BindOnce(
           &Listener::setAcceptNewConnectionResult
           , base::Unretained(this)
           , COPIED(tcp_entity_id)
-          , std::move(ec)
-          , std::move(socket)
+          , CAN_COPY_ON_MOVE("moving const") std::move(ec)
+          , base::rvalue_cast(socket)
         )
     )
   );
@@ -493,14 +554,39 @@ void Listener::setAcceptNewConnectionResult(
   DVLOG(1)
     << " added new connection";
 
-  asioRegistry_
-    .ref_registry(FROM_HERE)
-    .assign<std::unique_ptr<Listener::AcceptNewConnectionResult>>(
-      tcp_entity_id
-      /// \todo replace unique_ptr with entt registry (pool)
-      , std::make_unique<Listener::AcceptNewConnectionResult>(
-          std::move(ec)
-          , std::move(socket)));
+  ECS::Registry& registry
+    = asioRegistry_
+    .ref_registry(FROM_HERE);
+
+  using UniqueAcceptResult
+    = std::unique_ptr<Listener::AcceptNewConnectionResult>;
+
+  const bool useCache
+    = registry.has<UniqueAcceptResult>(tcp_entity_id);
+
+  registry.remove_if_exists<ECS::UnusedAcceptResultTag>(tcp_entity_id);
+
+  UniqueAcceptResult& acceptResult
+    = useCache
+      ? registry.get<UniqueAcceptResult>(tcp_entity_id)
+      : registry.assign<UniqueAcceptResult>(
+          tcp_entity_id
+          , std::make_unique<Listener::AcceptNewConnectionResult>(
+              base::rvalue_cast(ec)
+              , base::rvalue_cast(socket)));
+
+  if(useCache) {
+    DCHECK(acceptResult);
+    *(acceptResult.get())
+      = Listener::AcceptNewConnectionResult(
+          base::rvalue_cast(ec)
+          , base::rvalue_cast(socket));
+    DVLOG(99)
+      << "using preallocated AcceptNewConnectionResult";
+  } else {
+    DVLOG(99)
+      << "allocating new AcceptNewConnectionResult";
+  }
 }
 
 Listener::~Listener()

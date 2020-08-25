@@ -2,6 +2,7 @@
 
 #include "flexnet/ECS/asio_registry.hpp"
 
+#include <base/rvalue_cast.h>
 #include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>
 #include <base/location.h>
@@ -15,7 +16,6 @@
 #include <basis/ECS/simulation_registry.hpp>
 
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/io_service.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp> // IWYU pragma: keep
 #include <boost/beast/core.hpp>
@@ -51,7 +51,7 @@ public:
     = ::boost::asio::ip::tcp::acceptor;
 
   using StrandType
-    = ::boost::asio::io_service::strand;
+    = ::boost::asio::strand<::boost::asio::io_context::executor_type>;
 
   using StatusPromise
     = base::Promise<util::Status, base::NoReject>;
@@ -62,12 +62,28 @@ public:
   // result of |acceptor_.async_accept(...)|
   // i.e. stores created socket
   struct AcceptNewConnectionResult {
-    explicit AcceptNewConnectionResult(
+    AcceptNewConnectionResult(
       ErrorCode&& ec
       , SocketType&& socket)
-      : ec(std::move(ec))
-        , socket(std::move(socket))
+      : ec(base::rvalue_cast(ec))
+        , socket(base::rvalue_cast(socket))
       {}
+
+    AcceptNewConnectionResult(
+      AcceptNewConnectionResult&& other)
+      : AcceptNewConnectionResult(
+          base::rvalue_cast(other.ec)
+          , base::rvalue_cast(other.socket))
+      {}
+
+    /// \todo remove
+    AcceptNewConnectionResult& operator=(
+      AcceptNewConnectionResult&&) = default;
+
+    ~AcceptNewConnectionResult()
+    {
+      LOG_CALL(DVLOG(99));
+    }
 
     ErrorCode ec;
     // socket created per each connection
@@ -92,6 +108,7 @@ public:
     const base::Location& from_here
     , CallbackT&& task)
   {
+    DCHECK(!ioc_.Get()->stopped());
     return base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
