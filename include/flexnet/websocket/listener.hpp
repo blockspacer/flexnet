@@ -1,6 +1,6 @@
 #pragma once
 
-#include "flexnet/ECS/asio_registry.hpp"
+#include "basis/ECS/asio_registry.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/callback.h> // IWYU pragma: keep
@@ -32,6 +32,36 @@ namespace flexnet {
 namespace ws {
 
 // Accepts incoming connections
+//
+// MOTIVATION
+//
+// 1. Uses memory pool
+//    i.e. avoids slow memory allocations
+//    We use ECS to imitate memory pool (using `UnusedTag` component),
+//    so we can easily change type of data
+//    that must use memory pool.
+//
+// 2. Uses ECS instead of callbacks to report result
+//    i.e. result of `async_accept` e.t.c. stored in ECS entity.
+//    That allows to process incoming data later
+//    in `batches` (cache friendly).
+//    Allows to customize logic dynamically
+//    i.e. to discard all queued data for disconnected client
+//    just add ECS system.
+//
+// 3. Avoids usage of `shared_ptr`.
+//    You can store per-connection data in ECS entity
+//    representing individual connection
+//    i.e. allows to avoid custom memory management via RAII,
+//    (destroy allocated data on destruction of ECS entity).
+//
+// 4. Provides extra thread-safety checks
+//    i.e. uses `running_in_this_thread`,
+//    `base/sequence_checker.h`, e.t.c.
+//
+// 5. Able to integrate with project-specific libs
+//    i.e. use `base::Promise`, `base::RepeatingCallback`, e.t.c.
+//
 class Listener
 {
 public:
@@ -61,26 +91,26 @@ public:
 
   // result of |acceptor_.async_accept(...)|
   // i.e. stores created socket
-  struct AcceptNewConnectionResult {
-    AcceptNewConnectionResult(
+  struct AcceptConnectionResult {
+    AcceptConnectionResult(
       ErrorCode&& ec
       , SocketType&& socket)
       : ec(base::rvalue_cast(ec))
         , socket(base::rvalue_cast(socket))
       {}
 
-    AcceptNewConnectionResult(
-      AcceptNewConnectionResult&& other)
-      : AcceptNewConnectionResult(
+    AcceptConnectionResult(
+      AcceptConnectionResult&& other)
+      : AcceptConnectionResult(
           base::rvalue_cast(other.ec)
           , base::rvalue_cast(other.socket))
       {}
 
     /// \todo remove
-    AcceptNewConnectionResult& operator=(
-      AcceptNewConnectionResult&&) = default;
+    AcceptConnectionResult& operator=(
+      AcceptConnectionResult&&) = default;
 
-    ~AcceptNewConnectionResult()
+    ~AcceptConnectionResult()
     {
       LOG_CALL(DVLOG(99));
     }
@@ -108,7 +138,7 @@ public:
     const base::Location& from_here
     , CallbackT&& task)
   {
-    DCHECK(!ioc_.Get()->stopped());
+    DCHECK(ioc_ && !ioc_->stopped());
     return base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
@@ -164,7 +194,7 @@ private:
 
   // store result of |acceptor_.async_accept(...)|
   // in `per-connection entity`
-  void setAcceptNewConnectionResult(
+  void setAcceptConnectionResult(
      // `per-connection entity`
       ECS::Entity tcp_entity_id
       , ErrorCode&& ec

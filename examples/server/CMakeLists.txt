@@ -3,6 +3,14 @@
 add_executable(example_server
   ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/boost_throw_exception.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/unused.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/unused.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/ssl_detect_result.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/ssl_detect_result.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/accept_connection_result.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/accept_connection_result.hpp
 )
 
 target_link_libraries(example_server PRIVATE

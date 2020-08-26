@@ -1,7 +1,7 @@
 #pragma once
 
 #include "flexnet/util/limited_tcp_stream.hpp"
-#include "flexnet/ECS/asio_registry.hpp"
+#include "basis/ECS/asio_registry.hpp"
 
 #include <base/callback.h>
 #include <base/macros.h>
@@ -36,11 +36,40 @@ namespace util { template <class T> class UnownedRef; }
 namespace flexnet {
 namespace http {
 
-/** Detect a TLS client handshake on a stream.
-
-    Reads from a stream to determine if a client
-    handshake message is being received.
-*/
+// Detect a TLS client handshake on a stream.
+//
+// Reads from a stream to determine if a client
+// handshake message is being received.
+//
+// MOTIVATION
+//
+// 1. Uses memory pool
+//    i.e. avoids slow memory allocations
+//    We use ECS to imitate memory pool (using `UnusedTag` component),
+//    so we can easily change type of data
+//    that must use memory pool.
+//
+// 2. Uses ECS instead of callbacks to report result
+//    i.e. result of `async_detect_ssl` e.t.c. stored in ECS entity.
+//    That allows to process incoming data later
+//    in `batches` (cache friendly).
+//    Allows to customize logic dynamically
+//    i.e. to discard all queued data for disconnected client
+//    just add ECS system.
+//
+// 3. Avoids usage of `shared_ptr`.
+//    You can store per-connection data in ECS entity
+//    representing individual connection
+//    i.e. allows to avoid custom memory management via RAII,
+//    (destroy allocated data on destruction of ECS entity).
+//
+// 4. Provides extra thread-safety checks
+//    i.e. uses `running_in_this_thread`,
+//    `base/sequence_checker.h`, e.t.c.
+//
+// 5. Able to integrate with project-specific libs
+//    i.e. use `base::Promise`, `base::RepeatingCallback`, e.t.c.
+//
 class DetectChannel
 {
 public:

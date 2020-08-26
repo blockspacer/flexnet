@@ -1,5 +1,9 @@
-#include <flexnet/ECS/asio_registry.hpp>
+#include "ECS/systems/accept_connection_result.hpp"
+#include "ECS/systems/cleanup.hpp"
+#include "ECS/systems/ssl_detect_result.hpp"
+#include "ECS/systems/unused.hpp"
 
+#include <basis/ECS/asio_registry.hpp>
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 
@@ -55,466 +59,62 @@ bool isCalledOnSameSingleThread()
   return base::PlatformThread::CurrentId() == thread_id;
 }
 
-} // namespace
-
-// Create ECS groups
-// Groups offer a faster alternative to multi component views.
-// See for details:
-// https://github.com/skypjack/entt/wiki/Crash-Course:-entity-component-system#groups
-void setEnttGroups()
+static base::Promise<void, base::NoReject> waitCleanupConnectionResources(
+  ECS::AsioRegistry& asio_registry
+  , scoped_refptr<base::SequencedTaskRunner> waitCleanupRunner)
 {
-  /// \todo
-  //SCOPED_UMA_HISTOGRAM_TIMER( /// \note measures up to 10 seconds
-  //  "Startup." + FROM_HERE.ToString());
+  LOG_CALL(DVLOG(9));
 
-  ECS::GlobalContext* globals
-    = ECS::GlobalContext::GetInstance();
-  DCHECK(globals);
-
-  ECS::SimulationRegistry& enttManager
-    = globals->ctx_unlocked<ECS::SimulationRegistry>(FROM_HERE);
-
-  ECS::Registry& registry
-    = enttManager.ref_registry(FROM_HERE);
-}
-
-namespace ECS {
-
-void updateCleanupSystem(
-  ECS::AsioRegistry& asio_registry)
-{
-  DCHECK(
-    asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
-
-  ECS::Registry& registry
-    = asio_registry.ref_registry(FROM_HERE);
-
-  auto registry_group
-    = registry.view<ECS::NeedToDestroyTag>();
-
-#if !defined(NDEBUG)
-  if(registry_group.size()) {
-    DVLOG(99)
-      << " cleaning up entities, total number: "
-      << registry_group.size();
-  }
-  registry_group
-    .each(
-      [&registry]
-      (const ECS::Entity& entity)
-    {
-      DCHECK(registry.valid(entity));
-    });
-#endif // NDEBUG
-
-  registry.destroy(
-    registry_group.begin()
-    , registry_group.end());
-}
-
-} // namespace ECS
-
-namespace ECS {
-
-static std::unique_ptr<basis::PeriodicTaskExecutor> waitCleanupExecutor
-  = nullptr;
-
-static scoped_refptr<base::SequencedTaskRunner> waitCleanupRunner
-  = nullptr;
-
-base::Promise<void, base::NoReject> waitCleanupConnectionResources(
-  ECS::AsioRegistry& asio_registry)
-{
+  // promise will be resolved when registry will be empty
   base::ManualPromiseResolver<
       void, base::NoReject
-    >
-    promiseResolver(FROM_HERE);
+    > promiseResolver = base::ManualPromiseResolver<
+      void, base::NoReject
+    >(FROM_HERE);
 
   DCHECK(waitCleanupRunner
     && waitCleanupRunner->RunsTasksInCurrentSequence());
 
-  waitCleanupExecutor = std::make_unique<basis::PeriodicTaskExecutor>(
-    waitCleanupRunner
+  basis::setPeriodicTaskExecutorOnAsioExecutor(
+    FROM_HERE
+    , waitCleanupRunner
+    , asio_registry.ref_strand(FROM_HERE)
     , base::BindRepeating(
         [
         ](
           ECS::AsioRegistry& asio_registry
-          , base::OnceClosure resolveCallback
+          , base::OnceClosure&& resolveCallback
         ){
           LOG(INFO)
             << "waiting for cleanup of asio registry...";
 
-          ::boost::asio::post(
-            asio_registry.ref_strand(FROM_HERE)
-            , ::boost::beast::bind_front_handler([
-              ](
-                ECS::AsioRegistry& asio_registry
-                , base::OnceClosure resolveCallback
-              ){
-                DCHECK(
-                  asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
-                ECS::Registry& registry
-                  /// \note take care of thread-safety
-                  = asio_registry
-                  .ref_registry_unsafe(FROM_HERE);
-                if(registry.empty()) {
-                  DVLOG(9)
-                    << "registry is empty";
-                  base::rvalue_cast(resolveCallback).Run();
-                  /// \note will stop periodic timer on scope exit
-                  DCHECK(waitCleanupRunner);
-                  DCHECK(waitCleanupExecutor);
-                  waitCleanupRunner->DeleteSoon(FROM_HERE
-                    , base::rvalue_cast(waitCleanupExecutor));
-                } else {
-                  DVLOG(9)
-                    << "registry is NOT empty";
-                }
-              }
-              , REFERENCED(asio_registry)
-              , base::rvalue_cast(resolveCallback)
-            )
-          );
+          DCHECK(
+            asio_registry.running_in_this_thread());
+          ECS::Registry& registry
+            /// \note take care of thread-safety
+            = asio_registry
+            .ref_registry_unsafe(FROM_HERE);
+          if(registry.empty()) {
+            DVLOG(9)
+              << "registry is empty";
+            DCHECK(resolveCallback);
+            base::rvalue_cast(resolveCallback).Run();
+          } else {
+            DVLOG(9)
+              << "registry is NOT empty";
+          }
         }
         , REFERENCED(asio_registry)
         , promiseResolver.GetRepeatingResolveCallback()
-    )
-  );
+    ));
 
-  waitCleanupExecutor->startPeriodicTimer(
+  basis::startPeriodicTaskExecutorOnSequence(
     base::TimeDelta::FromMilliseconds(500));
 
   return promiseResolver.promise();
 }
 
-} // namespace ECS
-
-namespace ECS {
-
-void updateUnusedSystem(
-  ECS::AsioRegistry& asio_registry)
-{
-  DCHECK(
-    asio_registry
-    .ref_strand(FROM_HERE)
-    .running_in_this_thread());
-
-  ECS::Registry& registry
-    = asio_registry
-    .ref_registry(FROM_HERE);
-
-  auto registry_group
-    = registry.view<ECS::UnusedTag>(
-        entt::exclude<
-          // entity in destruction
-          ECS::NeedToDestroyTag
-        >);
-
-#if !defined(NDEBUG)
-  if(registry_group.size()) {
-    DVLOG(99)
-      << " found unused entities, total number: "
-      << registry_group.size();
-  }
-#endif // NDEBUG
-
-  registry_group
-    .each(
-      [&registry]
-      (const auto& entity)
-    {
-      DCHECK(registry.valid(entity)
-        && !registry.has<ECS::NeedToDestroyTag>(entity));
-      registry.emplace<ECS::NeedToDestroyTag>(entity);
-    });
-}
-
-} // namespace ECS
-
-namespace ECS {
-
-void handleAcceptNewConnectionResult(
-  ECS::AsioRegistry& asio_registry
-  , const ECS::Entity& entity_id
-  , flexnet::ws::Listener::AcceptNewConnectionResult& acceptResult)
-{
-  using namespace ::flexnet::ws;
-  using namespace ::flexnet::http;
-
-  DCHECK(
-    asio_registry
-    .ref_strand(FROM_HERE)
-    .running_in_this_thread());
-
-  ECS::Registry& registry
-    = asio_registry
-    .ref_registry(FROM_HERE);
-
-  ECS::AsioRegistry::StrandType asioRegistryStrand
-    = asio_registry
-    .ref_strand(FROM_HERE);
-
-  DCHECK(asioRegistryStrand.running_in_this_thread());
-
-  // Handle the error, if any
-  if (acceptResult.ec)
-  {
-    LOG(ERROR)
-      << "Listener failed to accept new connection with error: "
-      << acceptResult.ec.message();
-
-    // it is safe to destroy entity now
-    if(!registry.has<ECS::UnusedTag>(entity_id)) {
-      registry.emplace<ECS::UnusedTag>(entity_id);
-    }
-
-    return;
-  }
-
-  LOG(INFO)
-    << "Listener accepted new connection";
-
-  using DetectChannelComponent
-    = base::Optional<http::DetectChannel>;
-
-  const bool useCache
-    = registry.has<DetectChannelComponent>(entity_id);
-
-  DCHECK(asioRegistryStrand.running_in_this_thread());
-  DetectChannelComponent& detectChannelRef
-    = useCache
-      ? registry.get<DetectChannelComponent>(entity_id)
-      : registry
-      .emplace<DetectChannelComponent>(
-        entity_id
-        , base::in_place
-        , base::rvalue_cast(acceptResult.socket)
-        , RAW_REFERENCED(asio_registry)
-        , entity_id);
-  DCHECK(registry.has<DetectChannelComponent>(entity_id));
-
-  if(useCache) {
-    DCHECK(detectChannelRef);
-    detectChannelRef.emplace(
-      base::rvalue_cast(acceptResult.socket)
-      , RAW_REFERENCED(asio_registry)
-      , entity_id);
-    DVLOG(99)
-      << "using preallocated DetectChannel";
-  } else {
-    DVLOG(99)
-      << "allocating new DetectChannel";
-  }
-
-  // working executor required by |::boost::asio::post|
-  ::boost::asio::post(
-    detectChannelRef.value().perConnectionStrand()
-    , ::boost::beast::bind_front_handler([
-      ](
-        base::OnceClosure&& task
-      ){
-        DCHECK(task);
-        base::rvalue_cast(task).Run();
-      }
-      , base::BindOnce(
-        &http::DetectChannel::runDetector
-        , UNOWNED_LIFETIME(base::Unretained(&detectChannelRef.value()))
-        // expire timeout for SSL detection
-        , std::chrono::seconds(3)
-      )
-    )
-  );
-}
-
-void updateNewConnections(
-  ECS::AsioRegistry& asio_registry)
-{
-  using namespace ::flexnet::ws;
-
-  using view_component
-    = base::Optional<Listener::AcceptNewConnectionResult>;
-
-  DCHECK(
-    asio_registry
-    .ref_strand(FROM_HERE)
-    .running_in_this_thread());
-
-  ECS::Registry& registry
-    = asio_registry.
-      ref_registry(FROM_HERE);
-
-  // Avoid extra allocations
-  // with memory pool in ECS style using |ECS::UnusedTag|
-  // (objects that are no more in use can return into pool)
-  /// \note do not forget to free some memory in pool periodically
-  auto registry_group
-    = registry.view<view_component>(
-        entt::exclude<
-          // entity in destruction
-          ECS::NeedToDestroyTag
-          // entity is unused
-          , ECS::UnusedTag
-          // components related to acceptor are unused
-          , ECS::UnusedAcceptResultTag
-        >
-      );
-
-  registry_group
-    .each(
-      [&registry, &asio_registry]
-      (const auto& entity
-       , const auto& component)
-    {
-      DCHECK(registry.valid(entity));
-
-      handleAcceptNewConnectionResult(
-        asio_registry
-        , entity
-        , registry.get<view_component>(entity).value());
-
-      // do not process twice
-      // similar to
-      // `registry.remove<view_component>(entity);`
-      // except avoids extra allocations
-      // i.e. can be used with memory pool
-      if(!registry.has<ECS::UnusedAcceptResultTag>(entity)) {
-        registry.emplace<ECS::UnusedAcceptResultTag>(entity);
-      }
-    });
-}
-
-} // namespace ECS
-
-namespace ECS {
-
-void handleSSLDetectResult(
-  ECS::AsioRegistry& asio_registry
-  , const ECS::Entity& entity_id
-  , flexnet::http::DetectChannel::SSLDetectResult& detectResult)
-{
-  using namespace ::flexnet::ws;
-  using namespace ::flexnet::http;
-
-  DCHECK(
-    asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
-
-  ECS::Registry& registry
-    = asio_registry
-      .ref_registry(FROM_HERE);
-
-  ECS::AsioRegistry::StrandType asioRegistryStrand
-    = asio_registry.ref_strand(FROM_HERE);
-
-  DCHECK(asioRegistryStrand.running_in_this_thread());
-
-  LOG_CALL(VLOG(9));
-
-  auto closeAndReleaseResources
-    = [&detectResult, &registry, entity_id]()
-  {
-    // Send shutdown
-    if(detectResult.stream.value().socket().is_open())
-    {
-      DVLOG(9) << "shutdown of stream...";
-      boost::beast::error_code ec;
-      detectResult.stream.value().socket().shutdown(
-        boost::asio::ip::tcp::socket::shutdown_send, ec);
-      if (ec) {
-        LOG(WARNING)
-          << "error during stream shutdown: "
-          << ec.message();
-      }
-    }
-
-    // it is safe to destroy entity now
-    if(!registry.has<ECS::UnusedTag>(entity_id)) {
-      registry.emplace<ECS::UnusedTag>(entity_id);
-    }
-  };
-
-  // Handle the error, if any
-  if (detectResult.ec)
-  {
-    LOG(ERROR)
-      << "Handshake failed for new connection with error: "
-      << detectResult.ec.message();
-
-    closeAndReleaseResources();
-
-    DCHECK(!detectResult.stream.value().socket().is_open());
-
-    return;
-  }
-
-  if(detectResult.handshakeResult) {
-    LOG(INFO)
-      << "Completed secure handshake of new connection";
-  } else {
-    LOG(INFO)
-      << "Completed NOT secure handshake of new connection";
-  }
-
-  DCHECK(detectResult.stream.value().socket().is_open());
-
-  /// \todo: create channel here
-  // Create the session and run it
-  //std::make_shared<session>(base::rvalue_cast(detectResult.stream.value().socket()))->run();
-  closeAndReleaseResources();
-}
-
-void updateSSLDetection(
-  ECS::AsioRegistry& asio_registry)
-{
-  using namespace ::flexnet::ws;
-  using namespace ::flexnet::http;
-
-  using view_component
-    = base::Optional<DetectChannel::SSLDetectResult>;
-
-  DCHECK(
-    asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
-
-  ECS::Registry& registry
-    = asio_registry
-      .ref_registry(FROM_HERE);
-
-  auto registry_group
-    = registry.view<view_component>(
-        entt::exclude<
-          // entity in destruction
-          ECS::NeedToDestroyTag
-          // entity is unused
-          , ECS::UnusedTag
-          // components related to SSL detection are unused
-          , ECS::UnusedSSLDetectResultTag
-        >
-      );
-
-  registry_group
-    .each(
-      [&registry, &asio_registry]
-      (const auto& entity
-       , const auto& component)
-    {
-      DCHECK(registry.valid(entity));
-
-      handleSSLDetectResult(
-        asio_registry
-        , entity
-        , registry.get<view_component>(entity).value());
-
-      // do not process twice
-      // similar to
-      // `registry.remove<view_component>(entity);`
-      // except avoids extra allocations
-      // i.e. can be used with memory pool
-      if(!registry.has<ECS::UnusedSSLDetectResultTag>(entity)) {
-        registry.emplace<ECS::UnusedSSLDetectResultTag>(entity);
-      }
-    });
-}
-
-} // namespace ECS
+} // namespace
 
 // init common application systems,
 // initialization order matters!
@@ -683,7 +283,7 @@ class ExampleServer
 ExampleServer::ExampleServer()
   : asioRegistry_(util::UnownedPtr<ws::Listener::IoContext>(&ioc_))
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
@@ -704,7 +304,7 @@ ExampleServer::ExampleServer()
     = [this]
       (boost::system::error_code const&, int)
       {
-        LOG_CALL(VLOG(9));
+        LOG_CALL(DVLOG(9));
 
         DCHECK(mainLoopRunner_);
 
@@ -725,7 +325,7 @@ ExampleServer::ExampleServer()
             ](
               const ::util::Status& stopAcceptorResult
             ){
-               LOG_CALL(VLOG(9));
+               LOG_CALL(DVLOG(9));
 
                if(!stopAcceptorResult.ok()) {
                  LOG(ERROR)
@@ -741,6 +341,17 @@ ExampleServer::ExampleServer()
           , base::BindOnce(
               NESTED_PROMISE(&ExampleServer::waitNetworkResourcesFreed)
               , base::Unretained(this)
+          )
+        )
+        .ThenOn(mainLoopRunner_
+          , FROM_HERE
+          , base::BindOnce(
+            []
+            ()
+            {
+              LOG(INFO)
+                << "stopping io context";
+            }
           )
         )
         // stop io context
@@ -791,7 +402,7 @@ ExampleServer::ExampleServer()
 
 ExampleServer::StatusPromise ExampleServer::stopAcceptors()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -802,7 +413,7 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors()
 
 void ExampleServer::runLoop()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -842,7 +453,7 @@ void ExampleServer::runLoop()
                   << "updating asio registry...";
 
                 DCHECK(
-                  asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
+                  asio_registry.running_in_this_thread());
                 ECS::Registry& registry
                   /// \note take care of thread-safety
                   = asio_registry
@@ -1020,9 +631,10 @@ void ExampleServer::runLoop()
   DCHECK(!asio_thread_4.IsRunning());
 }
 
-ExampleServer::VoidPromise ExampleServer::waitNetworkResourcesFreed()
+ExampleServer::VoidPromise
+  ExampleServer::waitNetworkResourcesFreed()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -1051,7 +663,7 @@ ExampleServer::VoidPromise ExampleServer::waitNetworkResourcesFreed()
         base::TimeDelta::FromSeconds(1)}
     , "destruction of allocated connections hanged")));
 
-  ECS::waitCleanupRunner
+  scoped_refptr<base::SequencedTaskRunner> waitCleanupRunner
     = base::ThreadPool::GetInstance()->
       CreateSequencedTaskRunnerWithTraits(
         base::TaskTraits{
@@ -1064,19 +676,16 @@ ExampleServer::VoidPromise ExampleServer::waitNetworkResourcesFreed()
   return base::PostPromise(
     FROM_HERE
     // Post our work to the strand, to prevent data race
-    , ECS::waitCleanupRunner.get()
+    , waitCleanupRunner.get()
     , base::BindOnce(
-        NESTED_PROMISE(&ECS::waitCleanupConnectionResources)
+        NESTED_PROMISE(&waitCleanupConnectionResources)
         /// \note take care of thread-safety
-        , REFERENCED(asioRegistry_))
+        , REFERENCED(asioRegistry_)
+        , SHARED_LIFETIME(waitCleanupRunner))
     )
-    // reset |waitCleanupRunner|
-    .ThenOn(base::MessageLoop::current()->task_runner()
+    .ThenOn(waitCleanupRunner
       , FROM_HERE
-      , base::BindOnce(
-          &scoped_refptr<base::SequencedTaskRunner>::reset
-          , base::Unretained(&ECS::waitCleanupRunner)
-        )
+      , base::BindOnce(&basis::unsetPeriodicTaskExecutorOnSequence)
     )
     /// \note promise has shared lifetime,
     /// so we expect it to exist until (at least)
@@ -1086,12 +695,23 @@ ExampleServer::VoidPromise ExampleServer::waitNetworkResourcesFreed()
       , FROM_HERE
       , base::BindOnce(&basis::unsetPeriodicTimeoutCheckerOnSequence)
     )
+    .ThenHere(
+      FROM_HERE
+      , base::BindOnce(
+        []
+        ()
+        {
+          LOG(INFO)
+            << "finished cleanup of network entities";
+        }
+      )
+    )
     ;
 }
 
 ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -1110,7 +730,7 @@ ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor()
 
 void ExampleServer::stopIOContext()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -1123,7 +743,7 @@ void ExampleServer::stopIOContext()
 
 ExampleServer::~ExampleServer()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 

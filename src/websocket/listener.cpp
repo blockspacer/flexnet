@@ -48,7 +48,7 @@ Listener::Listener(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
     weak_this_(weak_ptr_factory_.GetWeakPtr()))
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
@@ -57,7 +57,7 @@ NOT_THREAD_SAFE_FUNCTION()
 void Listener::logFailure(
   const ErrorCode& ec, char const* what)
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   // NOTE: If you got logFailure: accept: Too many open files
   // set ulimit -n 4096, see stackoverflow.com/a/8583083/10904212
@@ -118,7 +118,7 @@ void Listener::logFailure(
 
 ::util::Status Listener::openAcceptor()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK(isAcceptingInThisThread());
 
@@ -150,7 +150,7 @@ void Listener::logFailure(
 
 ::util::Status Listener::configureAcceptor()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK(isAcceptingInThisThread());
 
@@ -205,7 +205,7 @@ void Listener::logFailure(
 
 Listener::StatusPromise Listener::configureAndRun()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -220,7 +220,7 @@ Listener::StatusPromise Listener::configureAndRun()
 
 ::util::Status Listener::configureAndRunAcceptor()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK(isAcceptingInThisThread());
 
@@ -247,7 +247,7 @@ Listener::StatusPromise Listener::configureAndRun()
 
 void Listener::doAccept()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK(isAcceptingInThisThread());
 
@@ -265,7 +265,9 @@ void Listener::doAccept()
     assume_is_accepting_ = true;
 #endif // DCHECK_IS_ON()
 
-  // Accept another connection
+  /// \note resources will be preallocated
+  /// BEFORE anyone connected
+  /// (before callback of `async_accept`)
   ::boost::asio::post(
     asioRegistry_.ref_strand(FROM_HERE)
     , ::std::bind(
@@ -276,9 +278,9 @@ void Listener::doAccept()
 
 void Listener::allocateTcpResourceAndAccept()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
-  DCHECK(asioRegistry_.ref_strand(FROM_HERE).running_in_this_thread());
+  DCHECK(asioRegistry_.running_in_this_thread());
 
   ECS::Registry& registry
     = asioRegistry_
@@ -335,19 +337,21 @@ void Listener::allocateTcpResourceAndAccept()
   const bool useCache
     = registry.has<StrandComponent>(tcp_entity_id);
 
+  DCHECK(ioc_);
   StrandComponent& asioStrand
     = useCache
       ? registry.get<StrandComponent>(tcp_entity_id)
       : registry.emplace<StrandComponent>(
           tcp_entity_id
-          , std::make_unique<StrandType>(ioc_.Get()->get_executor()));
+          , std::make_unique<StrandType>(ioc_->get_executor()));
 
   if(useCache) {
     // we expect that all allocated strands
     // have same io context executor
     DCHECK(asioStrand
+      && ioc_
       && asioStrand->get_inner_executor()
-         == ioc_.Get()->get_executor());
+         == ioc_->get_executor());
     DVLOG(99)
       << "using preallocated strand";
   } else {
@@ -411,7 +415,7 @@ void Listener::asyncAccept(
 
 ::util::Status Listener::stopAcceptor()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK(isAcceptingInThisThread());
 
@@ -467,7 +471,7 @@ void Listener::asyncAccept(
 
 Listener::StatusPromise Listener::stopAcceptorAsync()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -488,7 +492,7 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
                         , const ErrorCode& ec
                         , SocketType&& socket)
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(unownedPerConnectionStrand
@@ -526,7 +530,7 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
         base::rvalue_cast(boundTask).Run();
       }
       , base::BindOnce(
-          &Listener::setAcceptNewConnectionResult
+          &Listener::setAcceptConnectionResult
           , base::Unretained(this)
           , COPIED(tcp_entity_id)
           , CAN_COPY_ON_MOVE("moving const") std::move(ec)
@@ -544,12 +548,12 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
   );
 }
 
-void Listener::setAcceptNewConnectionResult(
+void Listener::setAcceptConnectionResult(
   ECS::Entity tcp_entity_id
   , ErrorCode&& ec
   , SocketType&& socket)
 {
-  DCHECK(asioRegistry_.ref_strand(FROM_HERE).running_in_this_thread());
+  DCHECK(asioRegistry_.running_in_this_thread());
 
   DVLOG(1)
     << " added new connection";
@@ -559,7 +563,7 @@ void Listener::setAcceptNewConnectionResult(
     .ref_registry(FROM_HERE);
 
   using UniqueAcceptComponent
-    = base::Optional<Listener::AcceptNewConnectionResult>;
+    = base::Optional<Listener::AcceptConnectionResult>;
 
   const bool useCache
     = registry.has<UniqueAcceptComponent>(tcp_entity_id);
@@ -581,10 +585,10 @@ void Listener::setAcceptNewConnectionResult(
       base::rvalue_cast(ec)
       , base::rvalue_cast(socket));
     DVLOG(99)
-      << "using preallocated AcceptNewConnectionResult";
+      << "using preallocated AcceptConnectionResult";
   } else {
     DVLOG(99)
-      << "allocating new AcceptNewConnectionResult";
+      << "allocating new AcceptConnectionResult";
   }
 }
 
@@ -592,7 +596,7 @@ Listener::~Listener()
 {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   /// \note we assume that |is_open|
   /// is thread-safe in destructor
@@ -621,10 +625,10 @@ Listener::~Listener()
   /// so make sure that |this| outlives |io_context|
   /// (callbacks expected to NOT execute on stopped |io_context|).
   DCHECK(NOT_THREAD_SAFE_LIFETIME(
-    ioc_->stopped()));
+    ioc_ && ioc_->stopped()));
 
   DVLOG(1)
-    << " Listener freed";
+    << "asio acceptor was freed";
 }
 
 bool Listener::isAcceptorOpen() const

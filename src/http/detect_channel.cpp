@@ -39,7 +39,7 @@ DetectChannel::DetectChannel(
   , asioRegistry_(REFERENCED(asioRegistry))
   , entity_id_(entity_id)
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
@@ -47,13 +47,13 @@ DetectChannel::DetectChannel(
 NOT_THREAD_SAFE_FUNCTION()
 DetectChannel::~DetectChannel()
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 }
 
 void DetectChannel::configureDetector(
   const std::chrono::seconds& expire_timeout)
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK(isDetectingInThisThread());
 
@@ -76,7 +76,7 @@ void DetectChannel::configureDetector(
 void DetectChannel::runDetector(
   const std::chrono::seconds& expire_timeout)
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK(isDetectingInThisThread());
 
@@ -184,7 +184,7 @@ void DetectChannel::onDetected(
   , const ErrorCode& ec
   , const bool& handshakeResult)
 {
-  LOG_CALL(VLOG(9));
+  LOG_CALL(DVLOG(9));
 
   DCHECK(isDetectingInThisThread());
 
