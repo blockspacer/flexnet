@@ -50,7 +50,7 @@ static inline void initI18n()
 {
   /// \todo InitializeICUWithFileDescriptor
   bool icu_initialized = base::i18n::InitializeICU();
-  //DCHECK(icu_initialized);
+  DCHECK(icu_initialized);
 }
 
 static inline void initCommandLine(int argc, char* argv[])

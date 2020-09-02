@@ -45,7 +45,25 @@ DetectChannel::DetectChannel(
         , base::in_place
         , weak_ptr_factory_.ref_value_unsafe(
             FROM_HERE, "access from constructor").GetWeakPtr()))
-  , perConnectionStrand_(stream_.value().get_executor())
+  , perConnectionStrand_(
+      // on each access to strand check that ioc not stopped
+      // otherwise `::boost::asio::post` may fail
+      base::BindRepeating(
+        [](bool is_stream_valid, StreamType& stream)
+        {
+          /// \note |perConnectionStrand_|
+          /// is valid as long as |stream_| valid
+          /// i.e. valid util |stream_| moved out.
+          return is_stream_valid
+            && stream.socket().is_open();
+        }
+        , REFERENCED(is_stream_valid_)
+        /// \note `get_executor` returns copy
+        , REFERENCED(stream_.value())
+      )
+      , base::in_place
+      /// \note `get_executor` returns copy
+      , stream_.value().get_executor())
   , asioRegistry_(REFERENCED(asioRegistry))
   , entity_id_(entity_id)
 {
@@ -78,6 +96,7 @@ void DetectChannel::configureDetector(
   // Here we set individual rate limits for reading and writing
   // limit in bytes per second
   stream_.value().rate_policy().read_limit(10000);
+
   // limit in bytes per second
   stream_.value().rate_policy().write_limit(850000);
 }
@@ -178,13 +197,13 @@ void DetectChannel::runDetector(
       on the expected protocol.
   */
   DCHECK(stream_.has_value());
-  DCHECK(stream_valid_.load());
-  DCHECK(buffer_valid_.load());
+  DCHECK(is_stream_valid_.load());
+  DCHECK(is_buffer_valid_.load());
   beast::async_detect_ssl(
     RAW_REFERENCED(stream_.value()), // The stream to read from
     RAW_REFERENCED(buffer_), // The dynamic buffer to use
     boost::asio::bind_executor(
-      perConnectionStrand_
+      *perConnectionStrand_
       , base::rvalue_cast(onDetectedCb))
     );
 }
@@ -217,8 +236,8 @@ void DetectChannel::onDetected(
 
   atomicDetectDoneFlag_ = true;
 
-  DCHECK(stream_valid_.load());
-  DCHECK(buffer_valid_.load());
+  DCHECK(is_stream_valid_.load());
+  DCHECK(is_buffer_valid_.load());
 
   // mark SSL detection completed
   ::boost::asio::post(

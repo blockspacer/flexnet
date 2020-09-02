@@ -167,7 +167,6 @@ public:
       DETACH_FROM_SEQUENCE(sequence_checker_);
     }
 
-  /// \todo remove
   // Move assignment operator
   DetectChannel& operator=(DetectChannel&& rhs)
   {
@@ -177,17 +176,21 @@ public:
       DCHECK(stream_.has_value()
         ? !stream_.value().socket().is_open()
         : true);
-      DCHECK(rhs.stream_.has_value());
-      perConnectionStrand_ = StrandType(rhs.stream_.value().get_executor());
+      DCHECK(rhs.is_stream_valid_ && rhs.stream_.has_value());
+      /// \note `get_executor` returns copy
+      ignore_result(
+        perConnectionStrand_.emplace(FROM_HERE
+          , rhs.stream_.value().get_executor()));
       stream_.emplace(rhs.stream_.value().release_socket());
+      DCHECK(rhs.is_buffer_valid_);
       buffer_ = base::rvalue_cast(rhs.buffer_);
       // strand copy equal to same strand
       DCHECK(rhs.asioRegistry_.Get());
       asioRegistry_.reset(rhs.asioRegistry_.Get());
       DCHECK(rhs.entity_id_ != ECS::NULL_ENTITY);
       entity_id_ = COPIED(rhs.entity_id_);
-      stream_valid_ = COPIED(rhs.stream_valid_.load());
-      buffer_valid_ = COPIED(rhs.buffer_valid_.load());
+      is_stream_valid_ = COPIED(rhs.is_stream_valid_.load());
+      is_buffer_valid_ = COPIED(rhs.is_buffer_valid_.load());
       /// \note do not move weak_ptr_factory_
       DCHECK(weak_ptr_factory_.ref_value(FROM_HERE).GetWeakPtr());
       /// \note do not move weak_this_
@@ -224,14 +227,14 @@ public:
   {
     /// \note |running_in_this_thread| is thread-safe
     /// only if |perConnectionStrand_| will not be modified concurrently
-    return perConnectionStrand_.running_in_this_thread();
+    return perConnectionStrand_->running_in_this_thread();
   }
 
   MUST_USE_RETURN_VALUE
   const StrandType& perConnectionStrand() noexcept
   {
     return NOT_THREAD_SAFE_LIFETIME()
-           perConnectionStrand_;
+           *perConnectionStrand_;
   }
 
   MUST_USE_RETURN_VALUE
@@ -240,6 +243,7 @@ public:
   boost::asio::executor executor() noexcept {
     DCHECK(stream_.has_value());
     return NOT_THREAD_SAFE_LIFETIME()
+           /// \note `get_executor` returns copy
            stream_.value().get_executor();
   }
 
@@ -254,7 +258,7 @@ public:
     return base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
-      , perConnectionStrand_
+      , *perConnectionStrand_
       , std::forward<CallbackT>(task));
   }
 
@@ -289,13 +293,13 @@ private:
   base::Optional<StreamType> stream_;
 
   // |stream_| moved in |onDetected|
-  std::atomic<bool> stream_valid_{true};
+  std::atomic<bool> is_stream_valid_{true};
 
   NOT_THREAD_SAFE_LIFETIME() // moved between threads
   MessageBufferType buffer_;
 
   // |buffer_| moved in |onDetected|
-  std::atomic<bool> buffer_valid_{true};
+  std::atomic<bool> is_buffer_valid_{true};
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
@@ -319,7 +323,10 @@ private:
 
   // |stream_| and calls to |async_detect*| are guarded by strand
   GLOBAL_THREAD_SAFE_LIFETIME()
-  StrandType perConnectionStrand_;
+   basis::AccessVerifier<
+    StrandType
+    , basis::AccessVerifyPolicy::DebugOnly
+   > perConnectionStrand_;
 
   // will be set by |onDetected|
   std::atomic<bool> atomicDetectDoneFlag_{false};
