@@ -1,5 +1,7 @@
 #include "ECS/systems/ssl_detect_result.hpp" // IWYU pragma: associated
 
+#include <flexnet/ECS/tags.hpp>
+
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>
 

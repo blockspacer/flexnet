@@ -1,6 +1,10 @@
 #pragma once
 
-#include "basis/ECS/asio_registry.hpp"
+#include "flexnet/util/access_verifier.hpp"
+#include "flexnet/util/unsafe_state_machine.hpp"
+
+#include <basis/ECS/asio_registry.hpp>
+#include <basis/bitmask.h>
 
 #include <base/rvalue_cast.h>
 #include <base/callback.h> // IWYU pragma: keep
@@ -89,14 +93,37 @@ public:
   using VoidPromise
     = base::Promise<void, base::NoReject>;
 
+#if DCHECK_IS_ON()
+  enum State {
+    UNINITIALIZED = 0,
+    STARTED = 1,
+    PAUSED = 2,
+    TERMINATED = 2,
+    FAILED = 3,
+  };
+
+  enum Event {
+    START = 0,
+    PAUSE = 1,
+    TERMINATE = 2,
+    FAULT = 3,
+  };
+
+  using StateMachineType =
+      basis::UnsafeStateMachine<
+        Listener::State
+        , Listener::Event
+      >;
+#endif // DCHECK_IS_ON()
+
   // result of |acceptor_.async_accept(...)|
   // i.e. stores created socket
   struct AcceptConnectionResult {
     AcceptConnectionResult(
-      ErrorCode&& ec
-      , SocketType&& socket)
-      : ec(base::rvalue_cast(ec))
-        , socket(base::rvalue_cast(socket))
+      ErrorCode&& _ec
+      , SocketType&& _socket)
+      : ec(base::rvalue_cast(_ec))
+        , socket(base::rvalue_cast(_socket))
       {}
 
     AcceptConnectionResult(
@@ -138,11 +165,12 @@ public:
     const base::Location& from_here
     , CallbackT&& task)
   {
+    // unable to `::boost::asio::post` on stopped ioc
     DCHECK(ioc_ && !ioc_->stopped());
     return base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
-      , acceptorStrand_
+      , acceptorStrand_.ref_value(FROM_HERE)
       , std::forward<CallbackT>(task));
   }
 
@@ -159,6 +187,9 @@ public:
 
   MUST_USE_RETURN_VALUE
   StatusPromise stopAcceptorAsync();
+
+  MUST_USE_RETURN_VALUE
+    ::util::Status pause();
 
   // calls to |async_accept*| must be performed on same sequence
   // i.e. it is |acceptorStrand_.running_in_this_thread()|
@@ -178,10 +209,30 @@ public:
     // Weak pointers may be passed safely between sequences, but must always be
     // dereferenced and invalidated on the same SequencedTaskRunner otherwise
     // checking the pointer would be racey.
-    return weak_this_;
+    return weak_this_.ref_value(FROM_HERE);
   }
 
 private:
+  MUST_USE_RETURN_VALUE
+  ::util::Status processStateChange(
+    const base::Location& from_here
+    , const Listener::Event& processEvent)
+  {
+    const ::util::Status stateProcessed
+      = sm_.ref_value(FROM_HERE).ProcessEvent(processEvent
+        , FROM_HERE.ToString()
+        , nullptr);
+    CHECK(stateProcessed.ok())
+      << "Failed to change state"
+      << " using event "
+      << processEvent
+      << " in code "
+      << from_here.ToString()
+      << ". Current state: "
+      << sm_.ref_value(FROM_HERE).CurrentState();
+    return stateProcessed;
+  }
+
   // uses provided `per-connection entity`
   // to accept new connection
   // i.e. `per-connection data` will be stored
@@ -217,11 +268,79 @@ private:
   MUST_USE_RETURN_VALUE
     ::util::Status configureAndRunAcceptor();
 
-private:
-  // The acceptor used to listen for incoming connections.
-  NOT_THREAD_SAFE_LIFETIME()
-  AcceptorType acceptor_;
+  // Defines all valid transitions for the state machine.
+  // The transition table represents the following state diagram:
+  // ASCII diagram generated using http://asciiflow.com/
+  //      +-------------------+----------------+----------------+----------------+
+  //      |                   ^                ^                ^                |
+  //      |                   |     START      |                |                |
+  //      |                   |   +---------+  |                |                |
+  //      |                   |   |         |  |                |                |
+  //      |                   +   v         +  |                +                v
+  // UNINITIALIZED         STARTED         PAUSED          TERMINATED         FAILED
+  //    +   +              ^  +  +          ^  +             ^   ^  ^
+  //    |   |              |  |  |          |  |             |   |  |
+  //    |   +---------------  +  +----------+  +-------------+   |  |
+  //    |         START       |      PAUSE           TERMINATE   |  |
+  //    |                     |                                  |  |
+  //    |                     |                                  |  |
+  //    |                     |                                  |  |
+  //    |                     |                                  |  |
+  //    |                     +----------------------------------+  |
+  //    |                                   TERMINATE               |
+  //    +-----------------------------------------------------------+
+  //                              TERMINATE
+  //
+  MUST_USE_RETURN_VALUE
+  StateMachineType::TransitionTable FillStateTransitionTable()
+  {
+    StateMachineType::TransitionTable sm_table_;
 
+    //    [state][event] -> next state
+    sm_table_[UNINITIALIZED][START] = STARTED;
+    sm_table_[UNINITIALIZED][TERMINATE] = TERMINATED;
+    sm_table_[UNINITIALIZED][FAULT] = FAILED;
+
+    sm_table_[STARTED][PAUSE] = PAUSED;
+    sm_table_[STARTED][TERMINATE] = TERMINATED;
+    sm_table_[STARTED][FAULT] = FAILED;
+
+    sm_table_[PAUSED][TERMINATE] = TERMINATED;
+    sm_table_[PAUSED][FAULT] = FAILED;
+
+    sm_table_[TERMINATED][TERMINATE] = TERMINATED;
+    sm_table_[TERMINATED][FAULT] = FAILED;
+
+    sm_table_[FAILED][FAULT] = FAILED;
+
+    return sm_table_;
+  }
+
+  // Adds the entry and exit functions for each state.
+  void AddStateCallbackFunctions()
+  {
+    // Warning: all callbacks must be used
+    // within the lifetime of the state machine.
+
+    StateMachineType::CallbackType okStateCallback =
+      base::BindRepeating(
+      []
+      (Event event
+       , State next_state
+       , Event* recovery_event)
+      {
+        ignore_result(event);
+        ignore_result(next_state);
+        ignore_result(recovery_event);
+        return ::util::OkStatus();
+      });
+    sm_.ref_value(FROM_HERE).AddExitAction(UNINITIALIZED, okStateCallback);
+    sm_.ref_value(FROM_HERE).AddEntryAction(FAILED, okStateCallback);
+  }
+
+  ECS::Entity createTcpEntity(ECS::Registry& registry);
+
+private:
   // Provides I/O functionality
   GLOBAL_THREAD_SAFE_LIFETIME()
   util::UnownedPtr<IoContext> ioc_;
@@ -233,20 +352,13 @@ private:
   // used to create `per-connection entity`
   ECS::AsioRegistry& asioRegistry_;
 
-  // modification of |acceptor_| guarded by |acceptorStrand_|
-  // i.e. acceptor_.open(), acceptor_.close(), etc.
-  /// \note do not destruct |Listener| while |acceptorStrand_|
-  /// has scheduled or execting tasks
-  NOT_THREAD_SAFE_LIFETIME()
-  StrandType acceptorStrand_;
-
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
-  base::WeakPtrFactory<
-    Listener
-    > weak_ptr_factory_
-  LIVES_ON(sequence_checker_);
+  basis::AccessVerifier<
+    base::WeakPtrFactory<Listener>
+    , basis::AccessVerifyPolicy::DebugOnly
+  > weak_ptr_factory_;
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -255,18 +367,32 @@ private:
   // which is safe to do from any
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
-  base::WeakPtr<Listener> weak_this_
-  LIVES_ON(sequence_checker_);
+  basis::AccessVerifier<
+    base::WeakPtr<Listener>
+    , basis::AccessVerifyPolicy::DebugOnly
+  > weak_this_;
 
-  /// \todo replace with internal state like `paused`
+  // modification of |acceptor_| guarded by |acceptorStrand_|
+  // i.e. acceptor_.open(), acceptor_.close(), etc.
+  /// \note do not destruct |Listener| while |acceptorStrand_|
+  /// has scheduled or execting tasks
+  GLOBAL_THREAD_SAFE_LIFETIME()
+  basis::AccessVerifier<
+    const StrandType
+    , basis::AccessVerifyPolicy::DebugOnly
+  > acceptorStrand_;
+
+  // The acceptor used to listen for incoming connections.
+  basis::AccessVerifier<
+    AcceptorType
+    , basis::AccessVerifyPolicy::DebugOnly
+  > acceptor_;
+
 #if DCHECK_IS_ON()
-  // unlike |isAcceptorOpen()| it can be used from any sequence,
-  // but it is approximation that stores state
-  // based on results of previous API calls,
-  // not based on real |acceptor_| state
-  // i.e. it may be NOT same as |acceptor_.is_open()|
-  ALWAYS_THREAD_SAFE()
-  std::atomic<bool> assume_is_accepting_{false};
+  basis::AccessVerifier<
+    StateMachineType
+    , basis::AccessVerifyPolicy::DebugOnly
+  > sm_;
 #endif // DCHECK_IS_ON()
 
   // check sequence on which class was constructed/destructed/configured

@@ -3,9 +3,9 @@
 #include "ECS/systems/ssl_detect_result.hpp"
 #include "ECS/systems/unused.hpp"
 
-#include <basis/ECS/asio_registry.hpp>
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
+#include <flexnet/ECS/tags.hpp>
 
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
@@ -20,6 +20,7 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
 
+#include <basis/ECS/asio_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/move_only.hpp>
@@ -93,7 +94,7 @@ static base::Promise<void, base::NoReject> waitCleanupConnectionResources(
           ECS::Registry& registry
             /// \note take care of thread-safety
             = asio_registry
-            .ref_registry_unsafe(FROM_HERE);
+            .ref_registry(FROM_HERE);
           if(registry.empty()) {
             DVLOG(9)
               << "registry is empty";
@@ -206,6 +207,10 @@ class ExampleServer
   ~ExampleServer();
 
   void runLoop();
+
+  void doFirstLoad();
+
+  void updateAsioRegistry();
 
   MUST_USE_RETURN_VALUE
   StatusPromise stopAcceptors();
@@ -411,6 +416,45 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors()
     , listener_->stopAcceptorAsync());
 }
 
+void ExampleServer::updateAsioRegistry()
+{
+  /// \note you can not use `::boost::asio::post`
+  /// if `ioc_->stopped()`
+  if(ioc_.stopped()) {
+    LOG(ERROR)
+      << "skipping update of registry"
+         " because of stopped io context";
+    NOTREACHED();
+    return;
+  }
+
+  ::boost::asio::post(
+    asioRegistry_.ref_strand(FROM_HERE)
+    , ::boost::beast::bind_front_handler([
+      ](
+        ECS::AsioRegistry& asio_registry
+      ){
+        DVLOG(9)
+          << "updating asio registry...";
+
+        DCHECK(
+          asio_registry.running_in_this_thread());
+        ECS::Registry& registry
+          /// \note take care of thread-safety
+          = asio_registry
+            .ref_registry(FROM_HERE);
+        ECS::updateNewConnections(asio_registry);
+        ECS::updateSSLDetection(asio_registry);
+        /// \todo cutomizable cleanup period
+        ECS::updateUnusedSystem(asio_registry);
+        /// \todo cutomizable cleanup period
+        ECS::updateCleanupSystem(asio_registry);
+      }
+      , REFERENCED(asioRegistry_)
+    )
+  );
+}
+
 void ExampleServer::runLoop()
 {
   LOG_CALL(DVLOG(9));
@@ -428,50 +472,8 @@ void ExampleServer::runLoop()
         }
       )
     , base::BindRepeating(
-        [
-        ](
-          ECS::AsioRegistry& asio_registry
-          , boost::asio::io_context& ioc
-        ){
-          /// \note you can not use `::boost::asio::post`
-          /// if `ioc_->stopped()`
-          if(ioc.stopped()) {
-            LOG(ERROR)
-              << "skipping update of registry"
-                 " because of stopped io context";
-            NOTREACHED();
-            return;
-          }
-
-          ::boost::asio::post(
-            asio_registry.ref_strand(FROM_HERE)
-            , ::boost::beast::bind_front_handler([
-              ](
-                ECS::AsioRegistry& asio_registry
-              ){
-                DVLOG(9)
-                  << "updating asio registry...";
-
-                DCHECK(
-                  asio_registry.running_in_this_thread());
-                ECS::Registry& registry
-                  /// \note take care of thread-safety
-                  = asio_registry
-                    .ref_registry_unsafe(FROM_HERE);
-                ECS::updateNewConnections(asio_registry);
-                ECS::updateSSLDetection(asio_registry);
-                /// \todo cutomizable cleanup period
-                ECS::updateUnusedSystem(asio_registry);
-                /// \todo cutomizable cleanup period
-                ECS::updateCleanupSystem(asio_registry);
-              }
-              , REFERENCED(asio_registry)
-            )
-          );
-        }
-        , REFERENCED(asioRegistry_)
-        , REFERENCED(ioc_)
-    )
+        &ExampleServer::updateAsioRegistry
+        , base::Unretained(this))
   );
 
   periodicAsioExecutor.startPeriodicTimer(
@@ -631,6 +633,38 @@ void ExampleServer::runLoop()
   DCHECK(!asio_thread_4.IsRunning());
 }
 
+void ExampleServer::doFirstLoad()
+{
+  base::PostPromise(FROM_HERE
+        /// \note delayed execution:
+        /// will be executed only when |run_loop| is running
+        , base::MessageLoop::current()->task_runner().get()
+        , base::BindOnce(
+            NESTED_PROMISE(&ExampleServer::configureAndRunAcceptor)
+            , base::Unretained(this)
+        )
+    )
+  .ThenOn(base::MessageLoop::current()->task_runner()
+    , FROM_HERE
+    , base::BindOnce(
+        // |GlobalContext| is not thread-safe,
+        // so modify it only from one sequence
+        &ECS::GlobalContext::lockModification
+        , base::Unretained(ECS::GlobalContext::GetInstance())
+      )
+  )
+  .ThenOn(base::MessageLoop::current()->task_runner()
+    , FROM_HERE
+    , base::BindOnce(
+      [
+      ](
+      ){
+        LOG(INFO)
+          << "server is running";
+      }
+  ));
+}
+
 ExampleServer::VoidPromise
   ExampleServer::waitNetworkResourcesFreed()
 {
@@ -773,34 +807,7 @@ int main(int argc, char* argv[])
 
   ExampleServer exampleServer;
 
-  base::PostPromise(FROM_HERE
-        /// \note delayed execution:
-        /// will be executed only when |run_loop| is running
-        , base::MessageLoop::current()->task_runner().get()
-        , base::BindOnce(
-            NESTED_PROMISE(&ExampleServer::configureAndRunAcceptor)
-            , base::Unretained(&exampleServer)
-        )
-    )
-  .ThenOn(base::MessageLoop::current()->task_runner()
-    , FROM_HERE
-    , base::BindOnce(
-        // |GlobalContext| is not thread-safe,
-        // so modify it only from one sequence
-        &ECS::GlobalContext::lockModification
-        , base::Unretained(ECS::GlobalContext::GetInstance())
-      )
-  )
-  .ThenOn(base::MessageLoop::current()->task_runner()
-    , FROM_HERE
-    , base::BindOnce(
-      [
-      ](
-      ){
-        LOG(INFO)
-          << "server is running";
-      }
-  ));
+  exampleServer.doFirstLoad();
 
   exampleServer.runLoop();
 

@@ -1,5 +1,7 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 
+#include "flexnet/ECS/tags.hpp"
+
 #include <base/rvalue_cast.h>
 #include <base/bind.h>
 #include <base/location.h>
@@ -39,14 +41,42 @@ Listener::Listener(
   util::UnownedPtr<IoContext>&& ioc
   , EndpointType&& endpoint
   , ECS::AsioRegistry& asioRegistry)
-  : acceptor_(*ioc.Get())
-  , asioRegistry_(asioRegistry)
-  , UNOWNED_LIFETIME(ioc_(ioc))
+  : UNOWNED_LIFETIME(ioc_(ioc))
   , endpoint_(endpoint)
-  , acceptorStrand_(ioc.Get()->get_executor())
-  , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
+  , asioRegistry_(asioRegistry)
   , ALLOW_THIS_IN_INITIALIZER_LIST(
-    weak_this_(weak_ptr_factory_.GetWeakPtr()))
+      weak_ptr_factory_(
+        BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+        , base::in_place
+        , COPIED(this)))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(
+        BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+        , base::in_place
+        , weak_ptr_factory_.ref_value_unsafe(
+            FROM_HERE, "access from constructor").GetWeakPtr()))
+  , acceptorStrand_(
+      // on each access to strand check that ioc not stopped
+      // otherwise `::boost::asio::post` may fail
+      base::BindRepeating(
+        [](util::UnownedPtr<IoContext>& ioc) {
+          return ioc && !ioc->stopped();
+        }
+        , REFERENCED(ioc_)
+      )
+      , base::in_place
+      , ioc.Get()->get_executor())
+  , acceptor_(
+      BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&(*acceptorStrand_))
+      , base::in_place
+      , *ioc.Get())
+#if DCHECK_IS_ON()
+  , sm_(
+    BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&(*acceptorStrand_))
+    , base::in_place
+    , UNINITIALIZED
+    , FillStateTransitionTable())
+#endif // DCHECK_IS_ON()
 {
   LOG_CALL(DVLOG(9));
 
@@ -124,15 +154,15 @@ void Listener::logFailure(
 
   ErrorCode ec;
 
-  // sanity check
-  DCHECK(ALWAYS_THREAD_SAFE()
-    !assume_is_accepting_.load());
+  DCHECK(
+    sm_->CurrentState() == Listener::UNINITIALIZED
+    || sm_->CurrentState() == Listener::PAUSED);
 
   VLOG(9)
     << "opening acceptor for "
     << endpoint_.address().to_string();
 
-  acceptor_.open(endpoint_.protocol(), ec);
+  acceptor_->open(endpoint_.protocol(), ec);
   if (ec)
   {
     logFailure(ec, "open");
@@ -154,9 +184,9 @@ void Listener::logFailure(
 
   DCHECK(isAcceptingInThisThread());
 
-  // sanity check
-  DCHECK(ALWAYS_THREAD_SAFE()
-    !assume_is_accepting_.load());
+  DCHECK(
+    sm_->CurrentState() == Listener::UNINITIALIZED
+    || sm_->CurrentState() == Listener::PAUSED);
 
   ErrorCode ec;
 
@@ -167,7 +197,7 @@ void Listener::logFailure(
   // This specifically allows multiple sockets to be bound
   // to an address even if it is in use.
   // @see stackoverflow.com/a/7195105/10904212
-  acceptor_.set_option(
+  acceptor_->set_option(
     ::boost::asio::socket_base::reuse_address(true)
     , ec);
   if (ec)
@@ -178,7 +208,7 @@ void Listener::logFailure(
   }
 
   // Bind to the server address
-  acceptor_.bind(endpoint_, ec);
+  acceptor_->bind(endpoint_, ec);
   if (ec)
   {
     logFailure(ec, "bind");
@@ -190,7 +220,7 @@ void Listener::logFailure(
     << "acceptor listening endpoint: "
     << endpoint_.address().to_string();
 
-  acceptor_.listen(
+  acceptor_->listen(
     ::boost::asio::socket_base::max_listen_connections
     , ec);
   if (ec)
@@ -224,9 +254,9 @@ Listener::StatusPromise Listener::configureAndRun()
 
   DCHECK(isAcceptingInThisThread());
 
-  // sanity check
-  DCHECK(ALWAYS_THREAD_SAFE()
-    !assume_is_accepting_.load());
+  DCHECK(
+    sm_->CurrentState() == Listener::UNINITIALIZED
+    || sm_->CurrentState() == Listener::PAUSED);
 
   RETURN_IF_ERROR(
     openAcceptor());
@@ -239,6 +269,11 @@ Listener::StatusPromise Listener::configureAndRun()
     return MAKE_ERROR()
            << "Unable to run closed acceptor";
   }
+
+#if DCHECK_IS_ON()
+  ignore_result(
+    processStateChange(FROM_HERE, START));
+#endif // DCHECK_IS_ON()
 
   doAccept();
 
@@ -260,10 +295,8 @@ void Listener::doAccept()
     return;
   }
 
-#if DCHECK_IS_ON()
-  ALWAYS_THREAD_SAFE()
-    assume_is_accepting_ = true;
-#endif // DCHECK_IS_ON()
+  DCHECK(
+    sm_->CurrentState() == Listener::STARTED);
 
   /// \note resources will be preallocated
   /// BEFORE anyone connected
@@ -299,39 +332,15 @@ void Listener::allocateTcpResourceAndAccept()
    << " and unused entities can be freed"
       " with proper frequency.";
 
+  /// \todo for now we think that if entity has
+  /// `StrandComponent`, than it is same as `TcpEntity`
+  /// Refactor to custom component `struct TcpEntityComponent` and use
+  /// `boost::optional` instead of `std::unique_ptr`
   using StrandComponent
     = std::unique_ptr<StrandType>;
 
   ECS::Entity tcp_entity_id
-    = ECS::NULL_ENTITY;
-
-  // Avoid extra allocations
-  // with memory pool in ECS style using |ECS::UnusedTag|
-  // (objects that are no more in use can return into pool)
-  /// \note do not forget to free some memory in pool periodically
-  auto registry_group
-    = registry.view<StrandComponent, ECS::UnusedTag>(
-        entt::exclude<
-          // entity in destruction
-          ECS::NeedToDestroyTag
-        >
-      );
-
-  // reuse unused entity (if found)
-  if(!registry_group.empty()) {
-    for(const ECS::Entity& entity_id : registry_group) {
-      tcp_entity_id = entity_id;
-      // need only first
-      break;
-    }
-    registry.remove<ECS::UnusedTag>(tcp_entity_id);
-    DVLOG(99)
-      << "using preallocated network entity";
-  } else {
-    tcp_entity_id = registry.create();
-    DVLOG(99)
-      << "allocating new network entity";
-  }
+    = createTcpEntity(registry);
   DCHECK(registry.valid(tcp_entity_id));
 
   const bool useCache
@@ -359,9 +368,12 @@ void Listener::allocateTcpResourceAndAccept()
       << "allocating new strand";
   }
 
+  // unable to `::boost::asio::post` on stopped ioc
+  DCHECK(ioc_ && !ioc_->stopped());
+
   // Accept another connection
   ::boost::asio::post(
-    acceptorStrand_
+    *acceptorStrand_
     , ::std::bind(
         &Listener::asyncAccept
         , this
@@ -371,22 +383,94 @@ void Listener::allocateTcpResourceAndAccept()
   );
 }
 
+ECS::Entity Listener::createTcpEntity(
+  ECS::Registry& registry)
+{
+  LOG_CALL(DVLOG(9));
+
+  DCHECK(asioRegistry_.running_in_this_thread());
+
+  /// \todo for now we think that if entity has
+  /// `StrandComponent`, than it is same as `TcpEntity`
+  /// Refactor to custom component `struct TcpEntityComponent` and use
+  /// `boost::optional` instead of `std::unique_ptr`
+  using StrandComponent
+    = std::unique_ptr<StrandType>;
+
+  // Avoid extra allocations
+  // with memory pool in ECS style using |ECS::UnusedTag|
+  // (objects that are no more in use can return into pool)
+  /// \note do not forget to free some memory in pool periodically
+  auto registry_group
+    /// \todo use `entt::group` instead of `entt::view` here
+    /// if it will speed things up
+    /// i.e. measure perf. and compare results
+    = registry.view<StrandComponent, ECS::UnusedTag>(
+        entt::exclude<
+          // entity in destruction
+          ECS::NeedToDestroyTag
+        >
+      );
+
+  ECS::Entity tcp_entity_id
+    = ECS::NULL_ENTITY;
+
+  if(registry_group.empty())
+  {
+    tcp_entity_id = registry.create();
+    DVLOG(99)
+      << "allocating new network entity";
+    DCHECK(registry.valid(tcp_entity_id));
+    return tcp_entity_id;
+  }
+
+  // reuse any unused entity (if found)
+  for(const ECS::Entity& entity_id : registry_group)
+  {
+    if(!registry.valid(entity_id)) {
+      // skip invalid entities
+      continue;
+    }
+    tcp_entity_id = entity_id;
+    // need only first valid entity
+    break;
+  }
+
+  /// \note may not find valid entities,
+  /// so checks for `ECS::NULL_ENTITY` using `registry.valid`
+  if(registry.valid(tcp_entity_id)) {
+    registry.remove<ECS::UnusedTag>(tcp_entity_id);
+    DVLOG(99)
+      << "using preallocated network entity";
+  } else {
+    tcp_entity_id = registry.create();
+    DVLOG(99)
+      << "allocating new network entity";
+  }
+
+  DCHECK(registry.valid(tcp_entity_id));
+
+  return tcp_entity_id;
+}
+
 void Listener::asyncAccept(
   util::UnownedPtr<StrandType> unownedPerConnectionStrand
   , ECS::Entity tcp_entity_id)
 {
+  LOG_CALL(DVLOG(9));
+
   DCHECK(isAcceptingInThisThread());
   DCHECK(isAcceptorOpen());
 
-  DCHECK(ALWAYS_THREAD_SAFE()
-    assume_is_accepting_.load());
+  DCHECK(
+    sm_->CurrentState() == Listener::STARTED);
 
   /// Start an asynchronous accept.
   /**
    * This function is used to asynchronously accept a new connection. The
    * function call always returns immediately.
    */
-  acceptor_.async_accept(
+  acceptor_->async_accept(
     /**
      * I/O objects such as sockets and streams are not thread-safe.
      * For efficiency, networking adopts
@@ -413,6 +497,23 @@ void Listener::asyncAccept(
     );
 }
 
+::util::Status Listener::pause()
+{
+  LOG_CALL(DVLOG(9));
+
+  DCHECK(isAcceptingInThisThread());
+
+#if DCHECK_IS_ON()
+  ignore_result(
+    processStateChange(FROM_HERE, PAUSE));
+#endif // DCHECK_IS_ON()
+
+  /// \todo IMPLEMENT
+  NOTIMPLEMENTED();
+
+  return ::util::OkStatus();
+}
+
 ::util::Status Listener::stopAcceptor()
 {
   LOG_CALL(DVLOG(9));
@@ -420,8 +521,8 @@ void Listener::asyncAccept(
   DCHECK(isAcceptingInThisThread());
 
 #if DCHECK_IS_ON()
-  ALWAYS_THREAD_SAFE()
-    assume_is_accepting_ = false;
+  ignore_result(
+    processStateChange(FROM_HERE, TERMINATE));
 #endif // DCHECK_IS_ON()
 
   /// \note we usually post `stopAcceptor()` using `boost::asio::post`,
@@ -442,7 +543,7 @@ void Listener::asyncAccept(
     VLOG(9)
       << "closing acceptor...";
 
-    acceptor_.cancel(ec);
+    acceptor_->cancel(ec);
     if (ec)
     {
       logFailure(ec, "acceptor_cancel");
@@ -454,7 +555,7 @@ void Listener::asyncAccept(
     /// \note does not close alive sessions, just
     /// stops accepting incoming connections
     /// \note stopped acceptor may be continued via `async_accept`
-    acceptor_.close(ec);
+    acceptor_->close(ec);
     if (ec) {
       logFailure(ec, "acceptor_close");
 
@@ -539,9 +640,12 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
     )
   );
 
+  // unable to `::boost::asio::post` on stopped ioc
+  DCHECK(ioc_ && !ioc_->stopped());
+
   // Accept another connection
   ::boost::asio::post(
-    acceptorStrand_
+    *acceptorStrand_
     , ::std::bind(
         &Listener::doAccept
         , this)
@@ -603,29 +707,37 @@ Listener::~Listener()
   /// (but not thread-safe in general)
   /// i.e. do not modify acceptor
   /// from any thread if you reached destructor
-  DCHECK(NOT_THREAD_SAFE_LIFETIME(
-           !acceptor_.is_open()));
+  DCHECK(!acceptor_.ref_value_unsafe(FROM_HERE, "access from destructor")
+    .is_open());
 
   /// \note we expect that API user will call
   /// `close` for acceptor before acceptor destructon
-  DCHECK(ALWAYS_THREAD_SAFE()
-    !assume_is_accepting_.load());
+  DCHECK(
+    sm_.ref_value_unsafe(
+      FROM_HERE, "access from destructor").CurrentState() == Listener::UNINITIALIZED
+    || sm_.ref_value_unsafe(
+        FROM_HERE, "access from destructor").CurrentState() == Listener::TERMINATED);
 
   // make sure that all allocated
   // `per-connection resources` are freed
-  /// \note we can not use `::boost::asio::post`
-  /// because `ioc_->stopped()`
-  /// i.e. can not use strand of registry,
-  /// so make sure code access to |asioRegistry_|
-  /// is thread-safe here
-  ASSUME_THREAD_SAFE_BECAUSE(ioc_->stopped())
-  DCHECK(asioRegistry_.ref_registry_unsafe(FROM_HERE).empty());
+  // i.e. use check `registry.empty()`
+  DCHECK(asioRegistry_
+    .ref_registry_unsafe(FROM_HERE
+      , "access from destructor when ioc->stopped"
+        " i.e. no running asio threads that use |asioRegistry_|"
+      , base::BindOnce([](util::UnownedPtr<IoContext>& ioc)
+        {
+          // checks that access to |asioRegistry_| is thread-safe
+          DCHECK(ioc && ioc->stopped());
+        }
+        , REFERENCED(ioc_)))
+    .empty());
 
   /// \note Callbacks posted on |io_context| can use |this|,
   /// so make sure that |this| outlives |io_context|
   /// (callbacks expected to NOT execute on stopped |io_context|).
-  DCHECK(NOT_THREAD_SAFE_LIFETIME(
-    ioc_ && ioc_->stopped()));
+  DCHECK(
+    ioc_ && ioc_->stopped());
 
   DVLOG(1)
     << "asio acceptor was freed";
@@ -637,13 +749,13 @@ bool Listener::isAcceptorOpen() const
   /// i.e. provide thread-safety checks
   DCHECK(isAcceptingInThisThread());
 
-  return acceptor_.is_open();
+  return acceptor_->is_open();
 }
 
 bool Listener::isAcceptingInThisThread() const noexcept
 {
   /// \note `running_in_this_thread()` assumed to be thread-safe
-  return acceptorStrand_.running_in_this_thread();
+  return acceptorStrand_->running_in_this_thread();
 }
 
 } // namespace ws

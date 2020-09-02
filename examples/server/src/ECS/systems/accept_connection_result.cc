@@ -1,5 +1,7 @@
 #include "ECS/systems/accept_connection_result.hpp" // IWYU pragma: associated
 
+#include <flexnet/ECS/tags.hpp>
+
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>
 

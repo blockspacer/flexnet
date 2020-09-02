@@ -1,5 +1,7 @@
 #include "flexnet/http/detect_channel.hpp" // IWYU pragma: associated
 
+#include "flexnet/ECS/tags.hpp"
+
 #include <base/rvalue_cast.h>
 #include <base/optional.h>
 #include <base/location.h>
@@ -32,9 +34,17 @@ DetectChannel::DetectChannel(
   , ECS::AsioRegistry& asioRegistry
   , const ECS::Entity entity_id)
   : stream_(base::rvalue_cast(COPY_ON_MOVE(socket)))
-  , ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
-    weak_this_(weak_ptr_factory_.GetWeakPtr()))
+      weak_ptr_factory_(
+        BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+        , base::in_place
+        , COPIED(this)))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(
+        BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+        , base::in_place
+        , weak_ptr_factory_.ref_value_unsafe(
+            FROM_HERE, "access from constructor").GetWeakPtr()))
   , perConnectionStrand_(stream_.value().get_executor())
   , asioRegistry_(REFERENCED(asioRegistry))
   , entity_id_(entity_id)
@@ -168,6 +178,8 @@ void DetectChannel::runDetector(
       on the expected protocol.
   */
   DCHECK(stream_.has_value());
+  DCHECK(stream_valid_.load());
+  DCHECK(buffer_valid_.load());
   beast::async_detect_ssl(
     RAW_REFERENCED(stream_.value()), // The stream to read from
     RAW_REFERENCED(buffer_), // The dynamic buffer to use
@@ -205,6 +217,9 @@ void DetectChannel::onDetected(
 
   atomicDetectDoneFlag_ = true;
 
+  DCHECK(stream_valid_.load());
+  DCHECK(buffer_valid_.load());
+
   // mark SSL detection completed
   ::boost::asio::post(
     asioRegistry_->ref_strand(FROM_HERE)
@@ -226,11 +241,6 @@ void DetectChannel::onDetected(
         )
     )
   );
-
-  // NOTE: moved out object will be
-  // destructed again by optional
-  DCHECK(stream_.has_value()
-    && !stream_.value().socket().is_open());
 }
 
 void DetectChannel::setSSLDetectResult(

@@ -1,7 +1,7 @@
 #pragma once
 
+#include "flexnet/util/access_verifier.hpp"
 #include "flexnet/util/limited_tcp_stream.hpp"
-#include "basis/ECS/asio_registry.hpp"
 
 #include <base/callback.h>
 #include <base/macros.h>
@@ -12,6 +12,7 @@
 #include <base/synchronization/atomic_flag.h>
 #include <base/threading/thread_collision_warner.h>
 
+#include <basis/ECS/asio_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
@@ -185,10 +186,12 @@ public:
       asioRegistry_.reset(rhs.asioRegistry_.Get());
       DCHECK(rhs.entity_id_ != ECS::NULL_ENTITY);
       entity_id_ = COPIED(rhs.entity_id_);
+      stream_valid_ = COPIED(rhs.stream_valid_.load());
+      buffer_valid_ = COPIED(rhs.buffer_valid_.load());
       /// \note do not move weak_ptr_factory_
-      DCHECK(weak_ptr_factory_.GetWeakPtr());
+      DCHECK(weak_ptr_factory_.ref_value(FROM_HERE).GetWeakPtr());
       /// \note do not move weak_this_
-      DCHECK(weak_this_);
+      DCHECK(weak_this_.ref_value(FROM_HERE));
       /// \note do not move |sequence_checker_|
       DETACH_FROM_SEQUENCE(sequence_checker_);
     }
@@ -213,7 +216,7 @@ public:
     // Weak pointers may be passed safely between sequences, but must always be
     // dereferenced and invalidated on the same SequencedTaskRunner otherwise
     // checking the pointer would be racey.
-    return weak_this_;
+    return weak_this_.ref_value(FROM_HERE);
   }
 
   MUST_USE_RETURN_VALUE
@@ -225,7 +228,8 @@ public:
   }
 
   MUST_USE_RETURN_VALUE
-  StrandType& perConnectionStrand() noexcept{
+  const StrandType& perConnectionStrand() noexcept
+  {
     return NOT_THREAD_SAFE_LIFETIME()
            perConnectionStrand_;
   }
@@ -240,6 +244,7 @@ public:
   }
 
   template <typename CallbackT>
+  MUST_USE_RETURN_VALUE
   auto postTaskOnStrand(
     const base::Location& from_here
     , CallbackT&& task)
@@ -280,21 +285,25 @@ private:
 private:
   /// \note stream with custom rate limiter
   // can not copy assign `stream`, so use optional
-  NOT_THREAD_SAFE_LIFETIME()
-  CAN_BECOME_INVALID("moved in |onDetected|")
+  NOT_THREAD_SAFE_LIFETIME() // moved between threads
   base::Optional<StreamType> stream_;
 
-  NOT_THREAD_SAFE_LIFETIME()
-  CAN_BECOME_INVALID("moved in |onDetected|")
+  // |stream_| moved in |onDetected|
+  std::atomic<bool> stream_valid_{true};
+
+  NOT_THREAD_SAFE_LIFETIME() // moved between threads
   MessageBufferType buffer_;
+
+  // |buffer_| moved in |onDetected|
+  std::atomic<bool> buffer_valid_{true};
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
-  base::WeakPtrFactory<
-    DetectChannel
-    > weak_ptr_factory_
-  LIVES_ON(sequence_checker_);
+  basis::AccessVerifier<
+    base::WeakPtrFactory<DetectChannel>
+    , basis::AccessVerifyPolicy::DebugOnly
+  > weak_ptr_factory_;
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -303,15 +312,17 @@ private:
   // which is safe to do from any
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
-  base::WeakPtr<DetectChannel> weak_this_
-  LIVES_ON(sequence_checker_);
+  basis::AccessVerifier<
+    base::WeakPtr<DetectChannel>
+    , basis::AccessVerifyPolicy::DebugOnly
+  > weak_this_;
 
   // |stream_| and calls to |async_detect*| are guarded by strand
-  NOT_THREAD_SAFE_LIFETIME()
+  GLOBAL_THREAD_SAFE_LIFETIME()
   StrandType perConnectionStrand_;
 
   // will be set by |onDetected|
-  std::atomic<bool> atomicDetectDoneFlag_{};
+  std::atomic<bool> atomicDetectDoneFlag_{false};
 
   // used by |entity_id_|
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_;
