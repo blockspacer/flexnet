@@ -15,20 +15,16 @@ void handleSSLDetectResult(
 {
   using namespace ::flexnet::http;
 
-  ECS::Registry& registry
-    = asio_registry
-      .ref_registry(FROM_HERE);
-
   DCHECK(asio_registry.running_in_this_thread());
 
   LOG_CALL(DVLOG(9));
 
   auto closeAndReleaseResources
-    = [&detectResult, &registry, entity_id]()
+    = [&detectResult, &asio_registry, entity_id]()
   {
     // Schedule shutdown on asio thread
-    if(!registry.has<ECS::CloseSocket>(entity_id)) {
-      registry.emplace<ECS::CloseSocket>(entity_id
+    if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
+      asio_registry->emplace<ECS::CloseSocket>(entity_id
         /// \todo use UnownedPtr
         , UNOWNED_LIFETIME() &detectResult.stream.value().socket());
     }
@@ -75,12 +71,8 @@ void updateSSLDetection(
   DCHECK(
     asio_registry.running_in_this_thread());
 
-  ECS::Registry& registry
-    = asio_registry
-      .ref_registry(FROM_HERE);
-
   auto registry_group
-    = registry.view<view_component>(
+    = asio_registry->view<view_component>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -93,24 +85,24 @@ void updateSSLDetection(
 
   registry_group
     .each(
-      [&registry, &asio_registry]
+      [&asio_registry]
       (const auto& entity
        , const auto& component)
     {
-      DCHECK(registry.valid(entity));
+      DCHECK(asio_registry->valid(entity));
 
       handleSSLDetectResult(
         asio_registry
         , entity
-        , registry.get<view_component>(entity).value());
+        , asio_registry->get<view_component>(entity).value());
 
       // do not process twice
       // similar to
       // `registry.remove<view_component>(entity);`
       // except avoids extra allocations
       // i.e. can be used with memory pool
-      if(!registry.has<ECS::UnusedSSLDetectResultTag>(entity)) {
-        registry.emplace<ECS::UnusedSSLDetectResultTag>(entity);
+      if(!asio_registry->has<ECS::UnusedSSLDetectResultTag>(entity)) {
+        asio_registry->emplace<ECS::UnusedSSLDetectResultTag>(entity);
       }
     });
 }

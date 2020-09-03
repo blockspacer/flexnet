@@ -10,14 +10,10 @@ namespace ECS {
 void updateCleanupSystem(
   ECS::AsioRegistry& asio_registry)
 {
-  DCHECK(
-    asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
-
-  ECS::Registry& registry
-    = asio_registry.ref_registry(FROM_HERE);
+  DCHECK(asio_registry.running_in_this_thread());
 
   auto registry_group
-    = registry.view<ECS::NeedToDestroyTag>();
+    = asio_registry->view<ECS::NeedToDestroyTag>();
 
 #if !defined(NDEBUG)
   if(registry_group.size()) {
@@ -27,14 +23,14 @@ void updateCleanupSystem(
   }
   registry_group
     .each(
-      [&registry]
+      [&asio_registry]
       (const ECS::Entity& entity)
     {
-      DCHECK(registry.valid(entity));
+      DCHECK(asio_registry->valid(entity));
     });
 #endif // NDEBUG
 
-  registry.destroy(
+  asio_registry->destroy(
     registry_group.begin()
     , registry_group.end());
 }

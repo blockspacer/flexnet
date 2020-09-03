@@ -285,23 +285,20 @@ void DetectChannel::setSSLDetectResult(
     << " detected connection as "
     << (handshakeResult ? "secure" : "unsecure");
 
-  ECS::Registry& registry
-    = asioRegistry_->ref_registry(FROM_HERE);
-
   using UniqueSSLDetectComponent
     = base::Optional<DetectChannel::SSLDetectResult>;
 
   const bool useCache
-    = registry.has<UniqueSSLDetectComponent>(entity_id_);
+    = (*asioRegistry_)->has<UniqueSSLDetectComponent>(entity_id_);
 
-  registry.remove_if_exists<
+  (*asioRegistry_)->remove_if_exists<
     ECS::UnusedSSLDetectResultTag
   >(entity_id_);
 
   UniqueSSLDetectComponent& detectResult
     = useCache
-      ? registry.get<UniqueSSLDetectComponent>(entity_id_)
-      : registry.emplace<UniqueSSLDetectComponent>(
+      ? (*asioRegistry_)->get<UniqueSSLDetectComponent>(entity_id_)
+      : (*asioRegistry_)->emplace<UniqueSSLDetectComponent>(
           entity_id_
           , base::in_place
           , base::rvalue_cast(ec)

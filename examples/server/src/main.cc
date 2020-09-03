@@ -69,7 +69,7 @@ static base::Promise<void, base::NoReject> waitCleanupConnectionResources(
 {
   LOG_CALL(DVLOG(9));
 
-  // promise will be resolved when registry will be empty
+  // promise will be resolved when `registry.empty()`
   base::ManualPromiseResolver<
       void, base::NoReject
     > promiseResolver = base::ManualPromiseResolver<
@@ -79,6 +79,7 @@ static base::Promise<void, base::NoReject> waitCleanupConnectionResources(
   DCHECK(waitCleanupRunner
     && waitCleanupRunner->RunsTasksInCurrentSequence());
 
+  // check periodically if `registry.empty()`
   basis::setPeriodicTaskExecutorOnAsioExecutor(
     FROM_HERE
     , waitCleanupRunner
@@ -92,13 +93,9 @@ static base::Promise<void, base::NoReject> waitCleanupConnectionResources(
           LOG(INFO)
             << "waiting for cleanup of asio registry...";
 
-          DCHECK(
-            asio_registry.running_in_this_thread());
-          ECS::Registry& registry
-            /// \note take care of thread-safety
-            = asio_registry
-            .ref_registry(FROM_HERE);
-          if(registry.empty()) {
+          DCHECK(asio_registry.running_in_this_thread());
+
+          if(asio_registry->empty()) {
             DVLOG(9)
               << "registry is empty";
             DCHECK(resolveCallback);
@@ -442,9 +439,6 @@ void ExampleServer::updateAsioRegistry()
 
         DCHECK(
           asio_registry.running_in_this_thread());
-
-        ECS::Registry& registry
-          = asio_registry.ref_registry(FROM_HERE);
 
         ECS::updateNewConnections(asio_registry);
 

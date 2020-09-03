@@ -19,12 +19,8 @@ void handleClosingSocket(
 
   DCHECK(asio_registry.running_in_this_thread());
 
-  ECS::Registry& registry
-    = asio_registry
-    .ref_registry(FROM_HERE);
-
   ECS::TcpConnection& tcpComponent
-    = registry.get<ECS::TcpConnection>(entity_id);
+    = asio_registry->get<ECS::TcpConnection>(entity_id);
 
   DVLOG(99)
     << "closing socket of connection with id: "
@@ -40,22 +36,18 @@ void handleClosingSocket(
         (ECS::AsioRegistry& asio_registry
          , ECS::Entity entity_id)
         {
-          ECS::Registry& registry
-            = asio_registry
-            .ref_registry(FROM_HERE);
-
           DCHECK(asio_registry.running_in_this_thread());
 
           ECS::TcpConnection& tcpComponent
-            = registry.get<ECS::TcpConnection>(entity_id);
+            = asio_registry->get<ECS::TcpConnection>(entity_id);
 
           DVLOG(99)
             << "marking as unused connection with id: "
             << tcpComponent.debug_id;
 
           // it is safe to destroy entity now
-          if(!registry.has<ECS::UnusedTag>(entity_id)) {
-            registry.emplace<ECS::UnusedTag>(entity_id);
+          if(!asio_registry->has<ECS::UnusedTag>(entity_id)) {
+            asio_registry->emplace<ECS::UnusedTag>(entity_id);
           }
         }
         , REFERENCED(asio_registry)
@@ -134,16 +126,12 @@ void updateClosingSockets(
 
   DCHECK(asio_registry.running_in_this_thread());
 
-  ECS::Registry& registry
-    = asio_registry.
-      ref_registry(FROM_HERE);
-
   // Avoid extra allocations
   // with memory pool in ECS style using |ECS::UnusedTag|
   // (objects that are no more in use can return into pool)
   /// \note do not forget to free some memory in pool periodically
   auto registry_group
-    = registry.view<view_component>(
+    = asio_registry->view<view_component>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -154,19 +142,19 @@ void updateClosingSockets(
 
   registry_group
     .each(
-      [&registry, &asio_registry]
+      [&asio_registry]
       (const auto& entity
        , const auto& component)
     {
-      DCHECK(registry.valid(entity));
+      DCHECK(asio_registry->valid(entity));
 
       handleClosingSocket(
         asio_registry
         , entity
-        , registry.get<view_component>(entity));
+        , asio_registry->get<view_component>(entity));
 
       // do not process twice
-      registry.remove<view_component>(entity);
+      asio_registry->remove<view_component>(entity);
     });
 }
 

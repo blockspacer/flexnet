@@ -12,12 +12,8 @@ void updateUnusedSystem(
 {
   DCHECK(asio_registry.running_in_this_thread());
 
-  ECS::Registry& registry
-    = asio_registry
-    .ref_registry(FROM_HERE);
-
   auto registry_group
-    = registry.view<ECS::UnusedTag>(
+    = asio_registry->view<ECS::UnusedTag>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -33,12 +29,12 @@ void updateUnusedSystem(
 
   registry_group
     .each(
-      [&registry]
+      [&asio_registry]
       (const auto& entity)
     {
-      DCHECK(registry.valid(entity)
-        && !registry.has<ECS::NeedToDestroyTag>(entity));
-      registry.emplace<ECS::NeedToDestroyTag>(entity);
+      DCHECK(asio_registry->valid(entity)
+        && !asio_registry->has<ECS::NeedToDestroyTag>(entity));
+      asio_registry->emplace<ECS::NeedToDestroyTag>(entity);
     });
 }
 

@@ -356,7 +356,7 @@ private:
     return sm_table_;
   }
 
-  ECS::Entity createTcpEntity(ECS::Registry& registry);
+  ECS::Entity createTcpEntity();
 
 private:
   // Provides I/O functionality

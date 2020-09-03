@@ -320,13 +320,9 @@ void Listener::allocateTcpResourceAndAccept()
 
   DCHECK(asioRegistry_.running_in_this_thread());
 
-  ECS::Registry& registry
-    = asioRegistry_
-    .ref_registry(FROM_HERE);
-
   const size_t kWarnBigRegistrySize = 100000;
   LOG_IF(WARNING
-    , registry.size() > kWarnBigRegistrySize)
+    , asioRegistry_->size() > kWarnBigRegistrySize)
    << "Asio registry has more than "
    << kWarnBigRegistrySize
    << " entities."
@@ -338,22 +334,22 @@ void Listener::allocateTcpResourceAndAccept()
       " with proper frequency.";
 
   ECS::Entity tcp_entity_id
-    = createTcpEntity(registry);
-  DCHECK(registry.valid(tcp_entity_id));
+    = createTcpEntity();
+  DCHECK(asioRegistry_->valid(tcp_entity_id));
 
   /// \note `tcpComponent.context.empty()` may be false
   /// if unused `tcpComponent` found using `registry.get`
   /// i.e. we do not fully reset `tcpComponent`,
   /// so reset each type stored in context individually.
   ECS::TcpConnection& tcpComponent
-    = registry.get_or_emplace<ECS::TcpConnection>(
+    = asioRegistry_->get_or_emplace<ECS::TcpConnection>(
         tcp_entity_id
         , "TcpConnection_" + base::GenerateGUID() // debug name
       );
 
   DVLOG(99)
     << "using TcpConnection with id: "
-    << registry.get<ECS::TcpConnection>(tcp_entity_id).debug_id;
+    << asioRegistry_->get<ECS::TcpConnection>(tcp_entity_id).debug_id;
 
   const bool useCache
     = tcpComponent->try_ctx_var<StrandComponent>();
@@ -402,8 +398,7 @@ void Listener::allocateTcpResourceAndAccept()
   );
 }
 
-ECS::Entity Listener::createTcpEntity(
-  ECS::Registry& registry)
+ECS::Entity Listener::createTcpEntity()
 {
   LOG_CALL(DVLOG(9));
 
@@ -417,7 +412,7 @@ ECS::Entity Listener::createTcpEntity(
     /// \todo use `entt::group` instead of `entt::view` here
     /// if it will speed things up
     /// i.e. measure perf. and compare results
-    = registry.view<ECS::TcpConnection, ECS::UnusedTag>(
+    = asioRegistry_->view<ECS::TcpConnection, ECS::UnusedTag>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -429,17 +424,17 @@ ECS::Entity Listener::createTcpEntity(
 
   if(registry_group.empty())
   {
-    tcp_entity_id = registry.create();
+    tcp_entity_id = asioRegistry_->create();
     DVLOG(99)
       << "allocating new network entity";
-    DCHECK(registry.valid(tcp_entity_id));
+    DCHECK(asioRegistry_->valid(tcp_entity_id));
     return tcp_entity_id;
   }
 
   // reuse any unused entity (if found)
   for(const ECS::Entity& entity_id : registry_group)
   {
-    if(!registry.valid(entity_id)) {
+    if(!asioRegistry_->valid(entity_id)) {
       // skip invalid entities
       continue;
     }
@@ -450,18 +445,18 @@ ECS::Entity Listener::createTcpEntity(
 
   /// \note may not find valid entities,
   /// so checks for `ECS::NULL_ENTITY` using `registry.valid`
-  if(registry.valid(tcp_entity_id)) {
-    registry.remove<ECS::UnusedTag>(tcp_entity_id);
+  if(asioRegistry_->valid(tcp_entity_id)) {
+    asioRegistry_->remove<ECS::UnusedTag>(tcp_entity_id);
     DVLOG(99)
       << "using preallocated network entity with id: "
-      << registry.get<ECS::TcpConnection>(tcp_entity_id).debug_id;
+      << asioRegistry_->get<ECS::TcpConnection>(tcp_entity_id).debug_id;
   } else {
-    tcp_entity_id = registry.create();
+    tcp_entity_id = asioRegistry_->create();
     DVLOG(99)
       << "allocating new network entity";
   }
 
-  DCHECK(registry.valid(tcp_entity_id));
+  DCHECK(asioRegistry_->valid(tcp_entity_id));
 
   return tcp_entity_id;
 }
@@ -680,30 +675,25 @@ void Listener::setAcceptConnectionResult(
     << " added new connection";
 
   ECS::TcpConnection& tcpComponent
-    = asioRegistry_.get<ECS::TcpConnection>(
-      FROM_HERE, tcp_entity_id);
+    = asioRegistry_->get<ECS::TcpConnection>(tcp_entity_id);
 
   // `ECS::TcpConnection` must be valid
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
-
-  ECS::Registry& registry
-    = asioRegistry_
-    .ref_registry(FROM_HERE);
 
   using UniqueAcceptComponent
     = base::Optional<Listener::AcceptConnectionResult>;
 
   const bool useCache
-    = registry.has<UniqueAcceptComponent>(tcp_entity_id);
+    = asioRegistry_->has<UniqueAcceptComponent>(tcp_entity_id);
 
-  registry.remove_if_exists<
+  asioRegistry_->remove_if_exists<
     ECS::UnusedAcceptResultTag
   >(tcp_entity_id);
 
   UniqueAcceptComponent& acceptResult
     = useCache
-      ? registry.get<UniqueAcceptComponent>(tcp_entity_id)
-      : registry.emplace<UniqueAcceptComponent>(
+      ? asioRegistry_->get<UniqueAcceptComponent>(tcp_entity_id)
+      : asioRegistry_->emplace<UniqueAcceptComponent>(
           tcp_entity_id
           , base::in_place
           , base::rvalue_cast(ec)

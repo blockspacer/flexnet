@@ -20,14 +20,10 @@ void handleAcceptNewConnectionResult(
 
   DCHECK(asio_registry.running_in_this_thread());
 
-  ECS::Registry& registry
-    = asio_registry
-    .ref_registry(FROM_HERE);
-
   // each entity representing tcp connection
   // must have that component
   ECS::TcpConnection& tcpComponent
-    = registry.get<ECS::TcpConnection>(entity_id);
+    = asio_registry->get<ECS::TcpConnection>(entity_id);
 
   LOG_CALL(DVLOG(99))
     << " for TcpConnection with id: "
@@ -44,8 +40,8 @@ void handleAcceptNewConnectionResult(
       << acceptResult.ec.message();
 
     // Schedule shutdown on asio thread
-    if(!registry.has<ECS::CloseSocket>(entity_id)) {
-      registry.emplace<ECS::CloseSocket>(entity_id
+    if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
+      asio_registry->emplace<ECS::CloseSocket>(entity_id
         /// \todo use UnownedPtr
         , UNOWNED_LIFETIME() &acceptResult.socket);
     }
@@ -62,8 +58,8 @@ void handleAcceptNewConnectionResult(
       << "Listener forced shutdown of created connection";
 
     // Schedule shutdown on asio thread
-    if(!registry.has<ECS::CloseSocket>(entity_id)) {
-      registry.emplace<ECS::CloseSocket>(entity_id
+    if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
+      asio_registry->emplace<ECS::CloseSocket>(entity_id
         /// \todo use UnownedPtr
         , UNOWNED_LIFETIME() &acceptResult.socket);
     }
@@ -138,10 +134,6 @@ void updateNewConnections(
   using view_component
     = base::Optional<Listener::AcceptConnectionResult>;
 
-  ECS::Registry& registry
-    = asio_registry.
-      ref_registry(FROM_HERE);
-
   DCHECK(asio_registry.running_in_this_thread());
 
   // Avoid extra allocations
@@ -149,7 +141,7 @@ void updateNewConnections(
   // (objects that are no more in use can return into pool)
   /// \note do not forget to free some memory in pool periodically
   auto registry_group
-    = registry.view<view_component>(
+    = asio_registry->view<view_component>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -162,24 +154,24 @@ void updateNewConnections(
 
   registry_group
     .each(
-      [&registry, &asio_registry]
+      [&asio_registry]
       (const auto& entity
        , const auto& component)
     {
-      DCHECK(registry.valid(entity));
+      DCHECK(asio_registry->valid(entity));
 
       handleAcceptNewConnectionResult(
         asio_registry
         , entity
-        , registry.get<view_component>(entity).value());
+        , asio_registry->get<view_component>(entity).value());
 
       // do not process twice
       // similar to
       // `registry.remove<view_component>(entity);`
       // except avoids extra allocations
       // i.e. can be used with memory pool
-      if(!registry.has<ECS::UnusedAcceptResultTag>(entity)) {
-        registry.emplace<ECS::UnusedAcceptResultTag>(entity);
+      if(!asio_registry->has<ECS::UnusedAcceptResultTag>(entity)) {
+        asio_registry->emplace<ECS::UnusedAcceptResultTag>(entity);
       }
     });
 }
