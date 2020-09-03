@@ -34,6 +34,15 @@ namespace util { template <class T> class UnownedPtr; }
 
 namespace util { template <class T> class UnownedRef; }
 
+namespace ECS {
+
+// Used to process component only once
+// i.e. mark already processed components
+// that can be re-used by memory pool.
+CREATE_ECS_TAG(UnusedSSLDetectResultTag)
+
+} // namespace ECS
+
 namespace flexnet {
 namespace http {
 
@@ -71,6 +80,11 @@ namespace http {
 // 5. Able to integrate with project-specific libs
 //    i.e. use `base::Promise`, `base::RepeatingCallback`, e.t.c.
 //
+// HOT-CODE PATH
+//
+// Use plain collbacks (do not use `base::Promise` etc.)
+// and avoid heap memory allocations
+// because performance is critical here.
 class DetectChannel
 {
 public:
@@ -163,44 +177,18 @@ public:
         , RAW_REFERENCED(other.asioRegistry_.Ref())
         , COPIED(other.entity_id_))
     {
+      DCHECK(atomicDetectDoneFlag_.load()
+        == other.atomicDetectDoneFlag_.load());
+
+      DCHECK(is_stream_valid_.load()
+        == other.is_stream_valid_.load());
+
+      DCHECK(is_buffer_valid_.load()
+        == other.is_buffer_valid_.load());
+
       /// \note do not move |sequence_checker_|
       DETACH_FROM_SEQUENCE(sequence_checker_);
     }
-
-  // Move assignment operator
-  DetectChannel& operator=(DetectChannel&& rhs)
-  {
-    if (this != &rhs)
-    {
-      // do not leave old stream open
-      DCHECK(stream_.has_value()
-        ? !stream_.value().socket().is_open()
-        : true);
-      DCHECK(rhs.is_stream_valid_ && rhs.stream_.has_value());
-      /// \note `get_executor` returns copy
-      ignore_result(
-        perConnectionStrand_.emplace(FROM_HERE
-          , rhs.stream_.value().get_executor()));
-      stream_.emplace(rhs.stream_.value().release_socket());
-      DCHECK(rhs.is_buffer_valid_);
-      buffer_ = base::rvalue_cast(rhs.buffer_);
-      // strand copy equal to same strand
-      DCHECK(rhs.asioRegistry_.Get());
-      asioRegistry_.reset(rhs.asioRegistry_.Get());
-      DCHECK(rhs.entity_id_ != ECS::NULL_ENTITY);
-      entity_id_ = COPIED(rhs.entity_id_);
-      is_stream_valid_ = COPIED(rhs.is_stream_valid_.load());
-      is_buffer_valid_ = COPIED(rhs.is_buffer_valid_.load());
-      /// \note do not move weak_ptr_factory_
-      DCHECK(weak_ptr_factory_.ref_value(FROM_HERE).GetWeakPtr());
-      /// \note do not move weak_this_
-      DCHECK(weak_this_.ref_value(FROM_HERE));
-      /// \note do not move |sequence_checker_|
-      DETACH_FROM_SEQUENCE(sequence_checker_);
-    }
-
-    return *this;
-  }
 
   /// \note can destruct on any thread
   NOT_THREAD_SAFE_FUNCTION()
@@ -262,9 +250,25 @@ public:
       , std::forward<CallbackT>(task));
   }
 
+  /// \note returns COPY because of thread safety reasons:
+  /// `entity_id_` assumed to be NOT changed,
+  /// so its copy can be read from any thread.
+  /// `ECS::Entity` is just number, so can be copied freely.
+  ECS::Entity entity_id() const
+  {
+    return entity_id_;
+  }
+
+  bool isDetected()
+  {
+    return atomicDetectDoneFlag_.load();
+  }
+
 private:
   void onDetected(
 #if DCHECK_IS_ON()
+    // Used to stop periodic timer that limits execution time.
+    // See `timeoutPromiseResolver.GetRepeatingResolveCallback()`.
     COPIED() base::RepeatingClosure timeoutResolver
 #endif // DCHECK_IS_ON()
     , const ErrorCode& ec
@@ -336,7 +340,9 @@ private:
 
   // `per-connection entity`
   // i.e. per-connection data storage
-  ECS::Entity entity_id_{ECS::NULL_ENTITY};
+  /// `entity_id_` assumed to be NOT changed,
+  /// so it can be read from any thread.
+  const ECS::Entity entity_id_{ECS::NULL_ENTITY};
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

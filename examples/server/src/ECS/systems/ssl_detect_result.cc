@@ -1,6 +1,7 @@
 #include "ECS/systems/ssl_detect_result.hpp" // IWYU pragma: associated
 
 #include <flexnet/ECS/tags.hpp>
+#include <flexnet/ECS/components/close_socket.hpp>
 
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>
@@ -14,40 +15,22 @@ void handleSSLDetectResult(
 {
   using namespace ::flexnet::http;
 
-  DCHECK(
-    asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
-
   ECS::Registry& registry
     = asio_registry
       .ref_registry(FROM_HERE);
 
-  ECS::AsioRegistry::StrandType asioRegistryStrand
-    = asio_registry.ref_strand(FROM_HERE);
-
-  DCHECK(asioRegistryStrand.running_in_this_thread());
+  DCHECK(asio_registry.running_in_this_thread());
 
   LOG_CALL(DVLOG(9));
 
   auto closeAndReleaseResources
     = [&detectResult, &registry, entity_id]()
   {
-    // Send shutdown
-    if(detectResult.stream.value().socket().is_open())
-    {
-      DVLOG(9) << "shutdown of stream...";
-      boost::beast::error_code ec;
-      detectResult.stream.value().socket().shutdown(
-        boost::asio::ip::tcp::socket::shutdown_send, ec);
-      if (ec) {
-        LOG(WARNING)
-          << "error during stream shutdown: "
-          << ec.message();
-      }
-    }
-
-    // it is safe to destroy entity now
-    if(!registry.has<ECS::UnusedTag>(entity_id)) {
-      registry.emplace<ECS::UnusedTag>(entity_id);
+    // Schedule shutdown on asio thread
+    if(!registry.has<ECS::CloseSocket>(entity_id)) {
+      registry.emplace<ECS::CloseSocket>(entity_id
+        /// \todo use UnownedPtr
+        , UNOWNED_LIFETIME() &detectResult.stream.value().socket());
     }
   };
 
@@ -90,7 +73,7 @@ void updateSSLDetection(
     = base::Optional<DetectChannel::SSLDetectResult>;
 
   DCHECK(
-    asio_registry.ref_strand(FROM_HERE).running_in_this_thread());
+    asio_registry.running_in_this_thread());
 
   ECS::Registry& registry
     = asio_registry

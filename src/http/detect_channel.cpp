@@ -53,9 +53,9 @@ DetectChannel::DetectChannel(
         {
           /// \note |perConnectionStrand_|
           /// is valid as long as |stream_| valid
-          /// i.e. valid util |stream_| moved out.
-          return is_stream_valid
-            && stream.socket().is_open();
+          /// i.e. valid util |stream_| moved out
+          /// (it uses executor from stream).
+          return is_stream_valid;
         }
         , REFERENCED(is_stream_valid_)
         /// \note `get_executor` returns copy
@@ -111,6 +111,9 @@ void DetectChannel::runDetector(
 
   configureDetector(expire_timeout);
 
+  // Performs extra checks using bad for performance things
+  // like `Promise` and sequence-local periodic timer,
+  // so we enable extra checks only in debug mode.
 #if DCHECK_IS_ON()
   // used to limit execution time of async function
   // that resolves promise
@@ -219,10 +222,18 @@ void DetectChannel::onDetected(
 
   DCHECK(isDetectingInThisThread());
 
-  DCHECK(ec
-    ? true
-    : stream_.has_value()
-      && stream_.value().socket().is_open());
+  DCHECK(is_stream_valid_.load());
+  DCHECK(is_buffer_valid_.load());
+
+#if DCHECK_IS_ON()
+  if(!ec) {
+    CHECK(stream_.has_value());
+    if(!stream_.value().socket().is_open()) {
+      LOG_CALL(DVLOG(99))
+        << "detected closed socket";
+    }
+  }
+#endif // DCHECK_IS_ON()
 
   // we assume that |onDetected|
   // will be called only once
@@ -235,9 +246,6 @@ void DetectChannel::onDetected(
 #endif // DCHECK_IS_ON()
 
   atomicDetectDoneFlag_ = true;
-
-  DCHECK(is_stream_valid_.load());
-  DCHECK(is_buffer_valid_.load());
 
   // mark SSL detection completed
   ::boost::asio::post(
@@ -271,7 +279,7 @@ void DetectChannel::setSSLDetectResult(
   , StreamType&& stream
   , MessageBufferType&& buffer)
 {
-  DCHECK(asioRegistry_->ref_strand(FROM_HERE).running_in_this_thread());
+  DCHECK(asioRegistry_->running_in_this_thread());
 
   DVLOG(1)
     << " detected connection as "
@@ -286,7 +294,9 @@ void DetectChannel::setSSLDetectResult(
   const bool useCache
     = registry.has<UniqueSSLDetectComponent>(entity_id_);
 
-  registry.remove_if_exists<ECS::UnusedSSLDetectResultTag>(entity_id_);
+  registry.remove_if_exists<
+    ECS::UnusedSSLDetectResultTag
+  >(entity_id_);
 
   UniqueSSLDetectComponent& detectResult
     = useCache

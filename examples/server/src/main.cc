@@ -2,6 +2,7 @@
 #include "ECS/systems/cleanup.hpp"
 #include "ECS/systems/ssl_detect_result.hpp"
 #include "ECS/systems/unused.hpp"
+#include "ECS/systems/close_socket.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
@@ -20,6 +21,8 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
 
+#include <basis/ECS/ecs.hpp>
+#include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/asio_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
@@ -439,14 +442,20 @@ void ExampleServer::updateAsioRegistry()
 
         DCHECK(
           asio_registry.running_in_this_thread());
+
         ECS::Registry& registry
-          /// \note take care of thread-safety
-          = asio_registry
-            .ref_registry(FROM_HERE);
+          = asio_registry.ref_registry(FROM_HERE);
+
         ECS::updateNewConnections(asio_registry);
+
         ECS::updateSSLDetection(asio_registry);
+
+        /// \todo cutomizable cleanup period
+        ECS::updateClosingSockets(asio_registry);
+
         /// \todo cutomizable cleanup period
         ECS::updateUnusedSystem(asio_registry);
+
         /// \todo cutomizable cleanup period
         ECS::updateCleanupSystem(asio_registry);
       }

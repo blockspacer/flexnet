@@ -1,6 +1,7 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 
 #include "flexnet/ECS/tags.hpp"
+#include "flexnet/ECS/components/tcp_connection.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/bind.h>
@@ -8,6 +9,7 @@
 #include <base/logging.h>
 #include <base/macros.h>
 #include <base/sequence_checker.h>
+#include <base/guid.h>
 
 #include <base/threading/thread.h>
 #include <base/task/thread_pool/thread_pool.h>
@@ -95,7 +97,7 @@ void Listener::logFailure(
   // and the enable_connection_aborted socket option is not set.
   if (ec == ::boost::asio::error::connection_aborted)
   {
-    LOG_ERROR_CODE(VLOG(1),
+    LOG_ERROR_CODE(VLOG(99),
                    "Listener failed with"
                    " connection_aborted error: ", what, ec);
     return;
@@ -119,7 +121,7 @@ void Listener::logFailure(
   // after the message has been completed, so it is safe to ignore it.
   if(ec == ::boost::asio::ssl::error::stream_truncated)
   {
-    LOG_ERROR_CODE(VLOG(1),
+    LOG_ERROR_CODE(VLOG(99),
                    "Listener failed with"
                    " stream_truncated error: ", what, ec);
     return;
@@ -127,7 +129,7 @@ void Listener::logFailure(
 
   if (ec == ::boost::asio::error::operation_aborted)
   {
-    LOG_ERROR_CODE(VLOG(1),
+    LOG_ERROR_CODE(VLOG(99),
                    "Listener failed with"
                    " operation_aborted error: ", what, ec);
     return;
@@ -135,13 +137,13 @@ void Listener::logFailure(
 
   if (ec == ::boost::beast::websocket::error::closed)
   {
-    LOG_ERROR_CODE(VLOG(1),
+    LOG_ERROR_CODE(VLOG(99),
                    "Listener failed with"
                    " websocket closed error: ", what, ec);
     return;
   }
 
-  LOG_ERROR_CODE(VLOG(1),
+  LOG_ERROR_CODE(VLOG(99),
                  "Listener failed with"
                  " error: ", what, ec);
 }
@@ -240,6 +242,8 @@ Listener::StatusPromise Listener::configureAndRun()
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   DCHECK(!isAcceptingInThisThread());
+  /// \note `configure` is not hot code path,
+  /// so it is ok to use `base::Promise` here
   return postTaskOnAcceptorStrand(
     FROM_HERE
     , base::BindOnce(
@@ -277,6 +281,7 @@ Listener::StatusPromise Listener::configureAndRun()
 
   doAccept();
 
+  /// \todo always ok
   return ::util::OkStatus();
 }
 
@@ -332,53 +337,67 @@ void Listener::allocateTcpResourceAndAccept()
    << " and unused entities can be freed"
       " with proper frequency.";
 
-  /// \todo for now we think that if entity has
-  /// `StrandComponent`, than it is same as `TcpEntity`
-  /// Refactor to custom component `struct TcpEntityComponent` and use
-  /// `boost::optional` instead of `std::unique_ptr`
-  using StrandComponent
-    = std::unique_ptr<StrandType>;
-
   ECS::Entity tcp_entity_id
     = createTcpEntity(registry);
   DCHECK(registry.valid(tcp_entity_id));
 
+  /// \note `tcpComponent.context.empty()` may be false
+  /// if unused `tcpComponent` found using `registry.get`
+  /// i.e. we do not fully reset `tcpComponent`,
+  /// so reset each type stored in context individually.
+  ECS::TcpConnection& tcpComponent
+    = registry.get_or_emplace<ECS::TcpConnection>(
+        tcp_entity_id
+        , "TcpConnection_" + base::GenerateGUID() // debug name
+      );
+
+  DVLOG(99)
+    << "using TcpConnection with id: "
+    << registry.get<ECS::TcpConnection>(tcp_entity_id).debug_id;
+
   const bool useCache
-    = registry.has<StrandComponent>(tcp_entity_id);
+    = tcpComponent->try_ctx_var<StrandComponent>();
+
+  DVLOG(99)
+    << (useCache
+        ? "using preallocated strand"
+        : "allocating new strand");
 
   DCHECK(ioc_);
-  StrandComponent& asioStrand
-    = useCache
-      ? registry.get<StrandComponent>(tcp_entity_id)
-      : registry.emplace<StrandComponent>(
-          tcp_entity_id
-          , std::make_unique<StrandType>(ioc_->get_executor()));
+  StrandComponent* asioStrandCtx
+    = &tcpComponent->ctx_or_set_var<StrandComponent>(
+        "Ctx_StrandComponent_" + base::GenerateGUID() // debug name
+        , ioc_->get_executor());
 
+  // If the value already exists it is overwritten
   if(useCache) {
-    // we expect that all allocated strands
-    // have same io context executor
-    DCHECK(asioStrand
-      && ioc_
-      && asioStrand->get_inner_executor()
-         == ioc_->get_executor());
-    DVLOG(99)
-      << "using preallocated strand";
-  } else {
-    DVLOG(99)
-      << "allocating new strand";
+    asioStrandCtx = &tcpComponent->set_var<StrandComponent>(
+      "Ctx_StrandComponent_" + base::GenerateGUID() // debug name
+      , ioc_->get_executor());
   }
+
+  // Check that if the value already existed
+  // it was overwritten
+  // Also we expect that all allocated strands
+  // have same io context executor
+  DCHECK(ioc_
+    && asioStrandCtx->get_inner_executor()
+       == ioc_->get_executor());
 
   // unable to `::boost::asio::post` on stopped ioc
   DCHECK(ioc_ && !ioc_->stopped());
 
-  // Accept another connection
+  // `ECS::TcpConnection` must be valid
+  DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
+
+  // Accept connection
   ::boost::asio::post(
     *acceptorStrand_
     , ::std::bind(
         &Listener::asyncAccept
         , this
         , COPIED(
-            util::UnownedPtr<StrandType>(asioStrand.get()))
+            util::UnownedPtr<StrandType>(asioStrandCtx))
         , COPIED(tcp_entity_id))
   );
 }
@@ -390,13 +409,6 @@ ECS::Entity Listener::createTcpEntity(
 
   DCHECK(asioRegistry_.running_in_this_thread());
 
-  /// \todo for now we think that if entity has
-  /// `StrandComponent`, than it is same as `TcpEntity`
-  /// Refactor to custom component `struct TcpEntityComponent` and use
-  /// `boost::optional` instead of `std::unique_ptr`
-  using StrandComponent
-    = std::unique_ptr<StrandType>;
-
   // Avoid extra allocations
   // with memory pool in ECS style using |ECS::UnusedTag|
   // (objects that are no more in use can return into pool)
@@ -405,7 +417,7 @@ ECS::Entity Listener::createTcpEntity(
     /// \todo use `entt::group` instead of `entt::view` here
     /// if it will speed things up
     /// i.e. measure perf. and compare results
-    = registry.view<StrandComponent, ECS::UnusedTag>(
+    = registry.view<ECS::TcpConnection, ECS::UnusedTag>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -441,7 +453,8 @@ ECS::Entity Listener::createTcpEntity(
   if(registry.valid(tcp_entity_id)) {
     registry.remove<ECS::UnusedTag>(tcp_entity_id);
     DVLOG(99)
-      << "using preallocated network entity";
+      << "using preallocated network entity with id: "
+      << registry.get<ECS::TcpConnection>(tcp_entity_id).debug_id;
   } else {
     tcp_entity_id = registry.create();
     DVLOG(99)
@@ -464,6 +477,8 @@ void Listener::asyncAccept(
 
   DCHECK(
     sm_->CurrentState() == Listener::STARTED);
+
+  DCHECK(unownedPerConnectionStrand);
 
   /// Start an asynchronous accept.
   /**
@@ -581,6 +596,8 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
   /// and it is safe to destruct |Listener|
   /// (or unpause i.e. re-open it again)
   DCHECK(!isAcceptingInThisThread());
+  /// \note `stop` is not hot code path,
+  /// so it is ok to use `base::Promise` here
   return postTaskOnAcceptorStrand(
     FROM_HERE
     , base::BindOnce(
@@ -659,8 +676,15 @@ void Listener::setAcceptConnectionResult(
 {
   DCHECK(asioRegistry_.running_in_this_thread());
 
-  DVLOG(1)
+  DVLOG(99)
     << " added new connection";
+
+  ECS::TcpConnection& tcpComponent
+    = asioRegistry_.get<ECS::TcpConnection>(
+      FROM_HERE, tcp_entity_id);
+
+  // `ECS::TcpConnection` must be valid
+  DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
 
   ECS::Registry& registry
     = asioRegistry_
@@ -672,7 +696,9 @@ void Listener::setAcceptConnectionResult(
   const bool useCache
     = registry.has<UniqueAcceptComponent>(tcp_entity_id);
 
-  registry.remove_if_exists<ECS::UnusedAcceptResultTag>(tcp_entity_id);
+  registry.remove_if_exists<
+    ECS::UnusedAcceptResultTag
+  >(tcp_entity_id);
 
   UniqueAcceptComponent& acceptResult
     = useCache
@@ -681,13 +707,17 @@ void Listener::setAcceptConnectionResult(
           tcp_entity_id
           , base::in_place
           , base::rvalue_cast(ec)
-          , base::rvalue_cast(socket));
+          , base::rvalue_cast(socket)
+          /// \todo make us of it
+          , /* force closing */ false);
 
   if(useCache) {
     DCHECK(acceptResult);
     acceptResult.emplace(
       base::rvalue_cast(ec)
-      , base::rvalue_cast(socket));
+      , base::rvalue_cast(socket)
+      /// \todo make us of it
+      , /* force closing */ false);
     DVLOG(99)
       << "using preallocated AcceptConnectionResult";
   } else {
@@ -739,7 +769,7 @@ Listener::~Listener()
   DCHECK(
     ioc_ && ioc_->stopped());
 
-  DVLOG(1)
+  DVLOG(99)
     << "asio acceptor was freed";
 }
 

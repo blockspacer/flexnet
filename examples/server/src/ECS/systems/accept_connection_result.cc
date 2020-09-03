@@ -1,9 +1,12 @@
 #include "ECS/systems/accept_connection_result.hpp" // IWYU pragma: associated
 
 #include <flexnet/ECS/tags.hpp>
+#include <flexnet/ECS/components/tcp_connection.hpp>
+#include <flexnet/ECS/components/close_socket.hpp>
 
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>
+#include <base/guid.h>
 
 namespace ECS {
 
@@ -15,20 +18,23 @@ void handleAcceptNewConnectionResult(
   using namespace ::flexnet::ws;
   using namespace ::flexnet::http;
 
-  DCHECK(
-    asio_registry
-    .ref_strand(FROM_HERE)
-    .running_in_this_thread());
+  DCHECK(asio_registry.running_in_this_thread());
 
   ECS::Registry& registry
     = asio_registry
     .ref_registry(FROM_HERE);
 
-  ECS::AsioRegistry::StrandType asioRegistryStrand
-    = asio_registry
-    .ref_strand(FROM_HERE);
+  // each entity representing tcp connection
+  // must have that component
+  ECS::TcpConnection& tcpComponent
+    = registry.get<ECS::TcpConnection>(entity_id);
 
-  DCHECK(asioRegistryStrand.running_in_this_thread());
+  LOG_CALL(DVLOG(99))
+    << " for TcpConnection with id: "
+    << tcpComponent.debug_id;
+
+  // `ECS::TcpConnection` must be valid
+  DCHECK(tcpComponent->try_ctx_var<flexnet::ws::Listener::StrandComponent>());
 
   // Handle the error, if any
   if (acceptResult.ec)
@@ -37,52 +43,76 @@ void handleAcceptNewConnectionResult(
       << "Listener failed to accept new connection with error: "
       << acceptResult.ec.message();
 
-    // it is safe to destroy entity now
-    if(!registry.has<ECS::UnusedTag>(entity_id)) {
-      registry.emplace<ECS::UnusedTag>(entity_id);
+    // Schedule shutdown on asio thread
+    if(!registry.has<ECS::CloseSocket>(entity_id)) {
+      registry.emplace<ECS::CloseSocket>(entity_id
+        /// \todo use UnownedPtr
+        , UNOWNED_LIFETIME() &acceptResult.socket);
     }
 
     return;
   }
 
-  LOG(INFO)
+  DVLOG(99)
     << "Listener accepted new connection";
 
-  using DetectChannelComponent
+  if(acceptResult.need_close)
+  {
+    DVLOG(99)
+      << "Listener forced shutdown of created connection";
+
+    // Schedule shutdown on asio thread
+    if(!registry.has<ECS::CloseSocket>(entity_id)) {
+      registry.emplace<ECS::CloseSocket>(entity_id
+        /// \todo use UnownedPtr
+        , UNOWNED_LIFETIME() &acceptResult.socket);
+    }
+
+    // nothing to do
+    return;
+  }
+
+  /// \note it is not ordinary ECS component,
+  /// it is stored in entity context (not in ECS registry)
+  using DetectChannelCtxComponent
     = base::Optional<::flexnet::http::DetectChannel>;
 
   const bool useCache
-    = registry.has<DetectChannelComponent>(entity_id);
+    = tcpComponent->try_ctx_var<DetectChannelCtxComponent>();
 
-  DCHECK(asioRegistryStrand.running_in_this_thread());
-  DetectChannelComponent& detectChannelRef
-    = useCache
-      ? registry.get<DetectChannelComponent>(entity_id)
-      : registry
-      .emplace<DetectChannelComponent>(
-        entity_id
+  DVLOG(99)
+    << (useCache
+        ? "using preallocated DetectChannel"
+        : "allocating new DetectChannel");
+
+  DetectChannelCtxComponent* detectChannelCtx
+    = &tcpComponent->ctx_or_set_var<DetectChannelCtxComponent>(
+        "Ctx_DetectChannel_" + base::GenerateGUID() // debug name
         , base::in_place
         , base::rvalue_cast(acceptResult.socket)
         , RAW_REFERENCED(asio_registry)
         , entity_id);
-  DCHECK(registry.has<DetectChannelComponent>(entity_id));
 
+  // If the value already exists it is overwritten
   if(useCache) {
-    DCHECK(detectChannelRef);
-    detectChannelRef.emplace(
-      base::rvalue_cast(acceptResult.socket)
-      , RAW_REFERENCED(asio_registry)
-      , entity_id);
-    DVLOG(99)
-      << "using preallocated DetectChannel";
-  } else {
-    DVLOG(99)
-      << "allocating new DetectChannel";
+    detectChannelCtx = &tcpComponent->set_var<DetectChannelCtxComponent>(
+        "Ctx_DetectChannel_" + base::GenerateGUID() // debug name
+        , base::in_place
+        , base::rvalue_cast(acceptResult.socket)
+        , RAW_REFERENCED(asio_registry)
+        , entity_id);
+  }
+
+  // Check that if the value already existed
+  // it was overwritten
+  {
+    DCHECK(detectChannelCtx->value().entity_id() == entity_id);
+    DCHECK(detectChannelCtx->value().isDetected() == false);
   }
 
   // working executor required by |::boost::asio::post|
   ::boost::asio::post(
-    detectChannelRef.value().perConnectionStrand()
+    detectChannelCtx->value().perConnectionStrand()
     , ::boost::beast::bind_front_handler([
       ](
         base::OnceClosure&& task
@@ -92,7 +122,7 @@ void handleAcceptNewConnectionResult(
       }
       , base::BindOnce(
         &::flexnet::http::DetectChannel::runDetector
-        , UNOWNED_LIFETIME(base::Unretained(&detectChannelRef.value()))
+        , UNOWNED_LIFETIME(base::Unretained(&detectChannelCtx->value()))
         // expire timeout for SSL detection
         , std::chrono::seconds(3)
       )
@@ -108,14 +138,11 @@ void updateNewConnections(
   using view_component
     = base::Optional<Listener::AcceptConnectionResult>;
 
-  DCHECK(
-    asio_registry
-    .ref_strand(FROM_HERE)
-    .running_in_this_thread());
-
   ECS::Registry& registry
     = asio_registry.
       ref_registry(FROM_HERE);
+
+  DCHECK(asio_registry.running_in_this_thread());
 
   // Avoid extra allocations
   // with memory pool in ECS style using |ECS::UnusedTag|

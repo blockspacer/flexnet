@@ -335,7 +335,7 @@ void ServerSession::do_eof()
   // Set the timeout.
   beast::get_lowest_layer(stream_).expires_after(std::chrono::seconds(30));
 
-  // Send a TCP shutdown
+  // Send a TCP shutdown on asio thread
   if(stream_.socket().is_open())
   {
     LOG(INFO) << "shutdown http socket...";

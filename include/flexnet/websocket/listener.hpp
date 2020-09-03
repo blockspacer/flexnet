@@ -31,6 +31,15 @@ namespace util { template <class T> class UnownedRef; }
 
 namespace base { struct NoReject; }
 
+namespace ECS {
+
+// Used to process component only once
+// i.e. mark already processed components
+// that can be re-used by memory pool.
+CREATE_ECS_TAG(UnusedAcceptResultTag)
+
+} // namespace ECS
+
 namespace flexnet {
 
 namespace ws {
@@ -66,6 +75,11 @@ namespace ws {
 // 5. Able to integrate with project-specific libs
 //    i.e. use `base::Promise`, `base::RepeatingCallback`, e.t.c.
 //
+// HOT-CODE PATH
+//
+// Use plain collbacks (do not use `base::Promise` etc.)
+// and avoid heap memory allocations
+// because performance is critical here.
 class Listener
 {
 public:
@@ -86,6 +100,9 @@ public:
 
   using StrandType
     = ::boost::asio::strand<::boost::asio::io_context::executor_type>;
+
+  using StrandComponent
+    = StrandType;
 
   using StatusPromise
     = base::Promise<util::Status, base::NoReject>;
@@ -121,21 +138,39 @@ public:
   struct AcceptConnectionResult {
     AcceptConnectionResult(
       ErrorCode&& _ec
-      , SocketType&& _socket)
+      , SocketType&& _socket
+      , bool _need_close)
       : ec(base::rvalue_cast(_ec))
         , socket(base::rvalue_cast(_socket))
+        , need_close(_need_close)
       {}
 
     AcceptConnectionResult(
       AcceptConnectionResult&& other)
       : AcceptConnectionResult(
           base::rvalue_cast(other.ec)
-          , base::rvalue_cast(other.socket))
+          , base::rvalue_cast(other.socket)
+          , base::rvalue_cast(other.need_close))
       {}
 
-    /// \todo remove
+    // Move assignment operator
+    //
+    // MOTIVATION
+    //
+    // To use type as ECS component
+    // it must be `move-constructible` and `move-assignable`
     AcceptConnectionResult& operator=(
-      AcceptConnectionResult&&) = default;
+      AcceptConnectionResult&& rhs)
+    {
+      if (this != &rhs)
+      {
+        ec = base::rvalue_cast(rhs.ec);
+        socket = base::rvalue_cast(rhs.socket);
+        need_close = base::rvalue_cast(rhs.need_close);
+      }
+
+      return *this;
+    }
 
     ~AcceptConnectionResult()
     {
@@ -143,8 +178,13 @@ public:
     }
 
     ErrorCode ec;
+
     // socket created per each connection
     SocketType socket;
+
+    // force socket closing
+    // (before detection of SSL support)
+    bool need_close;
   };
 
 public:
@@ -316,28 +356,6 @@ private:
     return sm_table_;
   }
 
-  // Adds the entry and exit functions for each state.
-  void AddStateCallbackFunctions()
-  {
-    // Warning: all callbacks must be used
-    // within the lifetime of the state machine.
-
-    StateMachineType::CallbackType okStateCallback =
-      base::BindRepeating(
-      []
-      (Event event
-       , State next_state
-       , Event* recovery_event)
-      {
-        ignore_result(event);
-        ignore_result(next_state);
-        ignore_result(recovery_event);
-        return ::util::OkStatus();
-      });
-    sm_.ref_value(FROM_HERE).AddExitAction(UNINITIALIZED, okStateCallback);
-    sm_.ref_value(FROM_HERE).AddEntryAction(FAILED, okStateCallback);
-  }
-
   ECS::Entity createTcpEntity(ECS::Registry& registry);
 
 private:
@@ -389,6 +407,29 @@ private:
   > acceptor_;
 
 #if DCHECK_IS_ON()
+  // MOTIVATION
+  //
+  // Prohibit invalid state transitions
+  // (like pausing from uninitialized state)
+  //
+  // USAGE
+  //
+  // // Warning: all callbacks must be used
+  // // within the lifetime of the state machine.
+  // StateMachineType::CallbackType okStateCallback =
+  //   base::BindRepeating(
+  //   []
+  //   (Event event
+  //    , State next_state
+  //    , Event* recovery_event)
+  //   {
+  //     ignore_result(event);
+  //     ignore_result(next_state);
+  //     ignore_result(recovery_event);
+  //     return ::util::OkStatus();
+  //   });
+  // sm_->AddExitAction(UNINITIALIZED, okStateCallback);
+  // sm_->AddEntryAction(FAILED, okStateCallback);
   basis::AccessVerifier<
     StateMachineType
     , basis::AccessVerifyPolicy::DebugOnly

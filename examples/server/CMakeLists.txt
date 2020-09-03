@@ -11,6 +11,8 @@ add_executable(example_server
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/ssl_detect_result.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/accept_connection_result.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/accept_connection_result.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/close_socket.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/close_socket.hpp
 )
 
 target_link_libraries(example_server PRIVATE
