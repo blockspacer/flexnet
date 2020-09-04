@@ -49,11 +49,13 @@ Listener::Listener(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(
         BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+        , util::AccessVerifyPermissions::All
         , base::in_place
         , COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+        , util::AccessVerifyPermissions::All
         , base::in_place
         , weak_ptr_factory_.ref_value_unsafe(
             FROM_HERE, "access from constructor").GetWeakPtr()))
@@ -66,15 +68,19 @@ Listener::Listener(
         }
         , REFERENCED(ioc_)
       )
+      // "disallow `emplace` for thread-safety reasons"
+      , util::AccessVerifyPermissions::Readable
       , base::in_place
       , ioc.Get()->get_executor())
   , acceptor_(
       BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&(*acceptorStrand_))
+      , util::AccessVerifyPermissions::All
       , base::in_place
       , *ioc.Get())
 #if DCHECK_IS_ON()
   , sm_(
     BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&(*acceptorStrand_))
+    , util::AccessVerifyPermissions::All
     , base::in_place
     , UNINITIALIZED
     , FillStateTransitionTable())
@@ -772,7 +778,7 @@ bool Listener::isAcceptorOpen() const
   return acceptor_->is_open();
 }
 
-bool Listener::isAcceptingInThisThread() const noexcept
+bool Listener::isAcceptingInThisThread() const NO_EXCEPTION
 {
   /// \note `running_in_this_thread()` assumed to be thread-safe
   return acceptorStrand_->running_in_this_thread();

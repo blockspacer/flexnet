@@ -201,7 +201,7 @@ public:
     = std::chrono::seconds(30));
 
   MUST_USE_RETURN_VALUE
-  base::WeakPtr<DetectChannel> weakSelf() const noexcept
+  base::WeakPtr<DetectChannel> weakSelf() const NO_EXCEPTION
   {
     // It is thread-safe to copy |base::WeakPtr|.
     // Weak pointers may be passed safely between sequences, but must always be
@@ -211,7 +211,7 @@ public:
   }
 
   MUST_USE_RETURN_VALUE
-  bool isDetectingInThisThread() const noexcept
+  bool isDetectingInThisThread() const NO_EXCEPTION
   {
     /// \note |running_in_this_thread| is thread-safe
     /// only if |perConnectionStrand_| will not be modified concurrently
@@ -219,7 +219,7 @@ public:
   }
 
   MUST_USE_RETURN_VALUE
-  const StrandType& perConnectionStrand() noexcept
+  const StrandType& perConnectionStrand() NO_EXCEPTION
   {
     return NOT_THREAD_SAFE_LIFETIME()
            *perConnectionStrand_;
@@ -228,7 +228,8 @@ public:
   MUST_USE_RETURN_VALUE
   /// \note make sure that |stream_| exists
   /// and thread-safe when you call |executor()|
-  boost::asio::executor executor() noexcept {
+  boost::asio::executor executor() NO_EXCEPTION
+  {
     DCHECK(stream_.has_value());
     return NOT_THREAD_SAFE_LIFETIME()
            /// \note `get_executor` returns copy
@@ -296,12 +297,14 @@ private:
   NOT_THREAD_SAFE_LIFETIME() // moved between threads
   base::Optional<StreamType> stream_;
 
+  /// \todo replace with Invalidatable<>
   // |stream_| moved in |onDetected|
   std::atomic<bool> is_stream_valid_{true};
 
   NOT_THREAD_SAFE_LIFETIME() // moved between threads
   MessageBufferType buffer_;
 
+  /// \todo replace with Invalidatable<>
   // |buffer_| moved in |onDetected|
   std::atomic<bool> is_buffer_valid_{true};
 
@@ -326,15 +329,16 @@ private:
   > weak_this_;
 
   // |stream_| and calls to |async_detect*| are guarded by strand
-  GLOBAL_THREAD_SAFE_LIFETIME()
    basis::AccessVerifier<
     StrandType
     , basis::AccessVerifyPolicy::DebugOnly
    > perConnectionStrand_;
 
+  /// \todo replace with AccessVerifier::forceValidToRead
   // will be set by |onDetected|
   std::atomic<bool> atomicDetectDoneFlag_{false};
 
+  /// \todo replace with AccessVerifier::forceValidToRead
   // used by |entity_id_|
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_;
 

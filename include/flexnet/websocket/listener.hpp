@@ -234,7 +234,7 @@ public:
   // calls to |async_accept*| must be performed on same sequence
   // i.e. it is |acceptorStrand_.running_in_this_thread()|
   MUST_USE_RETURN_VALUE
-  bool isAcceptingInThisThread() const noexcept;
+  bool isAcceptingInThisThread() const NO_EXCEPTION;
 
   /// \note does not close alive sessions, just
   /// stops accepting incoming connections
@@ -243,7 +243,7 @@ public:
     ::util::Status stopAcceptor();
 
   MUST_USE_RETURN_VALUE
-  base::WeakPtr<Listener> weakSelf() const noexcept
+  base::WeakPtr<Listener> weakSelf() const NO_EXCEPTION
   {
     // It is thread-safe to copy |base::WeakPtr|.
     // Weak pointers may be passed safely between sequences, but must always be
@@ -360,7 +360,10 @@ private:
 
 private:
   // Provides I/O functionality
-  GLOBAL_THREAD_SAFE_LIFETIME()
+  /// \todo replace with util::AccessVerifyPermissions::Read
+  GLOBAL_THREAD_SAFE_LIFETIME(
+    "can be used from any thread "
+    "as long as storage not modified")
   util::UnownedPtr<IoContext> ioc_;
 
   // acceptor will listen that address
@@ -394,7 +397,6 @@ private:
   // i.e. acceptor_.open(), acceptor_.close(), etc.
   /// \note do not destruct |Listener| while |acceptorStrand_|
   /// has scheduled or execting tasks
-  GLOBAL_THREAD_SAFE_LIFETIME()
   basis::AccessVerifier<
     const StrandType
     , basis::AccessVerifyPolicy::DebugOnly

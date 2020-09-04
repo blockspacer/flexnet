@@ -63,7 +63,7 @@ bool isCalledOnSameSingleThread()
   return base::PlatformThread::CurrentId() == thread_id;
 }
 
-static base::Promise<void, base::NoReject> waitCleanupConnectionResources(
+static base::Promise<void, base::NoReject> promiseCleanupConnectionResources(
   ECS::AsioRegistry& asio_registry
   , scoped_refptr<base::SequencedTaskRunner> waitCleanupRunner)
 {
@@ -169,7 +169,7 @@ base::Optional<int> initEnv(
   // main ECS registry
   ECS::SimulationRegistry& enttManager
     = globals->set_once<ECS::SimulationRegistry>(FROM_HERE,
-        "ECS::SimulationRegistry");
+        "Ctx_SimulationRegistry");
 
   DCHECK(base::ThreadPool::GetInstance());
   scoped_refptr<base::SequencedTaskRunner> entt_task_runner =
@@ -206,79 +206,146 @@ class ExampleServer
 
   ~ExampleServer();
 
-  void runLoop();
+  void runLoop() NO_EXCEPTION;
 
-  void doFirstLoad();
+  // Loads configurations,
+  // required before first run.
+  void prepare() NO_EXCEPTION;
 
-  void updateAsioRegistry();
+  NOT_THREAD_SAFE_FUNCTION()
+  void updateAsioRegistry() NO_EXCEPTION;
 
   MUST_USE_RETURN_VALUE
-  StatusPromise stopAcceptors();
+  StatusPromise stopAcceptors() NO_EXCEPTION;
 
   MUST_USE_RETURN_VALUE
-  VoidPromise configureAndRunAcceptor();
+  VoidPromise configureAndRunAcceptor() NO_EXCEPTION;
 
   /// \note make sure connections recieved `stop` message
   /// and acceptors stopped
   /// i.e. do not allocate new connections
   MUST_USE_RETURN_VALUE
-  VoidPromise waitNetworkResourcesFreed();
+  VoidPromise waitNetworkResourcesFreed() NO_EXCEPTION;
 
-  void stopIOContext();
+  void stopIOContext() NO_EXCEPTION;
 
  private:
+  /// \todo replace with Invalidatable<>
   // The io_context is required for all I/O
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  boost::asio::io_context ioc_{};
+  basis::AccessVerifier<
+    boost::asio::io_context
+    , basis::AccessVerifyPolicy::DebugOnly
+  > ioc_{
+      basis::VerifyNothing::Repeatedly()
+      , util::AccessVerifyPermissions::All
+      , base::in_place};
 
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  const boost::asio::ip::address address_
-    = ::boost::asio::ip::make_address("127.0.0.1");
-
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  const unsigned short port_
-    = 8085;
-
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  const EndpointType tcpEndpoint_{address_, port_};
+  basis::AccessVerifier<
+    const EndpointType
+    , basis::AccessVerifyPolicy::DebugOnly
+  > tcpEndpoint_{
+      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+      , util::AccessVerifyPermissions::All
+      , base::in_place
+      /// \todo make ip configurable
+      , ::boost::asio::ip::make_address("127.0.0.1")
+      /// \todo make port configurable
+      , 8085};
 
   /// \todo SSL support
   // GLOBAL_THREAD_SAFE_LIFETIME()
   // ::boost::asio::ssl::context ctx_
   //   {::boost::asio::ssl::context::tlsv12};
 
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  std::unique_ptr<ws::Listener> listener_;
+  basis::AccessVerifier<
+    ws::Listener
+    , basis::AccessVerifyPolicy::DebugOnly
+  > listener_{
+      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+      , util::AccessVerifyPermissions::All
+    };
 
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  ECS::AsioRegistry asioRegistry_;
+  basis::AccessVerifier<
+    ECS::AsioRegistry
+    , basis::AccessVerifyPolicy::DebugOnly
+  > asioRegistry_{
+      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+      // disallow `emplace` for thread-safety reasons
+      , util::AccessVerifyPermissions::Readable
+      , base::in_place
+      , util::UnownedPtr<ws::Listener::IoContext>(&(*ioc_))};
 
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  base::RunLoop run_loop_{};
+  basis::AccessVerifier<
+    base::RunLoop
+    , basis::AccessVerifyPolicy::DebugOnly
+  > run_loop_{
+      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+      , util::AccessVerifyPermissions::All
+      , base::in_place
+    };
 
   // Capture SIGINT and SIGTERM to perform a clean shutdown
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  boost::asio::signal_set signals_set_{
-    ioc_ /// \note will not handle signals if ioc stopped
-    , SIGINT
-    , SIGTERM
-  };
+  basis::AccessVerifier<
+    boost::asio::signal_set
+    , basis::AccessVerifyPolicy::DebugOnly
+  > signals_set_{
+      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+      , util::AccessVerifyPermissions::All
+      , base::in_place
+      , *ioc_ /// \note will not handle signals if ioc stopped
+      , SIGINT
+      , SIGTERM
+    };
 
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
-    = base::MessageLoop::current()->task_runner();
+  basis::AccessVerifier<
+    scoped_refptr<base::SingleThreadTaskRunner>
+    , basis::AccessVerifyPolicy::DebugOnly
+  > mainLoopRunner_{
+      basis::VerifyNothing::Repeatedly()
+      // disallow `emplace` for thread-safety reasons
+      , util::AccessVerifyPermissions::Readable
+      , base::in_place
+      , base::MessageLoop::current()->task_runner()};
 
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  base::Thread asio_thread_1{"asio_thread_1"};
+  basis::AccessVerifier<
+    base::Thread
+    , basis::AccessVerifyPolicy::DebugOnly
+  > asio_thread_1{
+      basis::VerifyNothing::Repeatedly()
+      // disallow `emplace` for thread-safety reasons
+      , util::AccessVerifyPermissions::Readable
+      , base::in_place
+      , "asio_thread_1"};
 
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  base::Thread asio_thread_2{"asio_thread_2"};
+  basis::AccessVerifier<
+    base::Thread
+    , basis::AccessVerifyPolicy::DebugOnly
+  > asio_thread_2{
+      basis::VerifyNothing::Repeatedly()
+      // disallow `emplace` for thread-safety reasons
+      , util::AccessVerifyPermissions::Readable
+      , base::in_place
+      , "asio_thread_2"};
 
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  base::Thread asio_thread_3{"asio_thread_3"};
+  basis::AccessVerifier<
+    base::Thread
+    , basis::AccessVerifyPolicy::DebugOnly
+  > asio_thread_3{
+      basis::VerifyNothing::Repeatedly()
+      // disallow `emplace` for thread-safety reasons
+      , util::AccessVerifyPermissions::Readable
+      , base::in_place
+      , "asio_thread_3"};
 
-  GLOBAL_THREAD_SAFE_LIFETIME()
-  base::Thread asio_thread_4{"asio_thread_4"};
+  basis::AccessVerifier<
+    base::Thread
+    , basis::AccessVerifyPolicy::DebugOnly
+  > asio_thread_4{
+      basis::VerifyNothing::Repeatedly()
+      // disallow `emplace` for thread-safety reasons
+      , util::AccessVerifyPermissions::Readable
+      , base::in_place
+      , "asio_thread_4"};
 
   SEQUENCE_CHECKER(sequence_checker_);
 
@@ -286,21 +353,21 @@ class ExampleServer
 };
 
 ExampleServer::ExampleServer()
-  : asioRegistry_(util::UnownedPtr<ws::Listener::IoContext>(&ioc_))
 {
   LOG_CALL(DVLOG(9));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  listener_
-    = std::make_unique<ws::Listener>(
-        util::UnownedPtr<ws::Listener::IoContext>(&ioc_)
-        , EndpointType{tcpEndpoint_}
-        , RAW_REFERENCED(asioRegistry_)
-      );
+  ignore_result(
+    listener_.emplace(FROM_HERE
+      , util::UnownedPtr<ws::Listener::IoContext>(&(*ioc_))
+      , EndpointType{*tcpEndpoint_}
+      , RAW_REFERENCED(*asioRegistry_)
+    )
+  );
 
 #if defined(SIGQUIT)
-  signals_set_.add(SIGQUIT);
+  signals_set_->add(SIGQUIT);
 #else
   #error "SIGQUIT not defined"
 #endif // defined(SIGQUIT)
@@ -311,19 +378,19 @@ ExampleServer::ExampleServer()
       {
         LOG_CALL(DVLOG(9));
 
-        DCHECK(mainLoopRunner_);
+        DCHECK(*mainLoopRunner_);
 
         LOG(INFO)
           << "got stop signal";
 
         // stop accepting of new connections
         base::PostPromise(FROM_HERE
-          , UNOWNED_LIFETIME(mainLoopRunner_.get())
+          , UNOWNED_LIFETIME(mainLoopRunner_->get())
           , base::BindOnce(
               NESTED_PROMISE(&ExampleServer::stopAcceptors)
               , base::Unretained(this))
         )
-        .ThenOn(mainLoopRunner_
+        .ThenOn(*mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
             [
@@ -341,14 +408,14 @@ ExampleServer::ExampleServer()
             })
         )
         // async-wait for destruction of existing connections
-        .ThenOn(mainLoopRunner_
+        .ThenOn(*mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
               NESTED_PROMISE(&ExampleServer::waitNetworkResourcesFreed)
               , base::Unretained(this)
           )
         )
-        .ThenOn(mainLoopRunner_
+        .ThenOn(*mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
             []
@@ -363,7 +430,7 @@ ExampleServer::ExampleServer()
         /// \note you can not use `::boost::asio::post`
         /// if `ioc_->stopped()`
         /// i.e. can not use strand of registry e.t.c.
-        .ThenOn(mainLoopRunner_
+        .ThenOn(*mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
               NESTED_PROMISE(&ExampleServer::stopIOContext)
@@ -371,15 +438,20 @@ ExampleServer::ExampleServer()
           )
         )
         // reset |listener_|
-        .ThenOn(mainLoopRunner_
+        .ThenOn(*mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
-              &std::unique_ptr<ws::Listener>::reset
+              &basis::AccessVerifier<
+                ws::Listener
+                , basis::AccessVerifyPolicy::DebugOnly
+              >::reset_unsafe
               , base::Unretained(&listener_)
-              , nullptr // reset unique_ptr to nullptr
+              , FROM_HERE
+              , "safe to use after SIGQUIT"
+              , base::DoNothing::Once()
             )
         )
-        .ThenOn(mainLoopRunner_
+        .ThenOn(*mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
               // |GlobalContext| is not thread-safe,
@@ -389,7 +461,7 @@ ExampleServer::ExampleServer()
             )
         )
         // delete |ECS::SimulationRegistry|
-        .ThenOn(mainLoopRunner_
+        .ThenOn(*mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
               &ECS::GlobalContext::unset<ECS::SimulationRegistry>
@@ -397,15 +469,19 @@ ExampleServer::ExampleServer()
               , FROM_HERE
             )
         )
-        .ThenOn(mainLoopRunner_
+        .ThenOn(*mainLoopRunner_
           , FROM_HERE
-          , run_loop_.QuitClosure());
+          , run_loop_.ref_value_unsafe(
+              FROM_HERE
+              , "safe to use after SIGQUIT"
+              , base::DoNothing::Once())
+            .QuitClosure());
       };
 
-  signals_set_.async_wait(base::rvalue_cast(sigQuitCallback));
+  signals_set_->async_wait(base::rvalue_cast(sigQuitCallback));
 }
 
-ExampleServer::StatusPromise ExampleServer::stopAcceptors()
+ExampleServer::StatusPromise ExampleServer::stopAcceptors() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(9));
 
@@ -416,11 +492,11 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors()
     , listener_->stopAcceptorAsync());
 }
 
-void ExampleServer::updateAsioRegistry()
+void ExampleServer::updateAsioRegistry() NO_EXCEPTION
 {
   /// \note you can not use `::boost::asio::post`
   /// if `ioc_->stopped()`
-  if(ioc_.stopped()) {
+  if(ioc_->stopped()) {
     LOG(ERROR)
       << "skipping update of registry"
          " because of stopped io context";
@@ -428,8 +504,14 @@ void ExampleServer::updateAsioRegistry()
     return;
   }
 
+  ECS::AsioRegistry& registry =
+    asioRegistry_.ref_value_unsafe(FROM_HERE,
+      /// \todo replace with Invalidatable<>
+      "it safe to read asio registry from any thread"
+      " because its storage expected to be not modified");
+
   ::boost::asio::post(
-    asioRegistry_.ref_strand(FROM_HERE)
+    registry.ref_strand(FROM_HERE)
     , ::boost::beast::bind_front_handler([
       ](
         ECS::AsioRegistry& asio_registry
@@ -453,12 +535,12 @@ void ExampleServer::updateAsioRegistry()
         /// \todo cutomizable cleanup period
         ECS::updateCleanupSystem(asio_registry);
       }
-      , REFERENCED(asioRegistry_)
+      , REFERENCED(registry)
     )
   );
 }
 
-void ExampleServer::runLoop()
+void ExampleServer::runLoop() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(9));
 
@@ -484,8 +566,8 @@ void ExampleServer::runLoop()
 
   {
     base::Thread::Options options;
-    asio_thread_1.StartWithOptions(options);
-    asio_thread_1.task_runner()->PostTask(FROM_HERE
+    asio_thread_1->StartWithOptions(options);
+    asio_thread_1->task_runner()->PostTask(FROM_HERE
       , base::BindRepeating(
           [
           ](
@@ -509,17 +591,17 @@ void ExampleServer::runLoop()
             LOG(INFO)
               << "stopped io context thread";
           }
-          , REFERENCED(ioc_)
+          , REFERENCED(*ioc_)
       )
     );
-    asio_thread_1.WaitUntilThreadStarted();
-    DCHECK(asio_thread_1.IsRunning());
+    asio_thread_1->WaitUntilThreadStarted();
+    DCHECK(asio_thread_1->IsRunning());
   }
 
   {
     base::Thread::Options options;
-    asio_thread_2.StartWithOptions(options);
-    asio_thread_2.task_runner()->PostTask(FROM_HERE
+    asio_thread_2->StartWithOptions(options);
+    asio_thread_2->task_runner()->PostTask(FROM_HERE
       , base::BindRepeating(
           [
           ](
@@ -543,17 +625,17 @@ void ExampleServer::runLoop()
             LOG(INFO)
               << "stopped io context thread";
           }
-          , REFERENCED(ioc_)
+          , REFERENCED(*ioc_)
       )
     );
-    asio_thread_2.WaitUntilThreadStarted();
-    DCHECK(asio_thread_2.IsRunning());
+    asio_thread_2->WaitUntilThreadStarted();
+    DCHECK(asio_thread_2->IsRunning());
   }
 
   {
     base::Thread::Options options;
-    asio_thread_3.StartWithOptions(options);
-    asio_thread_3.task_runner()->PostTask(FROM_HERE
+    asio_thread_3->StartWithOptions(options);
+    asio_thread_3->task_runner()->PostTask(FROM_HERE
       , base::BindRepeating(
           [
           ](
@@ -577,17 +659,17 @@ void ExampleServer::runLoop()
             LOG(INFO)
               << "stopped io context thread";
           }
-          , REFERENCED(ioc_)
+          , REFERENCED(*ioc_)
       )
     );
-    asio_thread_3.WaitUntilThreadStarted();
-    DCHECK(asio_thread_3.IsRunning());
+    asio_thread_3->WaitUntilThreadStarted();
+    DCHECK(asio_thread_3->IsRunning());
   }
 
   {
     base::Thread::Options options;
-    asio_thread_4.StartWithOptions(options);
-    asio_thread_4.task_runner()->PostTask(FROM_HERE
+    asio_thread_4->StartWithOptions(options);
+    asio_thread_4->task_runner()->PostTask(FROM_HERE
       , base::BindRepeating(
           [
           ](
@@ -611,32 +693,32 @@ void ExampleServer::runLoop()
             LOG(INFO)
               << "stopped io context thread";
           }
-          , REFERENCED(ioc_)
+          , REFERENCED(*ioc_)
       )
     );
-    asio_thread_4.WaitUntilThreadStarted();
-    DCHECK(asio_thread_4.IsRunning());
+    asio_thread_4->WaitUntilThreadStarted();
+    DCHECK(asio_thread_4->IsRunning());
   }
 
-  run_loop_.Run();
+  run_loop_->Run();
 
   DVLOG(9)
     << "Main run loop finished";
 
-  asio_thread_1.Stop();
-  DCHECK(!asio_thread_1.IsRunning());
+  asio_thread_1->Stop();
+  DCHECK(!asio_thread_1->IsRunning());
 
-  asio_thread_2.Stop();
-  DCHECK(!asio_thread_2.IsRunning());
+  asio_thread_2->Stop();
+  DCHECK(!asio_thread_2->IsRunning());
 
-  asio_thread_3.Stop();
-  DCHECK(!asio_thread_3.IsRunning());
+  asio_thread_3->Stop();
+  DCHECK(!asio_thread_3->IsRunning());
 
-  asio_thread_4.Stop();
-  DCHECK(!asio_thread_4.IsRunning());
+  asio_thread_4->Stop();
+  DCHECK(!asio_thread_4->IsRunning());
 }
 
-void ExampleServer::doFirstLoad()
+void ExampleServer::prepare() NO_EXCEPTION
 {
   base::PostPromise(FROM_HERE
         /// \note delayed execution:
@@ -669,7 +751,7 @@ void ExampleServer::doFirstLoad()
 }
 
 ExampleServer::VoidPromise
-  ExampleServer::waitNetworkResourcesFreed()
+  ExampleServer::waitNetworkResourcesFreed() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(9));
 
@@ -715,9 +797,9 @@ ExampleServer::VoidPromise
     // Post our work to the strand, to prevent data race
     , waitCleanupRunner.get()
     , base::BindOnce(
-        NESTED_PROMISE(&waitCleanupConnectionResources)
+        NESTED_PROMISE(&promiseCleanupConnectionResources)
         /// \note take care of thread-safety
-        , REFERENCED(asioRegistry_)
+        , REFERENCED(*asioRegistry_)
         , SHARED_LIFETIME(waitCleanupRunner))
     )
     .ThenOn(waitCleanupRunner
@@ -746,14 +828,14 @@ ExampleServer::VoidPromise
     ;
 }
 
-ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor()
+ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(9));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   return listener_->configureAndRun()
-  .ThenOn(mainLoopRunner_
+  .ThenOn(*mainLoopRunner_
     , FROM_HERE
     , base::BindOnce(
       [
@@ -765,7 +847,7 @@ ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor()
   ));
 }
 
-void ExampleServer::stopIOContext()
+void ExampleServer::stopIOContext() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(9));
 
@@ -774,8 +856,8 @@ void ExampleServer::stopIOContext()
   // Stop the io_context. This will cause run()
   // to return immediately, eventually destroying the
   // io_context and any remaining handlers in it.
-  ALWAYS_THREAD_SAFE(ioc_.stop());
-  DCHECK(ALWAYS_THREAD_SAFE(ioc_.stopped()));
+  ALWAYS_THREAD_SAFE(ioc_->stop());
+  DCHECK(ALWAYS_THREAD_SAFE(ioc_->stopped()));
 }
 
 ExampleServer::~ExampleServer()
@@ -785,7 +867,7 @@ ExampleServer::~ExampleServer()
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   DCHECK(
-    ALWAYS_THREAD_SAFE(ioc_.stopped())
+    ALWAYS_THREAD_SAFE(ioc_->stopped())
   );
 }
 
@@ -810,7 +892,7 @@ int main(int argc, char* argv[])
 
   ExampleServer exampleServer;
 
-  exampleServer.doFirstLoad();
+  exampleServer.prepare();
 
   exampleServer.runLoop();
 

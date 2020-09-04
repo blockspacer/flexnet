@@ -37,11 +37,13 @@ DetectChannel::DetectChannel(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(
         BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+        , util::AccessVerifyPermissions::All
         , base::in_place
         , COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+        , util::AccessVerifyPermissions::All
         , base::in_place
         , weak_ptr_factory_.ref_value_unsafe(
             FROM_HERE, "access from constructor").GetWeakPtr()))
@@ -61,6 +63,8 @@ DetectChannel::DetectChannel(
         /// \note `get_executor` returns copy
         , REFERENCED(stream_.value())
       )
+      // "disallow `emplace` for thread-safety reasons"
+      , util::AccessVerifyPermissions::Readable
       , base::in_place
       /// \note `get_executor` returns copy
       , stream_.value().get_executor())
