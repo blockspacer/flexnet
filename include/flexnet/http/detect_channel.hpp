@@ -209,7 +209,7 @@ public:
   base::WeakPtr<DetectChannel> weakSelf() const NO_EXCEPTION
   {
     basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
-      auto_lock(fakeLockToUnownedPointer);
+      auto_lock(fakeLockToUnownedPointer_);
 
     // It is thread-safe to copy |base::WeakPtr|.
     // Weak pointers may be passed safely between sequences, but must always be
@@ -320,7 +320,7 @@ private:
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
   base::WeakPtrFactory<DetectChannel> weak_ptr_factory_
-    GUARDED_BY(fakeLockToSequence);
+    GUARDED_BY(fakeLockToSequence_);
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -333,19 +333,19 @@ private:
     // It safe to read value from any thread
     // because its storage expected to be not modified,
     // we just need to check storage validity.
-    GUARDED_BY(fakeLockToUnownedPointer);
+    GUARDED_BY(fakeLockToUnownedPointer_);
 
   /// \note It is not real lock, only annotated as lock.
   /// It just calls callback on scope entry AND exit.
   basis::FakeLockWithCheck<FakeLockRunType>
-    fakeLockToUnownedPointer {
+    fakeLockToUnownedPointer_ {
       BIND_UNOWNED_PTR_VALIDATOR(http::DetectChannel, this)
     };
 
   /// \note It is not real lock, only annotated as lock.
   /// It just calls callback on scope entry AND exit.
   basis::FakeLockWithCheck<FakeLockRunType>
-    fakeLockToSequence {
+    fakeLockToSequence_ {
       BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
     };
 

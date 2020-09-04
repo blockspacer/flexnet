@@ -194,7 +194,7 @@ public:
 
 public:
   Listener(
-    util::UnownedPtr<IoContext>&& ioc
+   IoContext& ioc
     , EndpointType&& endpoint
     // ECS registry used to create `per-connection entity`
     , ECS::AsioRegistry& asioRegistry);
@@ -270,7 +270,7 @@ private:
     , const Listener::Event& processEvent)
   {
     const ::util::Status stateProcessed
-      = sm_.ref_value(FROM_HERE).ProcessEvent(processEvent
+      = sm_.value().ProcessEvent(processEvent
         , FROM_HERE.ToString()
         , nullptr);
     CHECK(stateProcessed.ok())
@@ -280,7 +280,7 @@ private:
       << " in code "
       << from_here.ToString()
       << ". Current state: "
-      << sm_.ref_value(FROM_HERE).CurrentState();
+      << sm_.value().CurrentState();
     return stateProcessed;
   }
 

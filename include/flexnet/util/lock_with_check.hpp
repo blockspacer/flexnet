@@ -116,7 +116,7 @@ class LOCKABLE
 //      /// No need to check thread-safety because `weak_this_`
 //      /// can be passed safely between threads if not modified.
 //      basis::AutoFakeLockWithCheck<basis::FakeLockPolicySkip, FakeLockRunType>
-//        auto_lock(fakeLockToSequence);
+//        auto_lock(fakeLockToSequence_);
 //
 //      // It is thread-safe to copy |base::WeakPtr|.
 //      // Weak pointers may be passed safely between sequences, but must always be
@@ -133,11 +133,11 @@ class LOCKABLE
 //    // thread according to weak_ptr.h (versus calling
 //    // |weak_ptr_factory_.GetWeakPtr() which is not).
 //    const base::WeakPtr<Listener> weak_this_
-//      GUARDED_BY(fakeLockToSequence);
+//      GUARDED_BY(fakeLockToSequence_);
 //
 //    /// \note It is not real lock, only annotated as lock.
 //    /// It just calls callback on scope entry AND exit.
-//    basis::FakeLockWithCheck<FakeLockRunType> fakeLockToSequence{
+//    basis::FakeLockWithCheck<FakeLockRunType> fakeLockToSequence_{
 //        base::BindRepeating(
 //          &base::SequenceChecker::CalledOnValidSequence
 //          , base::Unretained(&sequence_checker_)

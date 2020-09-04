@@ -238,60 +238,58 @@ public:
   /// in other modes you must call `runVerifierCallback()` manually
   MUST_USE_RETURN_VALUE
   ALWAYS_INLINE
-  base::Optional<Type>& ref_optional(
-    const base::Location& from_here)
+  base::Optional<Type>& optional()
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       CHECK(hasReadPermission())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
     }
     else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       DCHECK(hasReadPermission())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
     }
 
-    return ref_optional_unsafe(from_here, "");
+    return optional_unsafe(FROM_HERE, "");
   }
 
   MUST_USE_RETURN_VALUE
   ALWAYS_INLINE
-  const base::Optional<Type>& ref_optional(
-    const base::Location& from_here) const
+  const base::Optional<Type>& optional() const
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       CHECK(hasReadPermission())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
     }
     else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       DCHECK(hasReadPermission())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
     }
 
-    return ref_optional_unsafe(from_here, "");
+    return optional_unsafe(FROM_HERE, "");
   }
 
-  // Similar to |ref_optional|, but without thread-safety checks
+  // Similar to |optional|, but without thread-safety checks
   // Usually you want to use *_unsafe in destructors
   // (when data no longer used between threads)
   MUST_USE_RETURN_VALUE
   ALWAYS_INLINE
-  base::Optional<Type>& ref_optional_unsafe(
+  base::Optional<Type>& optional_unsafe(
     const base::Location& from_here
     , base::StringPiece reason_why_using_unsafe
     , base::OnceClosure&& check_unsafe_allowed = base::DoNothing::Once())
@@ -306,7 +304,7 @@ public:
 
   MUST_USE_RETURN_VALUE
   ALWAYS_INLINE
-  const base::Optional<Type>& ref_optional_unsafe(
+  const base::Optional<Type>& optional_unsafe(
     const base::Location& from_here
     , base::StringPiece reason_why_using_unsafe
     , base::OnceClosure&& check_unsafe_allowed = base::DoNothing::Once()) const
@@ -323,65 +321,63 @@ public:
   /// in other modes you must call `runVerifierCallback()` manually
   MUST_USE_RETURN_VALUE
   ALWAYS_INLINE
-  Type& ref_value(
-    const base::Location& from_here)
+  Type& value()
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       CHECK(hasReadPermission())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       CHECK(value_.has_value())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
     }
     else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       DCHECK(hasReadPermission())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       DCHECK(value_.has_value())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
     }
 
-    return ref_value_unsafe(from_here, "");
+    return value_unsafe(FROM_HERE, "");
   }
 
   MUST_USE_RETURN_VALUE
   ALWAYS_INLINE
-  const Type& ref_value(
-    const base::Location& from_here) const
+  const Type& value() const
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       CHECK(hasReadPermission())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       CHECK(value_.has_value())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
     }
     else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       DCHECK(hasReadPermission())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
       DCHECK(value_.has_value())
-        << from_here.ToString();
+        << FROM_HERE.ToString();
     }
 
-    return ref_value_unsafe(from_here, "");
+    return value_unsafe(FROM_HERE, "");
   }
 
   MUST_USE_RETURN_VALUE
   ALWAYS_INLINE
-  Type& ref_value_unsafe(
+  Type& value_unsafe(
     const base::Location& from_here
     , base::StringPiece reason_why_using_unsafe
     , base::OnceClosure&& check_unsafe_allowed = base::DoNothing::Once())
@@ -395,10 +391,10 @@ public:
     return value_.value();
   }
 
-  // Similar to |ref_value|, but without thread-safety checks
+  // Similar to |value|, but without thread-safety checks
   MUST_USE_RETURN_VALUE
   ALWAYS_INLINE
-  const Type& ref_value_unsafe(
+  const Type& value_unsafe(
     const base::Location& from_here
     , base::StringPiece reason_why_using_unsafe
     , base::OnceClosure&& check_unsafe_allowed = base::DoNothing::Once()) const
@@ -679,7 +675,7 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    return ref_value(FROM_HERE) == that.ref_value(FROM_HERE);
+    return value() == that.value();
   }
 
   bool operator!=(const CheckedOptional& that) const
@@ -693,7 +689,7 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    return std::less<Type*>()(ref_value(FROM_HERE), that.ref_value(FROM_HERE));
+    return std::less<Type*>()(value(), that.value());
   }
 
   template <typename U>
@@ -701,7 +697,7 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    return ref_value(FROM_HERE) == &that;
+    return value() == &that;
   }
 
   template <typename U>

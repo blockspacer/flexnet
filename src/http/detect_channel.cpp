@@ -246,7 +246,7 @@ void DetectChannel::onDetected(
 
   // mark SSL detection completed
   ::boost::asio::post(
-    asioRegistry_->ref_strand(FROM_HERE)
+    asioRegistry_->strand()
     , ::boost::beast::bind_front_handler([
       ](
         base::OnceClosure&& boundTask

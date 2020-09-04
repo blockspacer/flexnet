@@ -84,7 +84,7 @@ static base::Promise<void, base::NoReject> promiseCleanupConnectionResources(
   basis::setPeriodicTaskExecutorOnAsioExecutor(
     FROM_HERE
     , waitCleanupRunner
-    , asio_registry.ref_strand(FROM_HERE)
+    , asio_registry.strand()
     , base::BindRepeating(
         [
         ](
@@ -238,7 +238,7 @@ class ExampleServer
   /// \note It is not real lock, only annotated as lock.
   /// It just calls callback on scope entry AND exit.
   basis::FakeLockWithCheck<FakeLockRunType>
-    fakeLockToSequence {
+    fakeLockToSequence_ {
       BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
     };
 
@@ -255,7 +255,7 @@ class ExampleServer
       , base::in_place};
 
   const EndpointType tcpEndpoint_
-    GUARDED_BY(fakeLockToSequence);
+    GUARDED_BY(fakeLockToSequence_);
 
   /// \todo SSL support
   // GLOBAL_THREAD_SAFE_LIFETIME()
@@ -272,10 +272,10 @@ class ExampleServer
       // disallow `emplace` for thread-safety reasons
       , util::CheckedOptionalPermissions::Readable
       , base::in_place
-      , util::UnownedPtr<ws::Listener::IoContext>(&(*ioc_))};
+      , *ioc_};
 
   ws::Listener listener_
-    GUARDED_BY(fakeLockToSequence);
+    GUARDED_BY(fakeLockToSequence_);
 
   basis::CheckedOptional<
     base::RunLoop
@@ -370,7 +370,7 @@ ExampleServer::ExampleServer()
       /// \todo make port configurable
       , (unsigned short) 8085}
     , listener_{
-        util::UnownedPtr<ws::Listener::IoContext>(&(*ioc_))
+        *ioc_
         , EndpointType{tcpEndpoint_}
         , RAW_REFERENCED(*asioRegistry_)}
 {
@@ -449,20 +449,6 @@ ExampleServer::ExampleServer()
               , base::Unretained(this)
           )
         )
-        /*// reset |listener_|
-        .ThenOn(*mainLoopRunner_
-          , FROM_HERE
-          , base::BindOnce(
-              &basis::CheckedOptional<
-                ws::Listener
-                , basis::CheckedOptionalPolicy::DebugOnly
-              >::reset_unsafe
-              , base::Unretained(&listener_)
-              , FROM_HERE
-              , "safe to use after SIGQUIT"
-              , base::DoNothing::Once()
-            )
-        )*/
         .ThenOn(*mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
@@ -483,7 +469,7 @@ ExampleServer::ExampleServer()
         )
         .ThenOn(*mainLoopRunner_
           , FROM_HERE
-          , run_loop_.ref_value_unsafe(
+          , run_loop_.value_unsafe(
               FROM_HERE
               , "safe to use after SIGQUIT"
               , base::DoNothing::Once())
@@ -498,7 +484,7 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors() NO_EXCEPTION
   LOG_CALL(DVLOG(9));
 
   basis::AutoFakeLockWithCheck<FakeLockPolicy, FakeLockRunType>
-    auto_lock(fakeLockToSequence);
+    auto_lock(fakeLockToSequence_);
 
   return base::Promises::All(FROM_HERE
     /// \todo add more acceptors
@@ -517,7 +503,7 @@ void ExampleServer::updateAsioRegistry() NO_EXCEPTION
       << "skipping update of registry"
          " because of stopped io context";
 
-    DCHECK(asioRegistry_.ref_value_unsafe(
+    DCHECK(asioRegistry_.value_unsafe(
               FROM_HERE
               , "safe to use after ioc_->stopped()"
                 " i.e. registry must no more used"
@@ -527,7 +513,7 @@ void ExampleServer::updateAsioRegistry() NO_EXCEPTION
   }
 
   ::boost::asio::post(
-    registry.ref_strand(FROM_HERE)
+    registry.strand()
     , ::boost::beast::bind_front_handler([
       ](
         ECS::AsioRegistry& asio_registry
@@ -849,7 +835,7 @@ ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor() NO_EXCEPTION
   LOG_CALL(DVLOG(9));
 
   basis::AutoFakeLockWithCheck<FakeLockPolicy, FakeLockRunType>
-    auto_lock(fakeLockToSequence);
+    auto_lock(fakeLockToSequence_);
 
   return listener_.configureAndRun()
   .ThenOn(*mainLoopRunner_

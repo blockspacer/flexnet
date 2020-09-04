@@ -84,7 +84,7 @@ void handleClosingSocket(
 
           // Schedule change on registry thread
           ::boost::asio::post(
-            asio_registry.ref_strand(FROM_HERE)
+            asio_registry.strand()
             , ::boost::beast::bind_front_handler([
               ](
                 base::OnceClosure&& task

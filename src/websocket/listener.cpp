@@ -40,10 +40,10 @@ namespace flexnet {
 namespace ws {
 
 Listener::Listener(
-  util::UnownedPtr<IoContext>&& ioc
+  IoContext& ioc
   , EndpointType&& endpoint
   , ECS::AsioRegistry& asioRegistry)
-  : UNOWNED_LIFETIME(ioc_(ioc))
+  : ioc_(util::UnownedPtr<ws::Listener::IoContext>(&ioc))
   , endpoint_(endpoint)
   , asioRegistry_(asioRegistry)
   , ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -51,12 +51,12 @@ Listener::Listener(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , acceptorStrand_(ioc.Get()->get_executor())
+  , acceptorStrand_(ioc.get_executor())
   , acceptor_(
       BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&acceptorStrand_)
       , util::CheckedOptionalPermissions::All
       , base::in_place
-      , *ioc.Get())
+      , ioc)
 #if DCHECK_IS_ON()
   , sm_(
     BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&acceptorStrand_)
@@ -295,7 +295,7 @@ void Listener::doAccept()
   /// BEFORE anyone connected
   /// (before callback of `async_accept`)
   ::boost::asio::post(
-    asioRegistry_.ref_strand(FROM_HERE)
+    asioRegistry_.strand()
     , ::std::bind(
         &Listener::allocateTcpResourceAndAccept
         , this)
@@ -628,7 +628,7 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
   // mark connection as newly created
   // (or as failed with error code)
   ::boost::asio::post(
-    asioRegistry_.ref_strand(FROM_HERE)
+    asioRegistry_.strand()
     , ::boost::beast::bind_front_handler([
       ](
         base::OnceClosure&& boundTask
@@ -725,22 +725,22 @@ Listener::~Listener()
   /// (but not thread-safe in general)
   /// i.e. do not modify acceptor
   /// from any thread if you reached destructor
-  DCHECK(!acceptor_.ref_value_unsafe(FROM_HERE, "access from destructor")
+  DCHECK(!acceptor_.value_unsafe(FROM_HERE, "access from destructor")
     .is_open());
 
   /// \note we expect that API user will call
   /// `close` for acceptor before acceptor destructon
   DCHECK(
-    sm_.ref_value_unsafe(
+    sm_.value_unsafe(
       FROM_HERE, "access from destructor").CurrentState() == Listener::UNINITIALIZED
-    || sm_.ref_value_unsafe(
+    || sm_.value_unsafe(
         FROM_HERE, "access from destructor").CurrentState() == Listener::TERMINATED);
 
   // make sure that all allocated
   // `per-connection resources` are freed
   // i.e. use check `registry.empty()`
   DCHECK(asioRegistry_
-    .ref_registry_unsafe(FROM_HERE
+    .registry_unsafe(FROM_HERE
       , "access from destructor when ioc->stopped"
         " i.e. no running asio threads that use |asioRegistry_|"
       , base::BindOnce([](const util::UnownedPtr<IoContext>& ioc)
