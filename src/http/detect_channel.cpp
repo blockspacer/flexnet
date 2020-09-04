@@ -35,21 +35,14 @@ DetectChannel::DetectChannel(
   , const ECS::Entity entity_id)
   : stream_(base::rvalue_cast(COPY_ON_MOVE(socket)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_ptr_factory_(
-        BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
-        , util::AccessVerifyPermissions::All
-        , base::in_place
-        , COPIED(this)))
+      weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_this_(
-        BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
-        , util::AccessVerifyPermissions::All
-        , base::in_place
-        , weak_ptr_factory_.ref_value_unsafe(
-            FROM_HERE, "access from constructor").GetWeakPtr()))
+      weak_this_(weak_ptr_factory_.GetWeakPtr()))
   , perConnectionStrand_(
-      // on each access to strand check that ioc not stopped
-      // otherwise `::boost::asio::post` may fail
+      // 1. It safe to read value from any thread
+      // because its storage expected to be not modified.
+      // 2. On each access to strand check that ioc not stopped
+      // otherwise `::boost::asio::post` may fail.
       base::BindRepeating(
         [](bool is_stream_valid, StreamType& stream)
         {
@@ -64,7 +57,7 @@ DetectChannel::DetectChannel(
         , REFERENCED(stream_.value())
       )
       // "disallow `emplace` for thread-safety reasons"
-      , util::AccessVerifyPermissions::Readable
+      , util::CheckedOptionalPermissions::Readable
       , base::in_place
       /// \note `get_executor` returns copy
       , stream_.value().get_executor())

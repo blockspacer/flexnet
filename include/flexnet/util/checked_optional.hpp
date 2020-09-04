@@ -20,33 +20,33 @@
 
 namespace util {
 
-enum class AccessVerifyPermissions
+enum class CheckedOptionalPermissions
 {
   None
       = 0
   // If `VerifyNothing::hasReadPermission` is true,
   // when you can read stored in `VerifyNothing` value
-  // depending on `AccessVerifyPolicy`.
+  // depending on `CheckedOptionalPolicy`.
   // For example, if `VerifyNothing::hasReadPermission` is false
-  // and `AccessVerifyPolicy` is not `Skip`, then
+  // and `CheckedOptionalPolicy` is not `Skip`, then
   // checks may be perfomed during call to
   // `VerifyNothing::operator->()`
   , Readable
       = 1 << 1
   // If `VerifyNothing::hasModifyPermission` is true,
   // when you can change stored in `VerifyNothing` value
-  // depending on `AccessVerifyPolicy`.
+  // depending on `CheckedOptionalPolicy`.
   // For example, if `VerifyNothing::hasModifyPermission` is false
-  // and `AccessVerifyPolicy` is not `Skip`, then
+  // and `CheckedOptionalPolicy` is not `Skip`, then
   // checks may be perfomed during call to
   // `VerifyNothing::emplace`
   , Modifiable
       = 1 << 2
   , All
-      = AccessVerifyPermissions::Readable
-        | AccessVerifyPermissions::Modifiable
+      = CheckedOptionalPermissions::Readable
+        | CheckedOptionalPermissions::Modifiable
 };
-ALLOW_BITMASK_OPERATORS(AccessVerifyPermissions)
+ALLOW_BITMASK_OPERATORS(CheckedOptionalPermissions)
 
 } // namespace util
 
@@ -75,11 +75,11 @@ class BASE_EXPORT VerifyNothing {
   }
 };
 
-enum class AccessVerifyPolicy {
-  // Will call `access_verifier_.Run()` in any builds (including release),
+enum class CheckedOptionalPolicy {
+  // Will call `verifier_callback_.Run()` in any builds (including release),
   // so take care of performance
   Always
-  // Will call `access_verifier_.Run()` only in debug builds,
+  // Will call `verifier_callback_.Run()` only in debug builds,
   // prefer for performance reasons
   , DebugOnly
   // Can be used to implement custom verification logic
@@ -97,16 +97,20 @@ enum class AccessVerifyPolicy {
 //
 // MOTIVATION
 //
-// Similar to |optional|, but with extra checks on each use.
+// Similar to |base::Optional|, but with extra checks on each use
+// i.e. calls `VerifierCb` that must return true if check passed.
+//
+// If you want to make object immutable,
+// than you can change `CheckedOptionalPermissions`.
 //
 // USAGE
 //
-//  basis::AccessVerifier<
+//  basis::CheckedOptional<
 //    StateMachineType
 //  > sm_(
-//    BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&acceptorStrand_) // see AccessVerifier constructor
+//    BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&acceptorStrand_) // see CheckedOptional constructor
 //    // "disallow `emplace` for thread-safety reasons"
-//    , util::AccessVerifyPermissions::Readable // see AccessVerifier constructor
+//    , util::CheckedOptionalPermissions::Readable // see CheckedOptional constructor
 //    , base::in_place // see base::Optional constructor
 //    , UNINITIALIZED // see StateMachineType constructor
 //    , FillStateTransitionTable()) // see StateMachineType constructor
@@ -120,13 +124,13 @@ enum class AccessVerifyPolicy {
 //  );
 template<
   typename Type
-  , AccessVerifyPolicy VerifyPolicyType
+  , CheckedOptionalPolicy VerifyPolicyType
 >
-class AccessVerifier
+class CheckedOptional
 {
 public:
   // May be called on each member function call
-  // depending on `AccessVerifyPolicy`.
+  // depending on `CheckedOptionalPolicy`.
   // Usually it is used for thread-safety checks.
   using VerifierCb
     = base::RepeatingCallback<bool()>;
@@ -134,12 +138,12 @@ public:
 public:
   /// \note if you want to initialize `value_`,
   /// than you can pass `base::in_place` as second argument
-  explicit AccessVerifier(
+  explicit CheckedOptional(
     VerifierCb&& verifierCb
-    , const util::AccessVerifyPermissions& permissions
-        = util::AccessVerifyPermissions::All)
-    : access_verifier_(verifierCb)
-    , accessVerifyPermissions(permissions)
+    , const util::CheckedOptionalPermissions& permissions
+        = util::CheckedOptionalPermissions::All)
+    : verifier_callback_(verifierCb)
+    , CheckedOptionalPermissions(permissions)
   {
     DETACH_FROM_SEQUENCE(sequence_checker_);
 
@@ -148,12 +152,12 @@ public:
 
   /// \note you may want to pass `base::in_place` as second argument
   template <class... Args>
-  AccessVerifier(
+  CheckedOptional(
     VerifierCb&& verifierCb
-    , const util::AccessVerifyPermissions& permissions
+    , const util::CheckedOptionalPermissions& permissions
     , Args&&... args)
-    : access_verifier_(verifierCb)
-    , accessVerifyPermissions(permissions)
+    : verifier_callback_(verifierCb)
+    , CheckedOptionalPermissions(permissions)
     , value_(std::forward<Args>(args)...)
   {
     DETACH_FROM_SEQUENCE(sequence_checker_);
@@ -161,7 +165,7 @@ public:
     DCHECK(value_);
   }
 
-  ~AccessVerifier()
+  ~CheckedOptional()
   {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   }
@@ -172,19 +176,19 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Skip)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Skip)
     {
       NOTREACHED();
     }
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly
       && !DCHECK_IS_ON())
     {
       NOTREACHED();
     }
 
-    DCHECK(access_verifier_);
-    return access_verifier_.Run();
+    DCHECK(verifier_callback_);
+    return verifier_callback_.Run();
   }
 
   MUST_USE_RETURN_VALUE
@@ -193,19 +197,19 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Skip)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Skip)
     {
       NOTREACHED();
     }
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly
       && !DCHECK_IS_ON())
     {
       NOTREACHED();
     }
 
-    return util::hasBit(accessVerifyPermissions
-          , util::AccessVerifyPermissions::Readable);
+    return util::hasBit(CheckedOptionalPermissions
+          , util::CheckedOptionalPermissions::Readable);
   }
 
   MUST_USE_RETURN_VALUE
@@ -214,20 +218,20 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Skip)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Skip)
     {
       NOTREACHED();
     }
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly
       && !DCHECK_IS_ON())
     {
       NOTREACHED();
     }
 
     return
-      util::hasBit(accessVerifyPermissions
-          , util::AccessVerifyPermissions::Modifiable);
+      util::hasBit(CheckedOptionalPermissions
+          , util::CheckedOptionalPermissions::Modifiable);
   }
 
   /// \note performs automatic checks only in debug mode,
@@ -239,14 +243,14 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Always)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
         << from_here.ToString();
       CHECK(hasReadPermission())
         << from_here.ToString();
     }
-    else if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly && DCHECK_IS_ON())
+    else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
         << from_here.ToString();
@@ -264,14 +268,14 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Always)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
         << from_here.ToString();
       CHECK(hasReadPermission())
         << from_here.ToString();
     }
-    else if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly && DCHECK_IS_ON())
+    else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
         << from_here.ToString();
@@ -324,7 +328,7 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Always)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
         << from_here.ToString();
@@ -333,7 +337,7 @@ public:
       CHECK(value_.has_value())
         << from_here.ToString();
     }
-    else if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly && DCHECK_IS_ON())
+    else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
         << from_here.ToString();
@@ -353,7 +357,7 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Always)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
         << from_here.ToString();
@@ -362,7 +366,7 @@ public:
       CHECK(value_.has_value())
         << from_here.ToString();
     }
-    else if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly && DCHECK_IS_ON())
+    else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
         << from_here.ToString();
@@ -409,7 +413,7 @@ public:
 
   constexpr const Type& operator*() const
   {
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Always)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
         << FROM_HERE.ToString();
@@ -420,7 +424,7 @@ public:
       CHECK(value_.has_value())
         << FROM_HERE.ToString();
     }
-    else if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly && DCHECK_IS_ON())
+    else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
         << FROM_HERE.ToString();
@@ -437,7 +441,7 @@ public:
 
   constexpr Type& operator*()
   {
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Always)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
         << FROM_HERE.ToString();
@@ -448,7 +452,7 @@ public:
       CHECK(value_.has_value())
         << FROM_HERE.ToString();
     }
-    else if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly && DCHECK_IS_ON())
+    else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
         << FROM_HERE.ToString();
@@ -465,7 +469,7 @@ public:
 
   constexpr const Type* operator->() const
   {
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Always)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
         << FROM_HERE.ToString();
@@ -476,7 +480,7 @@ public:
       CHECK(value_.has_value())
         << FROM_HERE.ToString();
     }
-    else if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly && DCHECK_IS_ON())
+    else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
         << FROM_HERE.ToString();
@@ -493,7 +497,7 @@ public:
 
   constexpr Type* operator->()
   {
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Always)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
         << FROM_HERE.ToString();
@@ -504,7 +508,7 @@ public:
       CHECK(value_.has_value())
         << FROM_HERE.ToString();
     }
-    else if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly && DCHECK_IS_ON())
+    else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
         << FROM_HERE.ToString();
@@ -530,7 +534,7 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Always)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
         << from_here.ToString();
@@ -538,7 +542,7 @@ public:
       CHECK(hasModifyPermission())
         << from_here.ToString();
     }
-    else if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly && DCHECK_IS_ON())
+    else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
         << from_here.ToString();
@@ -576,7 +580,7 @@ public:
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
-    if constexpr (VerifyPolicyType == AccessVerifyPolicy::Always)
+    if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
         << FROM_HERE.ToString();
@@ -584,7 +588,7 @@ public:
       CHECK(hasModifyPermission())
         << FROM_HERE.ToString();
     }
-    else if constexpr (VerifyPolicyType == AccessVerifyPolicy::DebugOnly && DCHECK_IS_ON())
+    else if constexpr (VerifyPolicyType == CheckedOptionalPolicy::DebugOnly && DCHECK_IS_ON())
     {
       DCHECK(runVerifierCallback())
         << FROM_HERE.ToString();
@@ -622,8 +626,8 @@ public:
     ignore_result(from_here);
     ignore_result(reason_why_make_invalid);
 
-    util::removeBit(accessVerifyPermissions
-      , util::AccessVerifyPermissions::Readable);
+    util::removeBit(CheckedOptionalPermissions
+      , util::CheckedOptionalPermissions::Readable);
   }
 
   void forceNotValidToModify(
@@ -637,8 +641,8 @@ public:
     ignore_result(from_here);
     ignore_result(reason_why_make_invalid);
 
-    util::removeBit(accessVerifyPermissions
-      , util::AccessVerifyPermissions::Modifiable);
+    util::removeBit(CheckedOptionalPermissions
+      , util::CheckedOptionalPermissions::Modifiable);
   }
 
   void forceValidToRead(
@@ -652,8 +656,8 @@ public:
     ignore_result(from_here);
     ignore_result(reason_why_make_valid);
 
-    util::addBit(accessVerifyPermissions
-      , util::AccessVerifyPermissions::Readable);
+    util::addBit(CheckedOptionalPermissions
+      , util::CheckedOptionalPermissions::Readable);
   }
 
   void forceValidToModify(
@@ -667,25 +671,25 @@ public:
     ignore_result(from_here);
     ignore_result(reason_why_make_valid);
 
-    util::addBit(accessVerifyPermissions
-      , util::AccessVerifyPermissions::Modifiable);
+    util::addBit(CheckedOptionalPermissions
+      , util::CheckedOptionalPermissions::Modifiable);
   }
 
-  bool operator==(const AccessVerifier& that) const
+  bool operator==(const CheckedOptional& that) const
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
     return ref_value(FROM_HERE) == that.ref_value(FROM_HERE);
   }
 
-  bool operator!=(const AccessVerifier& that) const
+  bool operator!=(const CheckedOptional& that) const
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
     return !(*this == that);
   }
 
-  bool operator<(const AccessVerifier& that) const
+  bool operator<(const CheckedOptional& that) const
   {
     DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
 
@@ -709,21 +713,21 @@ public:
   }
 
 private:
-  VerifierCb access_verifier_
-    LIVES_ON(debug_collision_warner_);
-
-  base::Optional<Type> value_
+  VerifierCb verifier_callback_
     LIVES_ON(debug_collision_warner_);
 
   // MOTIVATION
   //
-  // We already have custom validation function `access_verifier_`,
+  // We already have custom validation function `verifier_callback_`,
   // but it is too common to make object not valid using
   // `std::move` (just mark invalid after move)
   // or to force object to initialize only once
   // (just mark invalid after initialization to prohibit `emplace()`)
-  util::AccessVerifyPermissions accessVerifyPermissions{
-    util::AccessVerifyPermissions::All}
+  util::CheckedOptionalPermissions CheckedOptionalPermissions{
+    util::CheckedOptionalPermissions::All}
+    LIVES_ON(debug_collision_warner_);
+
+  base::Optional<Type> value_
     LIVES_ON(debug_collision_warner_);
 
   // Thread collision warner to ensure that API is not called concurrently.
@@ -734,17 +738,17 @@ private:
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(AccessVerifier);
+  DISALLOW_COPY_AND_ASSIGN(CheckedOptional);
 };
 
 template <typename U, class... Args>
-inline bool operator==(const U& lhs, const AccessVerifier<Args...>& rhs)
+inline bool operator==(const U& lhs, const CheckedOptional<Args...>& rhs)
 {
   return rhs == lhs;
 }
 
 template <typename U, class... Args>
-inline bool operator!=(const U& lhs, const AccessVerifier<Args...>& rhs)
+inline bool operator!=(const U& lhs, const CheckedOptional<Args...>& rhs)
 {
   return rhs != lhs;
 }

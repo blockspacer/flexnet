@@ -37,6 +37,54 @@ set_target_properties(example_server PROPERTIES
 set_property(TARGET example_server
   PROPERTY POSITION_INDEPENDENT_CODE ON)
 
+target_compile_options(example_server PRIVATE
+  # NOTE: explicitly select the "C++ Core Check Lifetime Rules" (or "Microsoft All Rules") in order to enable the lifetime checks.
+  # see https://devblogs.microsoft.com/cppblog/c-core-guidelines-checker-in-visual-studio-2017/
+  # see https://www.modernescpp.com/index.php/c-core-guidelines-lifetime-safety
+  $<$<CXX_COMPILER_ID:MSVC>:
+    /W3 # Set warning level
+    /Wall
+    /analyze
+  >
+  # see https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
+  $<$<CXX_COMPILER_ID:GNU>:
+    ${GCCAndClangErrorFlags}
+    ${GCCAndClangWarningFlags}
+    -Wall
+    -W
+    -Wextra
+    -Wpedantic
+    -Wdeprecated-register
+    -Wnon-virtual-dtor
+  >
+  $<$<CXX_COMPILER_ID:Clang>:
+    ${GCCAndClangErrorFlags}
+    ${GCCAndClangWarningFlags}
+    ${ClangErrorFlags}
+    # see https://pspdfkit.com/blog/2020/the-cpp-lifetime-profile/
+    # TODO: only special branch of Clang currently https://github.com/mgehre/llvm-project
+    #-Wlifetime
+    # see http://clang.llvm.org/docs/ThreadSafetyAnalysis.html
+    # see https://github.com/isocpp/CppCoreGuidelines/blob/master/docs/Lifetime.pdf
+    -Wthread-safety-analysis
+    -Wall
+    -W
+    -Wextra
+    -Wpedantic
+    -Wdeprecated-register
+    -Wnon-virtual-dtor
+    # Negative requirements are an experimental feature
+    # which will produce many warnings in existing code
+    -Wno-thread-safety-negative
+  >
+)
+
+# # Helper that can set default warning flags for you
+target_set_warnings( # from cmake_helper_utils (conan package)
+  example_server
+  ENABLE ALL
+  DISABLE Annoying)
+
 # copy new resources
 add_custom_command( TARGET example_server PRE_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory

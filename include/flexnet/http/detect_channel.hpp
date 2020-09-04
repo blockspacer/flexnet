@@ -1,7 +1,8 @@
 #pragma once
 
-#include "flexnet/util/access_verifier.hpp"
+#include "flexnet/util/checked_optional.hpp"
 #include "flexnet/util/limited_tcp_stream.hpp"
+#include "flexnet/util/lock_with_check.hpp"
 
 #include <base/callback.h>
 #include <base/macros.h>
@@ -91,6 +92,10 @@ public:
   static const size_t kMaxMessageSizeBytes = 100000;
 
 public:
+  using FakeLockRunType = bool();
+
+  using FakeLockPolicy = basis::FakeLockPolicyDebugOnly;
+
   using MessageBufferType
     = ::boost::beast::flat_static_buffer<kMaxMessageSizeBytes>;
 
@@ -203,11 +208,14 @@ public:
   MUST_USE_RETURN_VALUE
   base::WeakPtr<DetectChannel> weakSelf() const NO_EXCEPTION
   {
+    basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
+      auto_lock(fakeLockToUnownedPointer);
+
     // It is thread-safe to copy |base::WeakPtr|.
     // Weak pointers may be passed safely between sequences, but must always be
     // dereferenced and invalidated on the same SequencedTaskRunner otherwise
     // checking the pointer would be racey.
-    return weak_this_.ref_value(FROM_HERE);
+    return weak_this_;
   }
 
   MUST_USE_RETURN_VALUE
@@ -311,10 +319,8 @@ private:
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
-  basis::AccessVerifier<
-    base::WeakPtrFactory<DetectChannel>
-    , basis::AccessVerifyPolicy::DebugOnly
-  > weak_ptr_factory_;
+  base::WeakPtrFactory<DetectChannel> weak_ptr_factory_
+    GUARDED_BY(fakeLockToSequence);
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -323,22 +329,37 @@ private:
   // which is safe to do from any
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
-  basis::AccessVerifier<
-    base::WeakPtr<DetectChannel>
-    , basis::AccessVerifyPolicy::DebugOnly
-  > weak_this_;
+  const base::WeakPtr<DetectChannel> weak_this_
+    // It safe to read value from any thread
+    // because its storage expected to be not modified,
+    // we just need to check storage validity.
+    GUARDED_BY(fakeLockToUnownedPointer);
+
+  /// \note It is not real lock, only annotated as lock.
+  /// It just calls callback on scope entry AND exit.
+  basis::FakeLockWithCheck<FakeLockRunType>
+    fakeLockToUnownedPointer {
+      BIND_UNOWNED_PTR_VALIDATOR(http::DetectChannel, this)
+    };
+
+  /// \note It is not real lock, only annotated as lock.
+  /// It just calls callback on scope entry AND exit.
+  basis::FakeLockWithCheck<FakeLockRunType>
+    fakeLockToSequence {
+      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+    };
 
   // |stream_| and calls to |async_detect*| are guarded by strand
-   basis::AccessVerifier<
+   basis::CheckedOptional<
     StrandType
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
    > perConnectionStrand_;
 
-  /// \todo replace with AccessVerifier::forceValidToRead
+  /// \todo replace with CheckedOptional::forceValidToRead
   // will be set by |onDetected|
   std::atomic<bool> atomicDetectDoneFlag_{false};
 
-  /// \todo replace with AccessVerifier::forceValidToRead
+  /// \todo replace with CheckedOptional::forceValidToRead
   // used by |entity_id_|
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_;
 

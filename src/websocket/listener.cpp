@@ -47,40 +47,20 @@ Listener::Listener(
   , endpoint_(endpoint)
   , asioRegistry_(asioRegistry)
   , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_ptr_factory_(
-        BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
-        , util::AccessVerifyPermissions::All
-        , base::in_place
-        , COPIED(this)))
+      weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
-        BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
-        , util::AccessVerifyPermissions::All
-        , base::in_place
-        , weak_ptr_factory_.ref_value_unsafe(
-            FROM_HERE, "access from constructor").GetWeakPtr()))
-  , acceptorStrand_(
-      // on each access to strand check that ioc not stopped
-      // otherwise `::boost::asio::post` may fail
-      base::BindRepeating(
-        [](util::UnownedPtr<IoContext>& ioc) {
-          return ioc && !ioc->stopped();
-        }
-        , REFERENCED(ioc_)
-      )
-      // "disallow `emplace` for thread-safety reasons"
-      , util::AccessVerifyPermissions::Readable
-      , base::in_place
-      , ioc.Get()->get_executor())
+        weak_ptr_factory_.GetWeakPtr()))
+  , acceptorStrand_(ioc.Get()->get_executor())
   , acceptor_(
-      BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&(*acceptorStrand_))
-      , util::AccessVerifyPermissions::All
+      BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&acceptorStrand_)
+      , util::CheckedOptionalPermissions::All
       , base::in_place
       , *ioc.Get())
 #if DCHECK_IS_ON()
   , sm_(
-    BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&(*acceptorStrand_))
-    , util::AccessVerifyPermissions::All
+    BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&acceptorStrand_)
+    , util::CheckedOptionalPermissions::All
     , base::in_place
     , UNINITIALIZED
     , FillStateTransitionTable())
@@ -158,7 +138,8 @@ void Listener::logFailure(
 {
   LOG_CALL(DVLOG(9));
 
-  DCHECK(isAcceptingInThisThread());
+  basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
+    auto_lock(fakeLockToAcceptorStrand_);
 
   ErrorCode ec;
 
@@ -190,7 +171,8 @@ void Listener::logFailure(
 {
   LOG_CALL(DVLOG(9));
 
-  DCHECK(isAcceptingInThisThread());
+  basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
+    auto_lock(fakeLockToAcceptorStrand_);
 
   DCHECK(
     sm_->CurrentState() == Listener::UNINITIALIZED
@@ -392,16 +374,21 @@ void Listener::allocateTcpResourceAndAccept()
   // `ECS::TcpConnection` must be valid
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
 
-  // Accept connection
-  ::boost::asio::post(
-    *acceptorStrand_
-    , ::std::bind(
-        &Listener::asyncAccept
-        , this
-        , COPIED(
-            util::UnownedPtr<StrandType>(asioStrandCtx))
-        , COPIED(tcp_entity_id))
-  );
+  {
+    basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
+      auto_lock(fakeLockToRunningIoc_);
+
+    // Accept connection
+    ::boost::asio::post(
+      acceptorStrand_
+      , ::std::bind(
+          &Listener::asyncAccept
+          , this
+          , COPIED(
+              util::UnownedPtr<StrandType>(asioStrandCtx))
+          , COPIED(tcp_entity_id))
+    );
+  }
 }
 
 ECS::Entity Listener::createTcpEntity()
@@ -661,13 +648,18 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
   // unable to `::boost::asio::post` on stopped ioc
   DCHECK(ioc_ && !ioc_->stopped());
 
-  // Accept another connection
-  ::boost::asio::post(
-    *acceptorStrand_
-    , ::std::bind(
-        &Listener::doAccept
-        , this)
-  );
+  {
+    basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
+      auto_lock(fakeLockToRunningIoc_);
+
+    // Accept another connection
+    ::boost::asio::post(
+      acceptorStrand_
+      , ::std::bind(
+          &Listener::doAccept
+          , this)
+    );
+  }
 }
 
 void Listener::setAcceptConnectionResult(
@@ -751,12 +743,12 @@ Listener::~Listener()
     .ref_registry_unsafe(FROM_HERE
       , "access from destructor when ioc->stopped"
         " i.e. no running asio threads that use |asioRegistry_|"
-      , base::BindOnce([](util::UnownedPtr<IoContext>& ioc)
+      , base::BindOnce([](const util::UnownedPtr<IoContext>& ioc)
         {
           // checks that access to |asioRegistry_| is thread-safe
           DCHECK(ioc && ioc->stopped());
         }
-        , REFERENCED(ioc_)))
+        , CONST_REFERENCED(ioc_)))
     .empty());
 
   /// \note Callbacks posted on |io_context| can use |this|,
@@ -780,8 +772,13 @@ bool Listener::isAcceptorOpen() const
 
 bool Listener::isAcceptingInThisThread() const NO_EXCEPTION
 {
+  /// \note `FakeLockPolicySkip` because call to `running_in_this_thread`
+  /// do not require running io context.
+  basis::AutoFakeLockWithCheck<basis::FakeLockPolicySkip, FakeLockRunType>
+    auto_lock(fakeLockToRunningIoc_);
+
   /// \note `running_in_this_thread()` assumed to be thread-safe
-  return acceptorStrand_->running_in_this_thread();
+  return acceptorStrand_.running_in_this_thread();
 }
 
 } // namespace ws

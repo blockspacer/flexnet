@@ -1,7 +1,8 @@
 #pragma once
 
-#include "flexnet/util/access_verifier.hpp"
+#include "flexnet/util/checked_optional.hpp"
 #include "flexnet/util/unsafe_state_machine.hpp"
+#include "flexnet/util/lock_with_check.hpp"
 
 #include <basis/ECS/asio_registry.hpp>
 #include <basis/bitmask.h>
@@ -83,6 +84,10 @@ namespace ws {
 class Listener
 {
 public:
+  using FakeLockRunType = bool();
+
+  using FakeLockPolicy = basis::FakeLockPolicyDebugOnly;
+
   using EndpointType
     = ::boost::asio::ip::tcp::endpoint;
 
@@ -205,12 +210,15 @@ public:
     const base::Location& from_here
     , CallbackT&& task)
   {
+    basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
+      auto_lock(fakeLockToRunningIoc_);
+
     // unable to `::boost::asio::post` on stopped ioc
     DCHECK(ioc_ && !ioc_->stopped());
     return base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
-      , acceptorStrand_.ref_value(FROM_HERE)
+      , acceptorStrand_
       , std::forward<CallbackT>(task));
   }
 
@@ -245,11 +253,14 @@ public:
   MUST_USE_RETURN_VALUE
   base::WeakPtr<Listener> weakSelf() const NO_EXCEPTION
   {
+    basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
+      auto_lock(fakeLockToUnownedPointer_);
+
     // It is thread-safe to copy |base::WeakPtr|.
     // Weak pointers may be passed safely between sequences, but must always be
     // dereferenced and invalidated on the same SequencedTaskRunner otherwise
     // checking the pointer would be racey.
-    return weak_this_.ref_value(FROM_HERE);
+    return weak_this_;
   }
 
 private:
@@ -360,26 +371,26 @@ private:
 
 private:
   // Provides I/O functionality
-  /// \todo replace with util::AccessVerifyPermissions::Read
   GLOBAL_THREAD_SAFE_LIFETIME(
     "can be used from any thread "
     "as long as storage not modified")
-  util::UnownedPtr<IoContext> ioc_;
+  const util::UnownedPtr<IoContext> ioc_;
 
   // acceptor will listen that address
-  NOT_THREAD_SAFE_LIFETIME()
-  EndpointType endpoint_;
+  const EndpointType endpoint_
+    GUARDED_BY(fakeLockToAcceptorStrand_);
 
   // used to create `per-connection entity`
+  GLOBAL_THREAD_SAFE_LIFETIME(
+    "can be used from any thread "
+    "as long as storage not modified")
   ECS::AsioRegistry& asioRegistry_;
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
-  basis::AccessVerifier<
-    base::WeakPtrFactory<Listener>
-    , basis::AccessVerifyPolicy::DebugOnly
-  > weak_ptr_factory_;
+  base::WeakPtrFactory<Listener> weak_ptr_factory_
+    GUARDED_BY(fakeLockToSequence_);
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -388,24 +399,60 @@ private:
   // which is safe to do from any
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
-  basis::AccessVerifier<
-    base::WeakPtr<Listener>
-    , basis::AccessVerifyPolicy::DebugOnly
-  > weak_this_;
+  const base::WeakPtr<Listener> weak_this_
+    // It safe to read value from any thread
+    // because its storage expected to be not modified,
+    // we just need to check storage validity.
+    GUARDED_BY(fakeLockToUnownedPointer_);
 
-  // modification of |acceptor_| guarded by |acceptorStrand_|
+  /// \note It is not real lock, only annotated as lock.
+  /// It just calls callback on scope entry AND exit.
+  basis::FakeLockWithCheck<FakeLockRunType>
+    fakeLockToUnownedPointer_ {
+      BIND_UNOWNED_PTR_VALIDATOR(ws::Listener, this)
+    };
+
+  /// \note It is not real lock, only annotated as lock.
+  /// It just calls callback on scope entry AND exit.
+  basis::FakeLockWithCheck<FakeLockRunType>
+    fakeLockToSequence_ {
+      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+    };
+
+  /// \note It is not real lock, only annotated as lock.
+  /// It just calls callback on scope entry AND exit.
+  basis::FakeLockWithCheck<FakeLockRunType>
+    fakeLockToRunningIoc_ {
+      // 1. It safe to read value from any thread
+      // because its storage expected to be not modified.
+      // 2. On each access to strand check that ioc not stopped
+      // otherwise `::boost::asio::post` may fail.
+      base::BindRepeating(
+        [](const util::UnownedPtr<IoContext>& ioc) {
+          return ioc && !ioc->stopped();
+        }
+        , CONST_REFERENCED(ioc_)
+      )
+    };
+
+  // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
-  /// \note do not destruct |Listener| while |acceptorStrand_|
-  /// has scheduled or execting tasks
-  basis::AccessVerifier<
-    const StrandType
-    , basis::AccessVerifyPolicy::DebugOnly
-  > acceptorStrand_;
+  /// \note Do not destruct |Listener| while |acceptorStrand_|
+  /// has scheduled or execting tasks.
+  const StrandType acceptorStrand_
+    GUARDED_BY(fakeLockToRunningIoc_);
+
+  /// \note It is not real lock, only annotated as lock.
+  /// It just calls callback on scope entry AND exit.
+  basis::FakeLockWithCheck<FakeLockRunType>
+    fakeLockToAcceptorStrand_ {
+      BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&acceptorStrand_)
+    };
 
   // The acceptor used to listen for incoming connections.
-  basis::AccessVerifier<
+  basis::CheckedOptional<
     AcceptorType
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > acceptor_;
 
 #if DCHECK_IS_ON()
@@ -432,9 +479,9 @@ private:
   //   });
   // sm_->AddExitAction(UNINITIALIZED, okStateCallback);
   // sm_->AddEntryAction(FAILED, okStateCallback);
-  basis::AccessVerifier<
+  basis::CheckedOptional<
     StateMachineType
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > sm_;
 #endif // DCHECK_IS_ON()
 

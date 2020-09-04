@@ -150,6 +150,7 @@ export build_type=Debug
 
 # NOTE: -DENABLE_TSAN=ON
 cmake -E time cmake .. \
+  -DCMAKE_VERBOSE_MAKEFILE=TRUE \
   -DENABLE_TSAN=ON \
   -DENABLE_TESTS=TRUE \
   -DBUILD_SHARED_LIBS=FALSE \
@@ -414,6 +415,7 @@ export build_type=Debug
 
 # NOTE: -DENABLE_MSAN=ON
 cmake -E time cmake . \
+  -DCMAKE_VERBOSE_MAKEFILE=TRUE \
   -DENABLE_MSAN=ON \
   -DENABLE_TESTS=TRUE \
   -DBUILD_SHARED_LIBS=FALSE \
@@ -493,6 +495,7 @@ conan workspace install \
 
 # NOTE: -DENABLE_TSAN=ON
 cmake -E time cmake . \
+  -DCMAKE_VERBOSE_MAKEFILE=TRUE \
   -DENABLE_TESTS=TRUE \
   -DBUILD_SHARED_LIBS=FALSE \
   -DCONAN_AUTO_INSTALL=OFF \

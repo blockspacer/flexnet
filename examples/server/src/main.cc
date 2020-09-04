@@ -7,6 +7,7 @@
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/ECS/tags.hpp>
+#include <flexnet/util/lock_with_check.hpp>
 
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
@@ -115,8 +116,6 @@ static base::Promise<void, base::NoReject> promiseCleanupConnectionResources(
   return promiseResolver.promise();
 }
 
-} // namespace
-
 // init common application systems,
 // initialization order matters!
 MUST_USE_RETURN_VALUE
@@ -189,6 +188,8 @@ base::Optional<int> initEnv(
   return base::nullopt;
 }
 
+} // namespace
+
 class ExampleServer
 {
  public:
@@ -200,6 +201,10 @@ class ExampleServer
 
   using EndpointType
     = ws::Listener::EndpointType;
+
+  using FakeLockRunType = bool();
+
+  using FakeLockPolicy = basis::FakeLockPolicyDebugOnly;
 
  public:
   ExampleServer();
@@ -230,120 +235,127 @@ class ExampleServer
   void stopIOContext() NO_EXCEPTION;
 
  private:
+  /// \note It is not real lock, only annotated as lock.
+  /// It just calls callback on scope entry AND exit.
+  basis::FakeLockWithCheck<FakeLockRunType>
+    fakeLockToSequence {
+      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+    };
+
   /// \todo replace with Invalidatable<>
   // The io_context is required for all I/O
-  basis::AccessVerifier<
+  basis::CheckedOptional<
     boost::asio::io_context
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > ioc_{
+      // it safe to read value from any thread
+      // because its storage expected to be not modified
       basis::VerifyNothing::Repeatedly()
-      , util::AccessVerifyPermissions::All
+      , util::CheckedOptionalPermissions::Readable
       , base::in_place};
 
-  basis::AccessVerifier<
-    const EndpointType
-    , basis::AccessVerifyPolicy::DebugOnly
-  > tcpEndpoint_{
-      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
-      , util::AccessVerifyPermissions::All
-      , base::in_place
-      /// \todo make ip configurable
-      , ::boost::asio::ip::make_address("127.0.0.1")
-      /// \todo make port configurable
-      , 8085};
+  const EndpointType tcpEndpoint_
+    GUARDED_BY(fakeLockToSequence);
 
   /// \todo SSL support
   // GLOBAL_THREAD_SAFE_LIFETIME()
   // ::boost::asio::ssl::context ctx_
   //   {::boost::asio::ssl::context::tlsv12};
 
-  basis::AccessVerifier<
-    ws::Listener
-    , basis::AccessVerifyPolicy::DebugOnly
-  > listener_{
-      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
-      , util::AccessVerifyPermissions::All
-    };
-
-  basis::AccessVerifier<
+  basis::CheckedOptional<
     ECS::AsioRegistry
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > asioRegistry_{
-      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
+      // it safe to read value from any thread
+      // because its storage expected to be not modified
+      basis::VerifyNothing::Repeatedly()
       // disallow `emplace` for thread-safety reasons
-      , util::AccessVerifyPermissions::Readable
+      , util::CheckedOptionalPermissions::Readable
       , base::in_place
       , util::UnownedPtr<ws::Listener::IoContext>(&(*ioc_))};
 
-  basis::AccessVerifier<
+  ws::Listener listener_
+    GUARDED_BY(fakeLockToSequence);
+
+  basis::CheckedOptional<
     base::RunLoop
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > run_loop_{
       BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
-      , util::AccessVerifyPermissions::All
+      , util::CheckedOptionalPermissions::All
       , base::in_place
     };
 
   // Capture SIGINT and SIGTERM to perform a clean shutdown
-  basis::AccessVerifier<
+  basis::CheckedOptional<
     boost::asio::signal_set
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > signals_set_{
       BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
-      , util::AccessVerifyPermissions::All
+      , util::CheckedOptionalPermissions::All
       , base::in_place
       , *ioc_ /// \note will not handle signals if ioc stopped
       , SIGINT
       , SIGTERM
     };
 
-  basis::AccessVerifier<
+  basis::CheckedOptional<
     scoped_refptr<base::SingleThreadTaskRunner>
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > mainLoopRunner_{
+      // it safe to read value from any thread
+      // because its storage expected to be not modified
       basis::VerifyNothing::Repeatedly()
       // disallow `emplace` for thread-safety reasons
-      , util::AccessVerifyPermissions::Readable
+      , util::CheckedOptionalPermissions::Readable
       , base::in_place
       , base::MessageLoop::current()->task_runner()};
 
-  basis::AccessVerifier<
+  basis::CheckedOptional<
     base::Thread
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > asio_thread_1{
+      // it safe to read value from any thread
+      // because its storage expected to be not modified
       basis::VerifyNothing::Repeatedly()
       // disallow `emplace` for thread-safety reasons
-      , util::AccessVerifyPermissions::Readable
+      , util::CheckedOptionalPermissions::Readable
       , base::in_place
       , "asio_thread_1"};
 
-  basis::AccessVerifier<
+  basis::CheckedOptional<
     base::Thread
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > asio_thread_2{
+      // it safe to read value from any thread
+      // because its storage expected to be not modified
       basis::VerifyNothing::Repeatedly()
       // disallow `emplace` for thread-safety reasons
-      , util::AccessVerifyPermissions::Readable
+      , util::CheckedOptionalPermissions::Readable
       , base::in_place
       , "asio_thread_2"};
 
-  basis::AccessVerifier<
+  basis::CheckedOptional<
     base::Thread
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > asio_thread_3{
+      // it safe to read value from any thread
+      // because its storage expected to be not modified
       basis::VerifyNothing::Repeatedly()
       // disallow `emplace` for thread-safety reasons
-      , util::AccessVerifyPermissions::Readable
+      , util::CheckedOptionalPermissions::Readable
       , base::in_place
       , "asio_thread_3"};
 
-  basis::AccessVerifier<
+  basis::CheckedOptional<
     base::Thread
-    , basis::AccessVerifyPolicy::DebugOnly
+    , basis::CheckedOptionalPolicy::DebugOnly
   > asio_thread_4{
+      // it safe to read value from any thread
+      // because its storage expected to be not modified
       basis::VerifyNothing::Repeatedly()
       // disallow `emplace` for thread-safety reasons
-      , util::AccessVerifyPermissions::Readable
+      , util::CheckedOptionalPermissions::Readable
       , base::in_place
       , "asio_thread_4"};
 
@@ -353,18 +365,18 @@ class ExampleServer
 };
 
 ExampleServer::ExampleServer()
+  : tcpEndpoint_{
+      ::boost::asio::ip::make_address("127.0.0.1")
+      /// \todo make port configurable
+      , (unsigned short) 8085}
+    , listener_{
+        util::UnownedPtr<ws::Listener::IoContext>(&(*ioc_))
+        , EndpointType{tcpEndpoint_}
+        , RAW_REFERENCED(*asioRegistry_)}
 {
   LOG_CALL(DVLOG(9));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
-
-  ignore_result(
-    listener_.emplace(FROM_HERE
-      , util::UnownedPtr<ws::Listener::IoContext>(&(*ioc_))
-      , EndpointType{*tcpEndpoint_}
-      , RAW_REFERENCED(*asioRegistry_)
-    )
-  );
 
 #if defined(SIGQUIT)
   signals_set_->add(SIGQUIT);
@@ -437,20 +449,20 @@ ExampleServer::ExampleServer()
               , base::Unretained(this)
           )
         )
-        // reset |listener_|
+        /*// reset |listener_|
         .ThenOn(*mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
-              &basis::AccessVerifier<
+              &basis::CheckedOptional<
                 ws::Listener
-                , basis::AccessVerifyPolicy::DebugOnly
+                , basis::CheckedOptionalPolicy::DebugOnly
               >::reset_unsafe
               , base::Unretained(&listener_)
               , FROM_HERE
               , "safe to use after SIGQUIT"
               , base::DoNothing::Once()
             )
-        )
+        )*/
         .ThenOn(*mainLoopRunner_
           , FROM_HERE
           , base::BindOnce(
@@ -485,30 +497,34 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(9));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  basis::AutoFakeLockWithCheck<FakeLockPolicy, FakeLockRunType>
+    auto_lock(fakeLockToSequence);
 
   return base::Promises::All(FROM_HERE
     /// \todo add more acceptors
-    , listener_->stopAcceptorAsync());
+    , listener_.stopAcceptorAsync());
 }
 
 void ExampleServer::updateAsioRegistry() NO_EXCEPTION
 {
+  ECS::AsioRegistry& registry = *asioRegistry_;
+
   /// \note you can not use `::boost::asio::post`
   /// if `ioc_->stopped()`
-  if(ioc_->stopped()) {
-    LOG(ERROR)
+  if(ioc_->stopped())
+  {
+    LOG(WARNING)
       << "skipping update of registry"
          " because of stopped io context";
-    NOTREACHED();
+
+    DCHECK(asioRegistry_.ref_value_unsafe(
+              FROM_HERE
+              , "safe to use after ioc_->stopped()"
+                " i.e. registry must no more used"
+              , base::DoNothing::Once())->empty());
+
     return;
   }
-
-  ECS::AsioRegistry& registry =
-    asioRegistry_.ref_value_unsafe(FROM_HERE,
-      /// \todo replace with Invalidatable<>
-      "it safe to read asio registry from any thread"
-      " because its storage expected to be not modified");
 
   ::boost::asio::post(
     registry.ref_strand(FROM_HERE)
@@ -832,9 +848,10 @@ ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(9));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  basis::AutoFakeLockWithCheck<FakeLockPolicy, FakeLockRunType>
+    auto_lock(fakeLockToSequence);
 
-  return listener_->configureAndRun()
+  return listener_.configureAndRun()
   .ThenOn(*mainLoopRunner_
     , FROM_HERE
     , base::BindOnce(
