@@ -85,10 +85,6 @@ namespace ws {
 class Listener
 {
 public:
-  using FakeLockRunType = bool();
-
-  using FakeLockPolicy = basis::FakeLockPolicyDebugOnly;
-
   using EndpointType
     = ::boost::asio::ip::tcp::endpoint;
 
@@ -110,6 +106,8 @@ public:
   using StrandType
     = ::boost::asio::strand<ExecutorType>;
 
+  // Each created network entity will store
+  // `::boost::asio::strand` as ECS component.
   using StrandComponent
     = StrandType;
 
@@ -233,13 +231,6 @@ public:
   MUST_USE_RETURN_VALUE
   bool isAcceptorOpen() const;
 
-  // handles new connections
-  void onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
-                // `per-connection entity`
-                , ECS::Entity tcp_entity_id
-                , const ErrorCode& ec
-                , SocketType&& socket);
-
   MUST_USE_RETURN_VALUE
   StatusPromise stopAcceptorAsync();
 
@@ -270,6 +261,13 @@ public:
   }
 
 private:
+  // handles new connections
+  void onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
+                // `per-connection entity`
+                , ECS::Entity tcp_entity_id
+                , const ErrorCode& ec
+                , SocketType&& socket);
+
   MUST_USE_RETURN_VALUE
   ::util::Status processStateChange(
     const base::Location& from_here

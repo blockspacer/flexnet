@@ -10,6 +10,9 @@
 
 namespace ECS {
 
+using Listener
+  = flexnet::ws::Listener;
+
 void handleClosingSocket(
   ECS::AsioRegistry& asio_registry
   , const ECS::Entity& entity_id
@@ -26,9 +29,9 @@ void handleClosingSocket(
     << "closing socket of connection with id: "
     << tcpComponent.debug_id;
 
-  DCHECK(tcpComponent->try_ctx_var<flexnet::ws::Listener::StrandComponent>());
+  DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
   Listener::StrandComponent& strandComponent
-    = tcpComponent->ctx_var<flexnet::ws::Listener::StrandComponent>();
+    = tcpComponent->ctx_var<Listener::StrandComponent>();
 
   base::OnceClosure doMarkUnused
     = base::BindOnce(
@@ -73,8 +76,13 @@ void handleClosingSocket(
 
           boost::beast::error_code ec;
 
+          // `shutdown_both` disables sends and receives
+          // on the socket.
+          /// \note Call before `socket.close()` to ensure
+          /// that any pending operations on the socket
+          /// are properly cancelled and any buffers are flushed
           socket->shutdown(
-            boost::asio::ip::tcp::socket::shutdown_send, ec);
+            boost::asio::ip::tcp::socket::shutdown_both, ec);
 
           if (ec) {
             LOG(WARNING)
@@ -82,9 +90,27 @@ void handleClosingSocket(
               << ec.message();
           }
 
+          // Close the socket.
+          // Any asynchronous send, receive
+          // or connect operations will be cancelled
+          // immediately, and will complete with the
+          // boost::asio::error::operation_aborted error.
+          /// \note even if the function indicates an error,
+          /// the underlying descriptor is closed.
+          /// \note For portable behaviour with respect to graceful closure of a
+          /// connected socket, call shutdown() before closing the socket.
+          socket->close(ec);
+
+          if (ec) {
+            LOG(WARNING)
+              << "error during close of asio socket: "
+              << ec.message();
+          }
+
           // Schedule change on registry thread
           ::boost::asio::post(
             asio_registry.strand()
+            /// \todo use base::BindFrontWrapper
             , ::boost::beast::bind_front_handler([
               ](
                 base::OnceClosure&& task
@@ -104,6 +130,7 @@ void handleClosingSocket(
   // Schedule shutdown on asio thread
   ::boost::asio::post(
     strandComponent
+    /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler([
       ](
         base::OnceClosure&& task

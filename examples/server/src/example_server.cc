@@ -222,6 +222,7 @@ void ExampleServer::updateAsioRegistry() NO_EXCEPTION
 
   ::boost::asio::post(
     asioRegistry_.strand()
+    /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler([
       ](
         ECS::AsioRegistry& asio_registry
@@ -573,6 +574,8 @@ ExampleServer::VoidPromise
 ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(mainLoopRunner_);
 
   DCHECK_RUN_ON(&sequence_checker_);
 

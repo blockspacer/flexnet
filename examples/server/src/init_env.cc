@@ -40,10 +40,12 @@
 
 namespace backend {
 
-static const base::FilePath::CharType kIcuDataFileName[]
+/// \todo make configurable
+static constexpr base::FilePath::CharType kIcuDataFileName[]
   = FILE_PATH_LITERAL(R"raw(./resources/icu/optimal/icudt64l.dat)raw");
 
-static const base::FilePath::CharType kTraceReportFileName[]
+/// \todo make configurable
+static constexpr base::FilePath::CharType kTraceReportFileName[]
   = FILE_PATH_LITERAL(R"raw(trace_report.json)raw");
 
 MUST_USE_RETURN_VALUE

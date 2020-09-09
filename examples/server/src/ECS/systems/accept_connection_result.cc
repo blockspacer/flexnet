@@ -10,10 +10,13 @@
 
 namespace ECS {
 
+using Listener
+  = flexnet::ws::Listener;
+
 void handleAcceptNewConnectionResult(
   ECS::AsioRegistry& asio_registry
   , const ECS::Entity& entity_id
-  , flexnet::ws::Listener::AcceptConnectionResult& acceptResult)
+  , Listener::AcceptConnectionResult& acceptResult)
 {
   using namespace ::flexnet::ws;
   using namespace ::flexnet::http;
@@ -30,7 +33,18 @@ void handleAcceptNewConnectionResult(
     << tcpComponent.debug_id;
 
   // `ECS::TcpConnection` must be valid
-  DCHECK(tcpComponent->try_ctx_var<flexnet::ws::Listener::StrandComponent>());
+  DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
+
+  auto closeAndReleaseResources
+    = [&acceptResult, &asio_registry, entity_id]()
+  {
+    // Schedule shutdown on asio thread
+    if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
+      asio_registry->emplace<ECS::CloseSocket>(entity_id
+        /// \note lifetime of `acceptResult` must be prolonged
+        , UNOWNED_LIFETIME() &acceptResult.socket);
+    }
+  };
 
   // Handle the error, if any
   if (acceptResult.ec)
@@ -39,12 +53,7 @@ void handleAcceptNewConnectionResult(
       << "Listener failed to accept new connection with error: "
       << acceptResult.ec.message();
 
-    // Schedule shutdown on asio thread
-    if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
-      asio_registry->emplace<ECS::CloseSocket>(entity_id
-        /// \todo use UnownedPtr
-        , UNOWNED_LIFETIME() &acceptResult.socket);
-    }
+    closeAndReleaseResources();
 
     return;
   }
@@ -57,12 +66,7 @@ void handleAcceptNewConnectionResult(
     DVLOG(99)
       << "Listener forced shutdown of created connection";
 
-    // Schedule shutdown on asio thread
-    if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
-      asio_registry->emplace<ECS::CloseSocket>(entity_id
-        /// \todo use UnownedPtr
-        , UNOWNED_LIFETIME() &acceptResult.socket);
-    }
+    closeAndReleaseResources();
 
     // nothing to do
     return;
@@ -109,6 +113,7 @@ void handleAcceptNewConnectionResult(
   // working executor required by |::boost::asio::post|
   ::boost::asio::post(
     detectChannelCtx->value().perConnectionStrand()
+    /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler([
       ](
         base::OnceClosure&& task

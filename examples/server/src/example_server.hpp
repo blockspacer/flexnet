@@ -55,10 +55,6 @@ class ExampleServer
   using EndpointType
     = ws::Listener::EndpointType;
 
-  using FakeLockRunType = bool();
-
-  using FakeLockPolicy = basis::FakeLockPolicyDebugOnly;
-
  public:
   ExampleServer(
     const std::string& ip_addr = "127.0.0.1"

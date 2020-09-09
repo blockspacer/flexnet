@@ -1,11 +1,21 @@
-#include "net/http/server/ServerSession.hpp" // IWYU pragma: associated
-#include "net/ws/server/ServerSession.hpp"
-#include "algo/DispatchQueue.hpp"
+#if 1
+#include "flexnet/http/http_channel.hpp" // IWYU pragma: associated
+#include "flexnet/util/mime_type.hpp"
 
-#include <base/logging.h>
+#include "flexnet/ECS/tags.hpp"
+
 #include <base/rvalue_cast.h>
+#include <base/optional.h>
+#include <base/location.h>
+#include <base/macros.h>
+#include <base/logging.h>
+#include <base/threading/thread.h>
+#include <base/task/thread_pool/thread_pool.h>
 
-#include <algorithm>
+#include <basis/move_only.hpp>
+#include <basis/unowned_ptr.hpp>
+#include <basis/task/periodic_check.hpp>
+#include <basis/promise/post_promise.h>
 
 #include <boost/asio.hpp>
 #include <boost/asio/buffer.hpp>
@@ -14,7 +24,11 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/core/ignore_unused.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/asio/basic_stream_socket.hpp>
+#include <boost/asio/bind_executor.hpp>
 
+#include <algorithm>
+#include <ratio>
 #include <chrono>
 #include <cinttypes>
 #include <cstdint>
@@ -27,46 +41,46 @@
 #include <string>
 #include <type_traits>
 #include <utility>
-#include <net/http/SessionGUID.hpp>
-#include <net/http/MimeType.hpp>
 
-#include <base/bind.h>
-#include <base/logging.h>
-
-namespace beast = boost::beast;               // from <boost/beast.hpp>
-//namespace http = beast::http;                 // from <boost/beast/http.hpp>
-namespace websocket = beast::websocket;       // from <boost/beast/websocket.hpp>
-//namespace net = boost::asio;                  // from <boost/asio.hpp>
-using tcp = boost::asio::ip::tcp;             // from <boost/asio/ip/tcp.hpp>
-using error_code = boost::system::error_code; // from <boost/system/error_code.hpp>
+namespace beast = boost::beast;
 
 namespace {
 
+using HttpChannel
+  = flexnet::http::HttpChannel;
+
+template<class Allocator>
+using basic_fields
+  = beast::http::basic_fields<Allocator>;
+
+/// \todo use base::FilePath
 // Append an HTTP rel-path to a local filesystem path.
 // The returned path is normalized for the platform.
 std::string
-path_cat(
-    beast::string_view base,
-    beast::string_view path)
+pathConcat(
+  beast::string_view base,
+  beast::string_view path)
 {
-    if(base.empty())
-        return std::string(path);
-    std::string result(base);
+  if(base.empty()) {
+    return std::string(path);
+  }
+
+  std::string result(base);
 #ifdef BOOST_MSVC
-    char constexpr path_separator = '\\';
-    if(result.back() == path_separator)
-        result.resize(result.size() - 1);
-    result.append(path.data(), path.size());
-    for(auto& c : result)
-        if(c == '/')
-            c = path_separator;
+  char constexpr path_separator = '\\';
+  if(result.back() == path_separator)
+    result.resize(result.size() - 1);
+  result.append(path.data(), path.size());
+  for(auto& c : result)
+    if(c == '/')
+        c = path_separator;
 #else
-    char constexpr path_separator = '/';
-    if(result.back() == path_separator)
-        result.resize(result.size() - 1);
-    result.append(path.data(), path.size());
+  char constexpr path_separator = '/';
+  if(result.back() == path_separator)
+    result.resize(result.size() - 1);
+  result.append(path.data(), path.size());
 #endif
-    return result;
+  return result;
 }
 
 // This function produces an HTTP response for the given
@@ -74,219 +88,376 @@ path_cat(
 // contents of the request, so the interface requires the
 // caller to pass a generic lambda for receiving the response.
 template<
-    class Body, class Allocator,
-    class Send>
+  class Body
+  , class Allocator
+  , class SendCallback>
 void
-handle_request(
-    beast::string_view doc_root,
-    beast::http::request<Body, beast::http::basic_fields<Allocator>>&& req,
-    const std::optional<beast::http::response<gloer::net::http::ServerSession::request_body_t>>& custom_response,
-    Send&& send)
+handleRequest(
+  beast::string_view doc_root,
+  beast::http::request<Body, basic_fields<Allocator>>&& req,
+  const std::optional<HttpChannel::ResponseToRequestType>& custom_response,
+  SendCallback&& sendCallback)
 {
-    // Returns a bad request response
-    auto const bad_request =
-    [&req](beast::string_view why)
-    {
-        beast::http::response<gloer::net::http::ServerSession::request_body_t> res{beast::http::status::bad_request, req.version()};
-        res.set(beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(beast::http::field::content_type, "text/html");
-        res.keep_alive(req.keep_alive());
-        res.body() = std::string(why);
-        res.prepare_payload();
-        return res;
-    };
+  // Returns a bad request response
+  auto const bad_request =
+  [&req](beast::string_view why)
+  {
+    HttpChannel::ResponseToRequestType res{
+      beast::http::status::bad_request
+      , req.version()};
 
-    // Returns a not found response
-    auto const not_found =
-    [&req](beast::string_view target)
-    {
-        beast::http::response<gloer::net::http::ServerSession::request_body_t> res{beast::http::status::not_found, req.version()};
-        res.set(beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(beast::http::field::content_type, "text/html");
-        res.keep_alive(req.keep_alive());
-        res.body() = "The resource '" + std::string(target) + "' was not found.";
-        res.prepare_payload();
-        return res;
-    };
+    res.set(beast::http::field::server
+      , BOOST_BEAST_VERSION_STRING);
 
-    // Returns a server error response
-    auto const server_error =
-    [&req](beast::string_view what)
-    {
-        beast::http::response<gloer::net::http::ServerSession::request_body_t> res{beast::http::status::internal_server_error, req.version()};
-        res.set(beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(beast::http::field::content_type, "text/html");
-        res.keep_alive(req.keep_alive());
-        res.body() = "An error occurred: '" + std::string(what) + "'";
-        res.prepare_payload();
-        return res;
-    };
+    res.set(beast::http::field::content_type
+      , "text/html");
 
-    if(custom_response) {
-      /// \todo support custom_response
-      //return send(custom_response.value());
-      return send(bad_request("Not allowed"));
-    }
-
-    // Make sure we can handle the method
-    if( req.method() != beast::http::verb::get &&
-        req.method() != beast::http::verb::head)
-        return send(bad_request("Unknown HTTP-method"));
-
-    // Request path must be absolute and not contain "..".
-    if( req.target().empty() ||
-        req.target()[0] != '/' ||
-        req.target().find("..") != beast::string_view::npos)
-        return send(bad_request("Illegal request-target"));
-
-    // Build the path to the requested file
-    std::string path = path_cat(doc_root, req.target());
-    if(req.target().back() == '/')
-        path.append("index.html");
-
-    // Attempt to open the file
-    beast::error_code ec;
-    beast::http::file_body::value_type body;
-    body.open(path.c_str(), beast::file_mode::scan, ec);
-
-    // Handle the case where the file doesn't exist
-    if(ec == boost::system::errc::no_such_file_or_directory)
-        return send(not_found(req.target()));
-
-    // Handle an unknown error
-    if(ec)
-        return send(server_error(ec.message()));
-
-    // Cache the size since we need it after the move
-    auto const size = body.size();
-
-    const static gloer::net::http::MimeType mime_type;
-
-    // Respond to HEAD request
-    if(req.method() == beast::http::verb::head)
-    {
-        beast::http::response<beast::http::empty_body> res{beast::http::status::ok, req.version()};
-        res.set(beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(beast::http::field::content_type, mime_type(path));
-        res.content_length(size);
-        res.keep_alive(req.keep_alive());
-        return send(base::rvalue_cast(res));
-    }
-
-    // Respond to GET request
-    beast::http::response<beast::http::file_body> res{
-        std::piecewise_construct,
-        std::make_tuple(base::rvalue_cast(body)),
-        std::make_tuple(beast::http::status::ok, req.version())};
-    res.set(beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-    res.set(beast::http::field::content_type, mime_type(path));
-    res.content_length(size);
     res.keep_alive(req.keep_alive());
-    return send(base::rvalue_cast(res));
+
+    res.body()
+      = std::string(why);
+
+    res.prepare_payload();
+
+    return res;
+  };
+
+  // Returns a not found response
+  auto const not_found =
+  [&req](beast::string_view target)
+  {
+    HttpChannel::ResponseToRequestType res{
+      beast::http::status::not_found
+      , req.version()};
+
+    res.set(beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+
+    res.set(beast::http::field::content_type, "text/html");
+
+    res.keep_alive(req.keep_alive());
+
+    res.body()
+      = "The resource '"
+        + std::string(target)
+        + "' was not found.";
+
+    res.prepare_payload();
+
+    return res;
+  };
+
+  // Returns a server error response
+  auto const server_error =
+  [&req](beast::string_view what)
+  {
+    HttpChannel::ResponseToRequestType res{
+      beast::http::status::internal_server_error
+      , req.version()};
+
+    res.set(beast::http::field::server
+      , BOOST_BEAST_VERSION_STRING);
+
+    res.set(beast::http::field::content_type
+      , "text/html");
+
+    res.keep_alive(req.keep_alive());
+
+    res.body()
+      = "An error occurred: '"
+        + std::string(what)
+        + "'";
+
+    res.prepare_payload();
+
+    return res;
+  };
+
+  if(custom_response) {
+    /// \todo support custom_response
+    //return sendCallback(custom_response.value());
+    return sendCallback(bad_request("Not allowed"));
+  }
+
+  // Make sure we can handle the method
+  if(req.method() != beast::http::verb::get
+     && req.method() != beast::http::verb::head)
+  {
+    return sendCallback(bad_request("Unknown HTTP-method"));
+  }
+
+  // Request path must be absolute and not contain "..".
+  if( req.target().empty() ||
+      req.target()[0] != '/' ||
+      req.target().find("..") != beast::string_view::npos)
+  {
+    return sendCallback(bad_request("Illegal request-target"));
+  }
+
+  // Build the path to the requested file
+  std::string path = pathConcat(doc_root, req.target());
+  if(req.target().back() == '/')
+  {
+    path.append("index.html");
+  }
+
+  // Attempt to open the file
+  beast::error_code ec;
+  beast::http::file_body::value_type fileBody;
+  fileBody.open(path.c_str(), beast::file_mode::scan, ec);
+
+  // Handle the case where the file doesn't exist
+  if(ec == boost::system::errc::no_such_file_or_directory)
+  {
+    return sendCallback(not_found(req.target()));
+  }
+
+  // Handle an unknown error
+  if(ec) {
+    return sendCallback(server_error(ec.message()));
+  }
+
+  // Cache the size since we need it after the move
+  auto const size = fileBody.size();
+
+  const static flexnet::MimeType mime_type;
+
+  // Respond to HEAD request
+  if(req.method() == beast::http::verb::head)
+  {
+    HttpChannel::ResponseEmptyType res{
+      beast::http::status::ok, req.version()};
+
+    res.set(beast::http::field::server
+      , BOOST_BEAST_VERSION_STRING);
+
+    res.set(beast::http::field::content_type
+      , mime_type(path));
+
+    res.content_length(size);
+
+    res.keep_alive(req.keep_alive());
+
+    return sendCallback(base::rvalue_cast(res));
+  }
+
+  // Respond to GET request
+  HttpChannel::ResponseFileType res{
+    std::piecewise_construct,
+    std::make_tuple(base::rvalue_cast(fileBody))
+    , std::make_tuple(
+        beast::http::status::ok
+        , req.version())};
+
+  res.set(beast::http::field::server
+    , BOOST_BEAST_VERSION_STRING);
+
+  res.set(beast::http::field::content_type
+    , mime_type(path));
+
+  res.content_length(size);
+
+  res.keep_alive(req.keep_alive());
+
+  return sendCallback(base::rvalue_cast(res));
 }
 
 } // namespace
 
-namespace gloer {
-namespace net {
+namespace flexnet {
 namespace http {
 
-
-// @note ::tcp::socket socket represents the local end of a connection between two peers
-// NOTE: Following the base::rvalue_cast, the moved-from object is in the same state
-// as if constructed using the basic_stream_socket(io_context&) constructor.
-// boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/basic_stream_socket/basic_stream_socket/overload5.html
-ServerSession::ServerSession(::boost::beast::limited_tcp_stream&& stream,
-  gloer::net::http::DetectSession::buffer_t&& buffer,
-  ::boost::asio::ssl::context& ctx,
-  const http::SessionGUID& id)
-    : SessionBase<http::SessionGUID>(id)
-      //,
-      , buffer_(/*base::rvalue_cast*/(buffer))
-      , ctx_(ctx)
-      , stream_(base::rvalue_cast(stream))
-//      , request_deadline_{stream_.socket().get_executor(), (std::chrono::steady_clock::time_point::max)()}
+HttpChannel::HttpChannel(
+  StreamType&& stream
+  , MessageBufferType&& buffer
+  , ECS::AsioRegistry& asioRegistry
+  , const ECS::Entity entity_id)
+  : stream_(base::rvalue_cast(stream))
+  , perConnectionStrand_(
+      /// \note `get_executor` returns copy
+      stream_.get_executor())
+  , is_stream_valid_(true)
+  , buffer_(base::rvalue_cast(buffer))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_ptr_factory_(COPIED(this)))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(weak_ptr_factory_.GetWeakPtr()))
+  , asioRegistry_(REFERENCED(asioRegistry))
+  , entity_id_(entity_id)
 {
+  LOG_CALL(DVLOG(99));
 
-  // TODO: stopped() == false
-  // DCHECK(socket.get_executor().context().stopped() == false);
-
-  DCHECK_GT(static_cast<std::string>(id).length(), 0);
-
-  DCHECK_LT(static_cast<std::string>(id).length(), MAX_ID_LEN);
+  DETACH_FROM_SEQUENCE(sequence_checker_);
 
   // The policy object, which is default constructed, or
   // decay-copied upon construction, is attached to the stream
   // and may be accessed through the function `rate_policy`.
   //
   // Here we set individual rate limits for reading and writing
-  stream_.rate_policy().read_limit(10000); // bytes per second
-  stream_.rate_policy().write_limit(850000); // bytes per second
+  stream_.rate_policy()
+    .read_limit(10000); // bytes per second
+  stream_.rate_policy()
+    .write_limit(850000); // bytes per second
 }
 
-ServerSession::~ServerSession() {
-  DCHECK(on_destruction);
-
-  on_destruction(this); /// \note no shared_ptr in destructor
-
-  /// \note don't call `close()` from desctructor, handle `close()` manually
-  if(http_stream_valid_.load()) {
-    DCHECK(!isOpen());
-  }
-}
-
-void ServerSession::close() {
-  DCHECK(isOpen());
-
-  /// \note steam may be moved and it's memory may become corrupted
-  if(http_stream_valid_.load()) {
-    /// \note use ServerSession::do_eof() to close connection
-    if(stream_.socket().is_open()) {
-      beast::error_code ec;
-      stream_.socket().close(ec);
-    }
-    DCHECK(!stream_.socket().is_open());
-  }
-}
-
-/*void ServerSession::check_deadline_loop()
+NOT_THREAD_SAFE_FUNCTION()
+HttpChannel::~HttpChannel()
 {
-    // The deadline may have moved, so check it has really passed.
-    if (request_deadline_.expiry() <= std::chrono::steady_clock::now())
-    {
-        // Close socket to cancel any outstanding operation.
-        //beast::error_code ec;
-        stream_.socket().close();
+  LOG_CALL(DVLOG(99));
 
-        // Sleep indefinitely until we're given a new deadline.
-        request_deadline_.expires_at(
-            std::chrono::steady_clock::time_point::max());
+  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+
+  /// \note do not call `close()` from destructor
+  /// i.e. call `close()` manually
+  if(is_stream_valid_.load()) {
+    DCHECK(!isOpen()); /// \todo thread safety
+  }
+}
+
+bool HttpChannel::isOpen()
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(stream_);
+  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+
+  DCHECK(is_stream_valid_.load());
+  return stream_.socket().is_open();
+}
+
+void HttpChannel::doReadAsync()
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+
+  DCHECK(!perConnectionStrand_->running_in_this_thread())
+    << "use HttpChannel::doRead()";
+
+  /// \note it is not hot code path,
+  /// so it is ok to use `base::Promise` here
+  ignore_result(
+    postTaskOnConnectionStrand(
+      FROM_HERE
+      , base::BindOnce(
+        &HttpChannel::doRead,
+        base::Unretained(this)))
+  );
+}
+
+void HttpChannel::doRead()
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD(stream_);
+  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(buffer_);
+
+  DCHECK(is_stream_valid_.load());
+
+  DCHECK(perConnectionStrand_->running_in_this_thread());
+
+  DVLOG(99)
+    << "HTTP read remote_endpoint: "
+    << beast::get_lowest_layer(stream_)
+        .socket()
+        .remote_endpoint();
+
+  // Construct a new parser for each message
+  parser_.emplace();
+
+  // Apply a reasonable limit to the allowed size
+  // of the body in bytes to prevent abuse.
+  parser_->body_limit(kMaxMessageSizeByte);
+
+  // Set the timeout.
+  beast::get_lowest_layer(stream_)
+    .expires_after(std::chrono::seconds(kExpireTimeoutSec));
+
+  // Read a request
+  beast::http::async_read(
+    stream_
+    , buffer_
+    , parser_->get()
+    /// \todo use base::BindFrontWrapper
+    /*, ::boost::beast::bind_front_handler([
+      ](
+        base::OnceClosure&& boundTask
+      ){
+        base::rvalue_cast(boundTask).Run();
+      }
+      , base::BindOnce(
+          &HttpChannel::onRead
+          , base::Unretained(this)
+        )
+    )*/
+    , boost::asio::bind_executor(
+        *perConnectionStrand_
+        , ::std::bind(
+          &HttpChannel::onRead,
+          UNOWNED_LIFETIME(
+            this)
+          , std::placeholders::_1
+          , std::placeholders::_2
+          )
+      )
+  );
+}
+
+void HttpChannel::doEof()
+{
+  DCHECK_CUSTOM_THREAD_GUARD(stream_);
+  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+
+  DCHECK(is_stream_valid_.load());
+
+  DVLOG(99)
+    << "HTTPChannel::do_eof for remote_endpoint: "
+    << beast::get_lowest_layer(stream_)
+        .socket()
+        .remote_endpoint();
+
+  /*// Schedule shutdown on asio thread
+  if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
+    asio_registry->emplace<ECS::CloseSocket>(entity_id
+      /// \note lifetime of `acceptResult` must be prolonged
+      , UNOWNED_LIFETIME() &acceptResult.socket);
+  }*/
+
+  /*// Send a TCP shutdown on asio thread
+  if(stream_.socket().is_open())
+  {
+    LOG(INFO) << "shutdown http socket...";
+    ErrorCode ec;
+    /// \todo async_shutdown ? why only for SSL async_shutdown? https://github.com/OzzieIsaacs/winmerge-qt/blob/master/ext/boost_1_70_0/libs/beast/example/advanced/server-flex/advanced_server_flex.cpp#L764
+    stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
+    if (ec) {
+      /// \note don't call fail handlers here to prevent recursion, just log error
+      LOG(WARNING) << "HTTP ServerSession shutdown: " << " : " << ec.message();
     }
+  }*/
 
-    request_deadline_.async_wait(
-        [this](beast::error_code ec)
-        {
-            check_deadline_loop();
-            if(ec) {
-                LOG(WARNING) << "error_code during check_deadline_loop: " << ec.message();
-            }
-        });
-}*/
+  // At this point the connection is closed gracefully
+}
 
-void ServerSession::on_session_fail(beast::error_code ec, char const* what) {
-  DCHECK(http_stream_valid_.load());
-  DCHECK(fail_handler);
+void HttpChannel::onFail(
+  ErrorCode ec
+  , char const* what)
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+
+  DCHECK(is_stream_valid_.load());
+
+  /*DCHECK(fail_handler);
 
   /// \note user can provide custom timeout handler e.t.c.
   if(!fail_handler(shared_from_this(), &ec, what)){
     return;
-  }
+  }*/
 
-  do_eof();
-
-  if(isOpen()) {
-    close();
-  }
+  doEof();
 
   // ssl::error::stream_truncated, also known as an SSL "short read",
   // indicates the peer closed the connection without performing the
@@ -304,9 +475,9 @@ void ServerSession::on_session_fail(beast::error_code ec, char const* what) {
   // Beast returns the error beast::http::error::partial_message.
   // Therefore, if we see a short read here, it has occurred
   // after the message has been completed, so it is safe to ignore it.
-  if(ec == ::boost::asio::ssl::error::stream_truncated) {
+  /*if(ec == ::boost::asio::ssl::error::stream_truncated) {
       return;
-  }
+  }*/
 
   // Don't report these
   /*if (ec == ::boost::asio::error::operation_aborted
@@ -320,123 +491,61 @@ void ServerSession::on_session_fail(beast::error_code ec, char const* what) {
   }*/
 }
 
-size_t ServerSession::MAX_IN_MSG_SIZE_BYTE = 16 * 1024;
-size_t ServerSession::MAX_OUT_MSG_SIZE_BYTE = 16 * 1024;
-
-// Called by the base class
-void ServerSession::do_eof()
+void HttpChannel::onRead(
+  ErrorCode ec
+  , std::size_t bytes_transferred)
 {
-  DCHECK(http_stream_valid_.load());
+  LOG_CALL(DVLOG(99));
 
-  const boost::asio::ip::tcp::endpoint remote_endpoint
-    = beast::get_lowest_layer(stream_).socket().remote_endpoint();
-  LOG(INFO) << "HTTP ServerSession::do_eof remote_endpoint: " << remote_endpoint;
+  DCHECK_CUSTOM_THREAD_GUARD(stream_);
+  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
 
-  // Set the timeout.
-  beast::get_lowest_layer(stream_).expires_after(std::chrono::seconds(30));
-
-  // Send a TCP shutdown on asio thread
-  if(stream_.socket().is_open())
-  {
-    LOG(INFO) << "shutdown http socket...";
-    beast::error_code ec;
-    /// \todo async_shutdown ? why only for SSL async_shutdown? https://github.com/OzzieIsaacs/winmerge-qt/blob/master/ext/boost_1_70_0/libs/beast/example/advanced/server-flex/advanced_server_flex.cpp#L764
-    stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
-    if (ec) {
-      /// \note don't call fail handlers here to prevent recursion, just log error
-      LOG(WARNING) << "HTTP ServerSession shutdown: " << " : " << ec.message();
-    }
-  }
-
-  // At this point the connection is closed gracefully
-}
-
-void ServerSession::on_shutdown(beast::error_code ec)
-{
-  if(ec) {
-    return on_session_fail(ec, "shutdown");
-  }
-
-  // At this point the connection is closed gracefully
-  DCHECK(http_stream_valid_.load());
-  DCHECK(!stream_.socket().is_open());
-}
-
-// Start the asynchronous operation
-void ServerSession::do_read() {
-  //check_deadline_loop();
-
-  LOG(INFO) << "HTTP session do_read";
-
-  DCHECK(http_stream_valid_.load());
-
-  const boost::asio::ip::tcp::endpoint remote_endpoint
-    = beast::get_lowest_layer(stream_).socket().remote_endpoint();
-  LOG(INFO) << "HTTP ServerSession::do_read remote_endpoint: " << remote_endpoint;
-
-  // Construct a new parser for each message
-  parser_.emplace();
-
-  // Apply a reasonable limit to the allowed size
-  // of the body in bytes to prevent abuse.
-  parser_->body_limit(MAX_BUFFER_BYTES_SIZE);
-
-  // Set the timeout.
-  beast::get_lowest_layer(
-      stream_).expires_after(std::chrono::seconds(30));
-
-  // Read a request
-  beast::http::async_read(
-      stream_,
-      buffer_,
-      parser_->get(),
-      beast::bind_front_handler(
-          &http::ServerSession::on_read,
-          shared_from_this()));
-}
-
-void ServerSession::on_read(beast::error_code ec, std::size_t bytes_transferred) {
   // This means they closed the connection
   if(ec == beast::http::error::end_of_stream) {
-    do_eof();
+    DVLOG(99)
+      << "(HttpChannel) remote endpoint closed connection: "
+      << ec.message();
+    doEof();
     return;
   }
 
   // Handle the error, if any
   if(ec) {
-    return on_session_fail(ec, "read");
+    return onFail(ec, "read");
   }
 
-  DCHECK(http_stream_valid_.load());
+  DCHECK(is_stream_valid_.load());
 
-  std::optional<beast::http::response<request_body_t>> http_resonse_on_fail
+  std::optional<ResponseToRequestType> http_resonse_on_fail
     = std::nullopt;
 
   // See if it is a WebSocket Upgrade
-  if(websocket::is_upgrade(parser_->get()))
+  if(::boost::beast::websocket::is_upgrade(parser_->get()))
   {
-      DCHECK(on_websocket_upgrade_);
+      /*DCHECK(on_websocket_upgrade_);
 
       /// \note websocket upgrade may fail with some http response, like `permission denied`
+
       http_resonse_on_fail
         = on_websocket_upgrade_(shared_from_this(), &ec, bytes_transferred);
+      */
 
       if(http_resonse_on_fail) {
         /// \note failed to create ws stream, continue with http stream
-        DCHECK(http_stream_valid_.load());
-        LOG(WARNING) << "http_stream_valid_ = true";
+        DCHECK(is_stream_valid_.load());
+        LOG(WARNING) << "is_stream_valid_ = true";
 
         // TODO: do we need to close http session here if failed to update request???
       } else {
         /// \note `stream_` can be moved to websocket session from http session,
         // so we can't use it here anymore
-        http_stream_valid_ = false;
+        is_stream_valid_ = false;
 
         // Disable the timeout.
         // The websocket::stream uses its own timeout settings.
         beast::get_lowest_layer(stream_).expires_never();
 
-        LOG(WARNING) << "http_stream_valid_ = false";
+        LOG(WARNING) << "is_stream_valid_ = false";
         return;
       }
   }
@@ -447,81 +556,37 @@ void ServerSession::on_read(beast::error_code ec, std::size_t bytes_transferred)
   // The following code requires generic
   // lambdas, available in C++14 and later.
   //
-  DCHECK(http_stream_valid_.load());
+  DCHECK(is_stream_valid_.load());
 
-  handle_request(
-      "/",//state_->doc_root(),
-      /*base::rvalue_cast*/(parser_->release()),
-      http_resonse_on_fail,
-      [this](auto&& response)
-      {
-          // The lifetime of the message has to extend
-          // for the duration of the async operation so
-          // we use a shared_ptr to manage it.
-          using response_type = typename std::decay<decltype(response)>::type;
-          auto sp = std::make_shared<response_type>(
-            std::forward<decltype(response)>(response));
-          // Write the response
-          // NOTE: store `self` as separate variable due to ICE in gcc 7.3
-          auto self = shared_from_this();
-          beast::http::async_write(stream_, *sp,
-              [self, sp](
-                  beast::error_code ec, std::size_t bytes)
-              {
-                  self->on_write(ec, bytes, sp->need_eof());
-              });
-      });
-}
-
-void ServerSession::on_write(beast::error_code ec, std::size_t bytes_transferred, bool close) {
-  DCHECK(http_stream_valid_.load());
-
-  boost::ignore_unused(bytes_transferred);
-
-  // Handle the error, if any
-  if(ec) {
-    return on_session_fail(ec, "write");
-  }
-
-  http::SessionGUID copyId = getId();
-
-  if(close) {
-    // This means we should close the connection, usually because
-    // the response indicated the "Connection: close" semantic.
-    do_eof();
-    return;
-  }
-
-  // Read another request
-  do_read();
-}
-
-void ServerSession::send(const std::shared_ptr<const std::string> shared_msg, bool is_binary) {
-  LOG(WARNING) << "NOTIMPLEMENTED: HTTP ServerSession::send:";
-  DCHECK(http_stream_valid_.load());
-}
-
-/**
- * @brief starts async writing to client
- *
- * @param message message passed to client
- */
-void ServerSession::send(const std::string& message, bool is_binary) {
-  LOG(WARNING) << "NOTIMPLEMENTED: HTTP ServerSession::send:";
-  DCHECK(http_stream_valid_.load());
-}
-
-bool ServerSession::isOpen() /*const*/ {
-  DCHECK(http_stream_valid_.load());
-  return stream_.socket().is_open();
-}
-
-bool ServerSession::isExpired() /*const*/ {
-  LOG(WARNING) << "NOTIMPLEMENTED: HTTP ServerSession::isExpired";
-  DCHECK(http_stream_valid_.load());
-  return true; // TODO
+  handleRequest(
+    /// \todo make configurable
+    "/", // doc_root
+    parser_->release(),
+    http_resonse_on_fail, // optional custom resonse
+    [this](auto&& response)
+    {
+      // The lifetime of the message has to extend
+      // for the duration of the async operation so
+      // we use a shared_ptr to manage it.
+      using response_type
+        = typename std::decay<decltype(response)>::type;
+      auto sp = std::make_shared<response_type>(
+        std::forward<decltype(response)>(response));
+/*
+      // Write the response
+      // NOTE: store `self` as separate variable
+      // due to ICE in gcc 7.3
+      auto self = shared_from_this();
+      beast::http::async_write(stream_, *sp,
+        [self, sp](
+            ErrorCode ec, std::size_t bytes)
+        {
+            self->onWrite(ec, bytes, sp->need_eof());
+        });*/
+    }
+  );
 }
 
 } // namespace http
-} // namespace net
-} // namespace gloer
+} // namespace flexnet
+#endif // 0

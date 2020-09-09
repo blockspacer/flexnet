@@ -586,7 +586,8 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_)
+    << "use Listener::stopAcceptor()";
 
   /// \note we asume that no more tasks
   /// will be posted on |acceptorStrand_|
@@ -642,6 +643,7 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
   // (or as failed with error code)
   ::boost::asio::post(
     asioRegistry_->strand()
+    /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler([
       ](
         base::OnceClosure&& boundTask
@@ -688,39 +690,43 @@ void Listener::setAcceptConnectionResult(
   // `ECS::TcpConnection` must be valid
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
 
-  using UniqueAcceptComponent
-    = base::Optional<Listener::AcceptConnectionResult>;
+  /// \todo create utility function `cached_emplace`
+  {
+    using UniqueAcceptComponent
+      = base::Optional<Listener::AcceptConnectionResult>;
 
-  const bool useCache
-    = (*asioRegistry_)->has<UniqueAcceptComponent>(tcp_entity_id);
+    const bool useCache
+      = (*asioRegistry_)->has<UniqueAcceptComponent>(tcp_entity_id);
 
-  (*asioRegistry_)->remove_if_exists<
-    ECS::UnusedAcceptResultTag
-  >(tcp_entity_id);
+    (*asioRegistry_)->remove_if_exists<
+      ECS::UnusedAcceptResultTag
+    >(tcp_entity_id);
 
-  UniqueAcceptComponent& acceptResult
-    = useCache
-      ? (*asioRegistry_)->get<UniqueAcceptComponent>(tcp_entity_id)
-      : (*asioRegistry_)->emplace<UniqueAcceptComponent>(
-          tcp_entity_id
-          , base::in_place
-          , base::rvalue_cast(ec)
-          , base::rvalue_cast(socket)
-          /// \todo make us of it
-          , /* force closing */ false);
+    UniqueAcceptComponent& acceptResult
+      = useCache
+        /// \todo use get_or_emplace
+        ? (*asioRegistry_)->get<UniqueAcceptComponent>(tcp_entity_id)
+        : (*asioRegistry_)->emplace<UniqueAcceptComponent>(
+            tcp_entity_id
+            , base::in_place
+            , base::rvalue_cast(ec)
+            , base::rvalue_cast(socket)
+            /// \todo make us of it
+            , /* force closing */ false);
 
-  if(useCache) {
-    DCHECK(acceptResult);
-    acceptResult.emplace(
-      base::rvalue_cast(ec)
-      , base::rvalue_cast(socket)
-      /// \todo make us of it
-      , /* force closing */ false);
-    DVLOG(99)
-      << "using preallocated AcceptConnectionResult";
-  } else {
-    DVLOG(99)
-      << "allocating new AcceptConnectionResult";
+    if(useCache) {
+      DCHECK(acceptResult);
+      acceptResult.emplace(
+        base::rvalue_cast(ec)
+        , base::rvalue_cast(socket)
+        /// \todo make us of it
+        , /* force closing */ false);
+      DVLOG(99)
+        << "using preallocated AcceptConnectionResult";
+    } else {
+      DVLOG(99)
+        << "allocating new AcceptConnectionResult";
+    }
   }
 }
 

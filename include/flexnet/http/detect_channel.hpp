@@ -90,20 +90,17 @@ class DetectChannel
 {
 public:
   /// \todo make configurable
-  static const size_t kMaxMessageSizeBytes = 100000;
+  static constexpr size_t kMaxMessageSizeByte = 100000;
 
 public:
-  using FakeLockRunType = bool();
-
-  using FakeLockPolicy = basis::FakeLockPolicyDebugOnly;
-
   using MessageBufferType
-    = ::boost::beast::flat_static_buffer<kMaxMessageSizeBytes>;
+    = ::boost::beast::flat_static_buffer<kMaxMessageSizeByte>;
 
   using ErrorCode
     = ::boost::beast::error_code;
 
   using StreamType
+    /// \note stream with custom rate limiter
     = ::boost::beast::limited_tcp_stream;
 
   using ExecutorType
@@ -172,6 +169,7 @@ public:
 
     ErrorCode ec;
     bool handshakeResult;
+    /// \todo make NOT optional
     // can not copy assign `stream`, so use optional
     std::optional<StreamType> stream;
     MessageBufferType buffer;
@@ -314,7 +312,7 @@ private:
     (const std::chrono::seconds& expire_timeout);
 
 private:
-  /// \note stream with custom rate limiter
+  /// \todo make NOT optional
   // can not copy assign `stream`, so use optional
   base::Optional<StreamType> stream_
     /// \note moved between threads,
@@ -356,28 +354,28 @@ private:
     SET_CUSTOM_THREAD_GUARD(weak_this_);
 
   // |stream_| and calls to |async_detect*| are guarded by strand
-   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
-     SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
-       perConnectionStrand_
-       // 1. It safe to read value from any thread
-       // because its storage expected to be not modified.
-       // 2. On each access to strand check that stream valid
-       // otherwise `::boost::asio::post` may fail.
-       , base::BindRepeating(
-         [
-         ](
-           bool is_stream_valid
-           , StreamType& stream
-         ){
-           /// \note |perConnectionStrand_|
-           /// is valid as long as |stream_| valid
-           /// i.e. valid util |stream_| moved out
-           /// (it uses executor from stream).
-           return is_stream_valid;
-         }
-         , is_stream_valid_.load()
-         , REFERENCED(stream_.value())
-       ));
+  basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
+    SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
+      perConnectionStrand_
+      // 1. It safe to read value from any thread
+      // because its storage expected to be not modified.
+      // 2. On each access to strand check that stream valid
+      // otherwise `::boost::asio::post` may fail.
+      , base::BindRepeating(
+        [
+        ](
+          bool is_stream_valid
+          , StreamType& stream
+        ){
+          /// \note |perConnectionStrand_|
+          /// is valid as long as |stream_| valid
+          /// i.e. valid util |stream_| moved out
+          /// (it uses executor from stream).
+          return is_stream_valid;
+        }
+        , is_stream_valid_.load()
+        , REFERENCED(stream_.value())
+      ));
 
   // will be set by |onDetected|
   std::atomic<bool> atomicDetectDoneFlag_

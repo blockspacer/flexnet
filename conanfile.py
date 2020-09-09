@@ -203,8 +203,7 @@ class flexnet_conan_project(conan_build_helper.CMakePackage):
             self.options["basis"].enable_ubsan = True
             self.options["chromium_base"].enable_ubsan = True
             self.options["corrade"].enable_ubsan = True
-            if not self.options.use_system_boost:
-              self.options["boost"].enable_ubsan = True
+            self.options["boost"].enable_ubsan = True
             if self._is_tests_enabled():
               self.options["conan_gtest"].enable_ubsan = True
 
@@ -213,8 +212,7 @@ class flexnet_conan_project(conan_build_helper.CMakePackage):
             self.options["basis"].enable_asan = True
             self.options["chromium_base"].enable_asan = True
             self.options["corrade"].enable_asan = True
-            if not self.options.use_system_boost:
-              self.options["boost"].enable_asan = True
+            self.options["boost"].enable_asan = True
             if self._is_tests_enabled():
               self.options["conan_gtest"].enable_asan = True
 
@@ -223,8 +221,7 @@ class flexnet_conan_project(conan_build_helper.CMakePackage):
             self.options["basis"].enable_msan = True
             self.options["chromium_base"].enable_msan = True
             self.options["corrade"].enable_msan = True
-            if not self.options.use_system_boost:
-              self.options["boost"].enable_msan = True
+            self.options["boost"].enable_msan = True
             if self._is_tests_enabled():
               self.options["conan_gtest"].enable_msan = True
 
@@ -233,8 +230,7 @@ class flexnet_conan_project(conan_build_helper.CMakePackage):
             self.options["basis"].enable_tsan = True
             self.options["chromium_base"].enable_tsan = True
             self.options["corrade"].enable_tsan = True
-            if not self.options.use_system_boost:
-              self.options["boost"].enable_tsan = True
+            self.options["boost"].enable_tsan = True
             if self._is_tests_enabled():
               self.options["conan_gtest"].enable_tsan = True
 

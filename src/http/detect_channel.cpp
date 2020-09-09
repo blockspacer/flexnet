@@ -77,9 +77,11 @@ void DetectChannel::configureDetector(
   //
   // Here we set individual rate limits for reading and writing
   // limit in bytes per second
+  /// \todo make configurable
   stream_.value().rate_policy().read_limit(10000);
 
   // limit in bytes per second
+  /// \todo make configurable
   stream_.value().rate_policy().write_limit(850000);
 }
 
@@ -244,6 +246,7 @@ void DetectChannel::onDetected(
   // mark SSL detection completed
   ::boost::asio::post(
     asioRegistry_->strand()
+    /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler([
       ](
         base::OnceClosure&& boundTask
@@ -287,39 +290,43 @@ void DetectChannel::setSSLDetectResult(
     << " detected connection as "
     << (handshakeResult ? "secure" : "unsecure");
 
-  using UniqueSSLDetectComponent
-    = base::Optional<DetectChannel::SSLDetectResult>;
+  /// \todo create utility function `cached_emplace`
+  {
+    using UniqueSSLDetectComponent
+      = base::Optional<DetectChannel::SSLDetectResult>;
 
-  const bool useCache
-    = (*asioRegistry_)->has<UniqueSSLDetectComponent>(entity_id_);
+    const bool useCache
+      = (*asioRegistry_)->has<UniqueSSLDetectComponent>(entity_id_);
 
-  (*asioRegistry_)->remove_if_exists<
-    ECS::UnusedSSLDetectResultTag
-  >(entity_id_);
+    (*asioRegistry_)->remove_if_exists<
+      ECS::UnusedSSLDetectResultTag
+    >(entity_id_);
 
-  UniqueSSLDetectComponent& detectResult
-    = useCache
-      ? (*asioRegistry_)->get<UniqueSSLDetectComponent>(entity_id_)
-      : (*asioRegistry_)->emplace<UniqueSSLDetectComponent>(
-          entity_id_
-          , base::in_place
-          , base::rvalue_cast(ec)
-          , base::rvalue_cast(handshakeResult)
-          , base::rvalue_cast(stream)
-          , base::rvalue_cast(buffer));
+    UniqueSSLDetectComponent& detectResult
+      = useCache
+        /// \todo use get_or_emplace
+        ? (*asioRegistry_)->get<UniqueSSLDetectComponent>(entity_id_)
+        : (*asioRegistry_)->emplace<UniqueSSLDetectComponent>(
+            entity_id_
+            , base::in_place
+            , base::rvalue_cast(ec)
+            , base::rvalue_cast(handshakeResult)
+            , base::rvalue_cast(stream)
+            , base::rvalue_cast(buffer));
 
-  if(useCache) {
-    DCHECK(detectResult);
-    detectResult.emplace(
-          base::rvalue_cast(ec)
-          , base::rvalue_cast(handshakeResult)
-          , base::rvalue_cast(stream)
-          , base::rvalue_cast(buffer));
-    DVLOG(99)
-      << "using preallocated SSLDetectResult";
-  } else {
-    DVLOG(99)
-      << "allocating new SSLDetectResult";
+    if(useCache) {
+      DCHECK(detectResult);
+      detectResult.emplace(
+            base::rvalue_cast(ec)
+            , base::rvalue_cast(handshakeResult)
+            , base::rvalue_cast(stream)
+            , base::rvalue_cast(buffer));
+      DVLOG(99)
+        << "using preallocated SSLDetectResult";
+    } else {
+      DVLOG(99)
+        << "allocating new SSLDetectResult";
+    }
   }
 }
 

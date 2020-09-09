@@ -4,6 +4,9 @@ list(APPEND flexnet_SOURCES
   ${flexnet_include_DIR}/http/detect_channel.hpp
   ${flexnet_src_DIR}/http/detect_channel.cpp
   #
+  ${flexnet_include_DIR}/http/http_channel.hpp
+  ${flexnet_src_DIR}/http/http_channel.cpp
+  #
   ${flexnet_include_DIR}/websocket/listener.hpp
   ${flexnet_src_DIR}/websocket/listener.cpp
   #

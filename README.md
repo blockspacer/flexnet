@@ -108,6 +108,7 @@ CONAN_REVISIONS_ENABLED=1 \
         -e basis:compile_with_llvm_tools=True \
         -e boost:enable_llvm_tools=True \
         -o boost:enable_tsan=True \
+        -o boost:no_exceptions=True \
         -e boost:compile_with_llvm_tools=True \
         -s compiler=clang \
         -s compiler.version=10 \
@@ -378,6 +379,7 @@ conan workspace install \
         -e boost:enable_llvm_tools=True \
         -o boost:enable_msan=True \
         -e boost:compile_with_llvm_tools=True \
+        -o boost:no_exceptions=True \
         -o openssl:shared=True \
         -e conan_gtest:compile_with_llvm_tools=True \
         -e conan_gtest:enable_llvm_tools=True \
