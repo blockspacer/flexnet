@@ -18,6 +18,7 @@
 #include <basis/promise/post_promise.h>
 #include <basis/status/status.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
+#include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/ECS/simulation_registry.hpp>
 
 #include <boost/asio/io_context.hpp>
@@ -103,8 +104,11 @@ public:
   using AcceptorType
     = ::boost::asio::ip::tcp::acceptor;
 
+  using ExecutorType
+    = ::boost::asio::io_context::executor_type;
+
   using StrandType
-    = ::boost::asio::strand<::boost::asio::io_context::executor_type>;
+    = ::boost::asio::strand<ExecutorType>;
 
   using StrandComponent
     = StrandType;
@@ -199,6 +203,9 @@ public:
     // ECS registry used to create `per-connection entity`
     , ECS::AsioRegistry& asioRegistry);
 
+  Listener(
+    Listener&& other) = delete;
+
   ~Listener();
 
   // Start accepting incoming connections
@@ -210,15 +217,15 @@ public:
     const base::Location& from_here
     , CallbackT&& task)
   {
-    basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
-      auto_lock(fakeLockToRunningIoc_);
+    DCHECK_CUSTOM_THREAD_GUARD(acceptorStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD(ioc_);
 
     // unable to `::boost::asio::post` on stopped ioc
-    DCHECK(ioc_ && !ioc_->stopped());
+    DCHECK(!ioc_->stopped());
     return base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
-      , acceptorStrand_
+      , *acceptorStrand_
       , std::forward<CallbackT>(task));
   }
 
@@ -253,8 +260,7 @@ public:
   MUST_USE_RETURN_VALUE
   base::WeakPtr<Listener> weakSelf() const NO_EXCEPTION
   {
-    basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
-      auto_lock(fakeLockToUnownedPointer_);
+    DCHECK_CUSTOM_THREAD_GUARD(weak_this_);
 
     // It is thread-safe to copy |base::WeakPtr|.
     // Weak pointers may be passed safely between sequences, but must always be
@@ -267,22 +273,7 @@ private:
   MUST_USE_RETURN_VALUE
   ::util::Status processStateChange(
     const base::Location& from_here
-    , const Listener::Event& processEvent)
-  {
-    const ::util::Status stateProcessed
-      = sm_.value().ProcessEvent(processEvent
-        , FROM_HERE.ToString()
-        , nullptr);
-    CHECK(stateProcessed.ok())
-      << "Failed to change state"
-      << " using event "
-      << processEvent
-      << " in code "
-      << from_here.ToString()
-      << ". Current state: "
-      << sm_.value().CurrentState();
-    return stateProcessed;
-  }
+    , const Listener::Event& processEvent);
 
   // uses provided `per-connection entity`
   // to accept new connection
@@ -321,27 +312,28 @@ private:
 
   // Defines all valid transitions for the state machine.
   // The transition table represents the following state diagram:
-  // ASCII diagram generated using http://asciiflow.com/
-  //      +-------------------+----------------+----------------+----------------+
-  //      |                   ^                ^                ^                |
-  //      |                   |     START      |                |                |
-  //      |                   |   +---------+  |                |                |
-  //      |                   |   |         |  |                |                |
-  //      |                   +   v         +  |                +                v
-  // UNINITIALIZED         STARTED         PAUSED          TERMINATED         FAILED
-  //    +   +              ^  +  +          ^  +             ^   ^  ^
-  //    |   |              |  |  |          |  |             |   |  |
-  //    |   +---------------  +  +----------+  +-------------+   |  |
-  //    |         START       |      PAUSE           TERMINATE   |  |
-  //    |                     |                                  |  |
-  //    |                     |                                  |  |
-  //    |                     |                                  |  |
-  //    |                     |                                  |  |
-  //    |                     +----------------------------------+  |
-  //    |                                   TERMINATE               |
-  //    +-----------------------------------------------------------+
-  //                              TERMINATE
-  //
+  /**
+   * ASCII diagram generated using asciiflow.com
+          +-------------------+----------------+----------------+----------------+
+          |                   ^                ^                ^                |
+          |                   |     START      |                |                |
+          |                   |   +---------+  |                |                |
+          |                   |   |         |  |                |                |
+          |                   +   v         +  |                +                v
+     UNINITIALIZED         STARTED         PAUSED          TERMINATED         FAILED
+        +   +              ^  +  +          ^  +             ^   ^  ^
+        |   |              |  |  |          |  |             |   |  |
+        |   +---------------  +  +----------+  +-------------+   |  |
+        |         START       |      PAUSE           TERMINATE   |  |
+        |                     |                                  |  |
+        |                     |                                  |  |
+        |                     |                                  |  |
+        |                     |                                  |  |
+        |                     +----------------------------------+  |
+        |                                   TERMINATE               |
+        +-----------------------------------------------------------+
+                                  TERMINATE
+  **/
   MUST_USE_RETURN_VALUE
   StateMachineType::TransitionTable FillStateTransitionTable()
   {
@@ -371,26 +363,26 @@ private:
 
 private:
   // Provides I/O functionality
-  GLOBAL_THREAD_SAFE_LIFETIME(
-    "can be used from any thread "
-    "as long as storage not modified")
-  const util::UnownedPtr<IoContext> ioc_;
+  const util::UnownedRef<IoContext> ioc_
+    // It safe to read value from any thread because its storage
+    // expected to be not modified (if properly initialized)
+    SET_CUSTOM_THREAD_GUARD(ioc_);
 
   // acceptor will listen that address
   const EndpointType endpoint_
-    GUARDED_BY(fakeLockToAcceptorStrand_);
+    GUARDED_BY(acceptorStrand_);
 
   // used to create `per-connection entity`
-  GLOBAL_THREAD_SAFE_LIFETIME(
-    "can be used from any thread "
-    "as long as storage not modified")
-  ECS::AsioRegistry& asioRegistry_;
+  util::UnownedRef<ECS::AsioRegistry> asioRegistry_
+    // It safe to read value from any thread because its storage
+    // expected to be not modified (if properly initialized)
+    SET_CUSTOM_THREAD_GUARD(asioRegistry_);
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
   base::WeakPtrFactory<Listener> weak_ptr_factory_
-    GUARDED_BY(fakeLockToSequence_);
+    GUARDED_BY(sequence_checker_);
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -400,60 +392,31 @@ private:
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
   const base::WeakPtr<Listener> weak_this_
-    // It safe to read value from any thread
-    // because its storage expected to be not modified,
-    // we just need to check storage validity.
-    GUARDED_BY(fakeLockToUnownedPointer_);
-
-  /// \note It is not real lock, only annotated as lock.
-  /// It just calls callback on scope entry AND exit.
-  basis::FakeLockWithCheck<FakeLockRunType>
-    fakeLockToUnownedPointer_ {
-      BIND_UNOWNED_PTR_VALIDATOR(ws::Listener, this)
-    };
-
-  /// \note It is not real lock, only annotated as lock.
-  /// It just calls callback on scope entry AND exit.
-  basis::FakeLockWithCheck<FakeLockRunType>
-    fakeLockToSequence_ {
-      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
-    };
-
-  /// \note It is not real lock, only annotated as lock.
-  /// It just calls callback on scope entry AND exit.
-  basis::FakeLockWithCheck<FakeLockRunType>
-    fakeLockToRunningIoc_ {
-      // 1. It safe to read value from any thread
-      // because its storage expected to be not modified.
-      // 2. On each access to strand check that ioc not stopped
-      // otherwise `::boost::asio::post` may fail.
-      base::BindRepeating(
-        [](const util::UnownedPtr<IoContext>& ioc) {
-          return ioc && !ioc->stopped();
-        }
-        , CONST_REFERENCED(ioc_)
-      )
-    };
+    // It safe to read value from any thread because its storage
+    // expected to be not modified (if properly initialized)
+    SET_CUSTOM_THREAD_GUARD(weak_this_);
 
   // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
   /// \note Do not destruct |Listener| while |acceptorStrand_|
   /// has scheduled or execting tasks.
-  const StrandType acceptorStrand_
-    GUARDED_BY(fakeLockToRunningIoc_);
-
-  /// \note It is not real lock, only annotated as lock.
-  /// It just calls callback on scope entry AND exit.
-  basis::FakeLockWithCheck<FakeLockRunType>
-    fakeLockToAcceptorStrand_ {
-      BIND_UNRETAINED_RUN_ON_STRAND_CHECK(&acceptorStrand_)
-    };
+  const basis::AnnotatedStrand<ExecutorType> acceptorStrand_
+    SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
+      acceptorStrand_
+      // 1. It safe to read value from any thread
+      // because its storage expected to be not modified.
+      // 2. On each access to strand check that ioc not stopped
+      // otherwise `::boost::asio::post` may fail.
+      , base::BindRepeating(
+        [](const util::UnownedRef<IoContext>& ioc) {
+          return !ioc->stopped();
+        }
+        , CONST_REFERENCED(ioc_)
+      ));
 
   // The acceptor used to listen for incoming connections.
-  basis::CheckedOptional<
-    AcceptorType
-    , basis::CheckedOptionalPolicy::DebugOnly
-  > acceptor_;
+  AcceptorType acceptor_
+    GUARDED_BY(acceptorStrand_);
 
 #if DCHECK_IS_ON()
   // MOTIVATION
@@ -479,10 +442,8 @@ private:
   //   });
   // sm_->AddExitAction(UNINITIALIZED, okStateCallback);
   // sm_->AddEntryAction(FAILED, okStateCallback);
-  basis::CheckedOptional<
-    StateMachineType
-    , basis::CheckedOptionalPolicy::DebugOnly
-  > sm_;
+  StateMachineType sm_
+    GUARDED_BY(acceptorStrand_);
 #endif // DCHECK_IS_ON()
 
   // check sequence on which class was constructed/destructed/configured

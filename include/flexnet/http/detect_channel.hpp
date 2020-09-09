@@ -89,6 +89,7 @@ namespace http {
 class DetectChannel
 {
 public:
+  /// \todo make configurable
   static const size_t kMaxMessageSizeBytes = 100000;
 
 public:
@@ -105,8 +106,11 @@ public:
   using StreamType
     = ::boost::beast::limited_tcp_stream;
 
+  using ExecutorType
+    = StreamType::executor_type;
+
   using StrandType
-    = ::boost::asio::strand<StreamType::executor_type>;
+    = ::boost::asio::strand<ExecutorType>;
 
   using IoContext
     = ::boost::asio::io_context;
@@ -122,7 +126,8 @@ public:
       , StreamType&& stream
       , MessageBufferType&& buffer)
       : ec(base::rvalue_cast(ec))
-      , handshakeResult(CAN_COPY_ON_MOVE("moving const") std::move(handshakeResult))
+      , handshakeResult(
+          CAN_COPY_ON_MOVE("moving const") std::move(handshakeResult))
       , stream(base::rvalue_cast(stream))
       , buffer(base::rvalue_cast(buffer))
       {}
@@ -145,8 +150,12 @@ public:
       LOG_CALL(DVLOG(99));
     }
 
-    /// \todo remove
     // Move assignment operator
+    //
+    // MOTIVATION
+    //
+    // To use type as ECS component
+    // it must be `move-constructible` and `move-assignable`
     SSLDetectResult& operator=(SSLDetectResult&& rhs)
     {
       if (this != &rhs)
@@ -176,24 +185,7 @@ public:
     , const ECS::Entity entity_id);
 
   DetectChannel(
-    DetectChannel&& other)
-    : DetectChannel(
-        base::rvalue_cast(other.stream_.value().socket())
-        , RAW_REFERENCED(other.asioRegistry_.Ref())
-        , COPIED(other.entity_id_))
-    {
-      DCHECK(atomicDetectDoneFlag_.load()
-        == other.atomicDetectDoneFlag_.load());
-
-      DCHECK(is_stream_valid_.load()
-        == other.is_stream_valid_.load());
-
-      DCHECK(is_buffer_valid_.load()
-        == other.is_buffer_valid_.load());
-
-      /// \note do not move |sequence_checker_|
-      DETACH_FROM_SEQUENCE(sequence_checker_);
-    }
+    DetectChannel&& other) = delete;
 
   /// \note can destruct on any thread
   NOT_THREAD_SAFE_FUNCTION()
@@ -208,8 +200,7 @@ public:
   MUST_USE_RETURN_VALUE
   base::WeakPtr<DetectChannel> weakSelf() const NO_EXCEPTION
   {
-    basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, FakeLockRunType>
-      auto_lock(fakeLockToUnownedPointer_);
+    DCHECK_CUSTOM_THREAD_GUARD(weak_this_);
 
     // It is thread-safe to copy |base::WeakPtr|.
     // Weak pointers may be passed safely between sequences, but must always be
@@ -221,6 +212,15 @@ public:
   MUST_USE_RETURN_VALUE
   bool isDetectingInThisThread() const NO_EXCEPTION
   {
+    DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+
+    /// \note |perConnectionStrand_|
+    /// is valid as long as |stream_| valid
+    /// i.e. valid util |stream_| moved out
+    /// (it uses executor from stream).
+    DCHECK(is_stream_valid_.load());
+
     /// \note |running_in_this_thread| is thread-safe
     /// only if |perConnectionStrand_| will not be modified concurrently
     return perConnectionStrand_->running_in_this_thread();
@@ -229,8 +229,16 @@ public:
   MUST_USE_RETURN_VALUE
   const StrandType& perConnectionStrand() NO_EXCEPTION
   {
-    return NOT_THREAD_SAFE_LIFETIME()
-           *perConnectionStrand_;
+    DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+
+    /// \note |perConnectionStrand_|
+    /// is valid as long as |stream_| valid
+    /// i.e. valid util |stream_| moved out
+    /// (it uses executor from stream).
+    DCHECK(is_stream_valid_.load());
+
+    return *perConnectionStrand_;
   }
 
   MUST_USE_RETURN_VALUE
@@ -238,9 +246,10 @@ public:
   /// and thread-safe when you call |executor()|
   boost::asio::executor executor() NO_EXCEPTION
   {
+    DCHECK_CUSTOM_THREAD_GUARD(stream_);
+
     DCHECK(stream_.has_value());
-    return NOT_THREAD_SAFE_LIFETIME()
-           /// \note `get_executor` returns copy
+    return /// \note `get_executor` returns copy
            stream_.value().get_executor();
   }
 
@@ -250,6 +259,9 @@ public:
     const base::Location& from_here
     , CallbackT&& task)
   {
+    DCHECK_CUSTOM_THREAD_GUARD(stream_);
+    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+
     DCHECK(stream_.has_value()
       && stream_.value().socket().is_open());
     return base::PostPromiseOnAsioExecutor(
@@ -263,13 +275,15 @@ public:
   /// `entity_id_` assumed to be NOT changed,
   /// so its copy can be read from any thread.
   /// `ECS::Entity` is just number, so can be copied freely.
-  ECS::Entity entity_id() const
+  ECS::Entity entityId() const
   {
+    DCHECK_CUSTOM_THREAD_GUARD(entity_id_);
     return entity_id_;
   }
 
   bool isDetected()
   {
+    DCHECK_CUSTOM_THREAD_GUARD(atomicDetectDoneFlag_);
     return atomicDetectDoneFlag_.load();
   }
 
@@ -302,25 +316,32 @@ private:
 private:
   /// \note stream with custom rate limiter
   // can not copy assign `stream`, so use optional
-  NOT_THREAD_SAFE_LIFETIME() // moved between threads
-  base::Optional<StreamType> stream_;
+  base::Optional<StreamType> stream_
+    /// \note moved between threads,
+    /// take care of thread-safety!
+    SET_CUSTOM_THREAD_GUARD(stream_);
 
-  /// \todo replace with Invalidatable<>
   // |stream_| moved in |onDetected|
-  std::atomic<bool> is_stream_valid_{true};
+  std::atomic<bool> is_stream_valid_
+    // assumed to be thread-safe
+    SET_CUSTOM_THREAD_GUARD(is_stream_valid_);
 
-  NOT_THREAD_SAFE_LIFETIME() // moved between threads
-  MessageBufferType buffer_;
+  // The dynamic buffer to use during `beast::async_detect_ssl`
+  MessageBufferType buffer_
+    /// \note moved between threads,
+    /// take care of thread-safety!
+    SET_CUSTOM_THREAD_GUARD(buffer_);
 
-  /// \todo replace with Invalidatable<>
   // |buffer_| moved in |onDetected|
-  std::atomic<bool> is_buffer_valid_{true};
+  std::atomic<bool> is_buffer_valid_
+    // assumed to be thread-safe
+    SET_CUSTOM_THREAD_GUARD(is_buffer_valid_);
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
   base::WeakPtrFactory<DetectChannel> weak_ptr_factory_
-    GUARDED_BY(fakeLockToSequence_);
+    GUARDED_BY(sequence_checker_);
 
   // After constructing |weak_ptr_factory_|
   // we immediately construct a WeakPtr
@@ -330,44 +351,51 @@ private:
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
   const base::WeakPtr<DetectChannel> weak_this_
-    // It safe to read value from any thread
-    // because its storage expected to be not modified,
-    // we just need to check storage validity.
-    GUARDED_BY(fakeLockToUnownedPointer_);
-
-  /// \note It is not real lock, only annotated as lock.
-  /// It just calls callback on scope entry AND exit.
-  basis::FakeLockWithCheck<FakeLockRunType>
-    fakeLockToUnownedPointer_ {
-      BIND_UNOWNED_PTR_VALIDATOR(http::DetectChannel, this)
-    };
-
-  /// \note It is not real lock, only annotated as lock.
-  /// It just calls callback on scope entry AND exit.
-  basis::FakeLockWithCheck<FakeLockRunType>
-    fakeLockToSequence_ {
-      BIND_UNRETAINED_RUN_ON_SEQUENCE_CHECK(&sequence_checker_)
-    };
+    // It safe to read value from any thread because its storage
+    // expected to be not modified (if properly initialized)
+    SET_CUSTOM_THREAD_GUARD(weak_this_);
 
   // |stream_| and calls to |async_detect*| are guarded by strand
-   basis::CheckedOptional<
-    StrandType
-    , basis::CheckedOptionalPolicy::DebugOnly
-   > perConnectionStrand_;
+   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
+     SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
+       perConnectionStrand_
+       // 1. It safe to read value from any thread
+       // because its storage expected to be not modified.
+       // 2. On each access to strand check that stream valid
+       // otherwise `::boost::asio::post` may fail.
+       , base::BindRepeating(
+         [
+         ](
+           bool is_stream_valid
+           , StreamType& stream
+         ){
+           /// \note |perConnectionStrand_|
+           /// is valid as long as |stream_| valid
+           /// i.e. valid util |stream_| moved out
+           /// (it uses executor from stream).
+           return is_stream_valid;
+         }
+         , is_stream_valid_.load()
+         , REFERENCED(stream_.value())
+       ));
 
-  /// \todo replace with CheckedOptional::forceValidToRead
   // will be set by |onDetected|
-  std::atomic<bool> atomicDetectDoneFlag_{false};
+  std::atomic<bool> atomicDetectDoneFlag_
+    // assumed to be thread-safe
+    SET_CUSTOM_THREAD_GUARD(atomicDetectDoneFlag_);
 
-  /// \todo replace with CheckedOptional::forceValidToRead
   // used by |entity_id_|
-  util::UnownedRef<ECS::AsioRegistry> asioRegistry_;
+  util::UnownedRef<ECS::AsioRegistry> asioRegistry_
+    // It safe to read value from any thread because its storage
+    // expected to be not modified (if properly initialized)
+    SET_CUSTOM_THREAD_GUARD(asioRegistry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage
-  /// `entity_id_` assumed to be NOT changed,
-  /// so it can be read from any thread.
-  const ECS::Entity entity_id_{ECS::NULL_ENTITY};
+  const ECS::Entity entity_id_
+    // It safe to read value from any thread because its storage
+    // expected to be not modified (if properly initialized)
+    SET_CUSTOM_THREAD_GUARD(entity_id_);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

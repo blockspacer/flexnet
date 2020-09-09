@@ -86,7 +86,7 @@ void handleAcceptNewConnectionResult(
         "Ctx_DetectChannel_" + base::GenerateGUID() // debug name
         , base::in_place
         , base::rvalue_cast(acceptResult.socket)
-        , RAW_REFERENCED(asio_registry)
+        , REFERENCED(asio_registry)
         , entity_id);
 
   // If the value already exists it is overwritten
@@ -95,14 +95,14 @@ void handleAcceptNewConnectionResult(
         "Ctx_DetectChannel_" + base::GenerateGUID() // debug name
         , base::in_place
         , base::rvalue_cast(acceptResult.socket)
-        , RAW_REFERENCED(asio_registry)
+        , REFERENCED(asio_registry)
         , entity_id);
   }
 
   // Check that if the value already existed
   // it was overwritten
   {
-    DCHECK(detectChannelCtx->value().entity_id() == entity_id);
+    DCHECK(detectChannelCtx->value().entityId() == entity_id);
     DCHECK(detectChannelCtx->value().isDetected() == false);
   }
 

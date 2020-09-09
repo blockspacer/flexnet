@@ -2,6 +2,10 @@
 
 add_executable(example_server
   ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/init_env.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/init_env.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/example_server.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/example_server.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/boost_throw_exception.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.hpp

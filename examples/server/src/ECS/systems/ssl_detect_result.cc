@@ -17,7 +17,7 @@ void handleSSLDetectResult(
 
   DCHECK(asio_registry.running_in_this_thread());
 
-  LOG_CALL(DVLOG(9));
+  LOG_CALL(DVLOG(99));
 
   auto closeAndReleaseResources
     = [&detectResult, &asio_registry, entity_id]()

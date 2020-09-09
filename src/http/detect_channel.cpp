@@ -34,37 +34,20 @@ DetectChannel::DetectChannel(
   , ECS::AsioRegistry& asioRegistry
   , const ECS::Entity entity_id)
   : stream_(base::rvalue_cast(COPY_ON_MOVE(socket)))
+  , is_stream_valid_(true)
+  , is_buffer_valid_(true)
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
   , perConnectionStrand_(
-      // 1. It safe to read value from any thread
-      // because its storage expected to be not modified.
-      // 2. On each access to strand check that ioc not stopped
-      // otherwise `::boost::asio::post` may fail.
-      base::BindRepeating(
-        [](bool is_stream_valid, StreamType& stream)
-        {
-          /// \note |perConnectionStrand_|
-          /// is valid as long as |stream_| valid
-          /// i.e. valid util |stream_| moved out
-          /// (it uses executor from stream).
-          return is_stream_valid;
-        }
-        , REFERENCED(is_stream_valid_)
-        /// \note `get_executor` returns copy
-        , REFERENCED(stream_.value())
-      )
-      // "disallow `emplace` for thread-safety reasons"
-      , util::CheckedOptionalPermissions::Readable
-      , base::in_place
       /// \note `get_executor` returns copy
-      , stream_.value().get_executor())
+      stream_.value().get_executor())
+  , atomicDetectDoneFlag_(false)
   , asioRegistry_(REFERENCED(asioRegistry))
   , entity_id_(entity_id)
 {
-  LOG_CALL(DVLOG(9));
+  LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
@@ -72,13 +55,15 @@ DetectChannel::DetectChannel(
 NOT_THREAD_SAFE_FUNCTION()
 DetectChannel::~DetectChannel()
 {
-  LOG_CALL(DVLOG(9));
+  LOG_CALL(DVLOG(99));
 }
 
 void DetectChannel::configureDetector(
   const std::chrono::seconds& expire_timeout)
 {
-  LOG_CALL(DVLOG(9));
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(stream_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -102,7 +87,13 @@ void DetectChannel::configureDetector(
 void DetectChannel::runDetector(
   const std::chrono::seconds& expire_timeout)
 {
-  LOG_CALL(DVLOG(9));
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD(stream_);
+  DCHECK_CUSTOM_THREAD_GUARD(buffer_);
+  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(is_buffer_valid_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -215,9 +206,16 @@ void DetectChannel::onDetected(
   , const ErrorCode& ec
   , const bool& handshakeResult)
 {
-  LOG_CALL(DVLOG(9));
+  LOG_CALL(DVLOG(99));
 
   DCHECK(isDetectingInThisThread());
+
+  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(is_buffer_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(stream_);
+  DCHECK_CUSTOM_THREAD_GUARD(buffer_);
+  DCHECK_CUSTOM_THREAD_GUARD(atomicDetectDoneFlag_);
+  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
 
   DCHECK(is_stream_valid_.load());
   DCHECK(is_buffer_valid_.load());
@@ -234,15 +232,14 @@ void DetectChannel::onDetected(
 
   // we assume that |onDetected|
   // will be called only once
-  DCHECK(ALWAYS_THREAD_SAFE(
-    !atomicDetectDoneFlag_.load()));
+  DCHECK(!atomicDetectDoneFlag_.load());
 
 #if DCHECK_IS_ON()
   DCHECK(timeoutResolver);
   timeoutResolver.Run();
 #endif // DCHECK_IS_ON()
 
-  atomicDetectDoneFlag_ = true;
+  atomicDetectDoneFlag_.store(true);
 
   // mark SSL detection completed
   ::boost::asio::post(
@@ -265,6 +262,9 @@ void DetectChannel::onDetected(
         )
     )
   );
+
+  is_stream_valid_.store(false);
+  is_buffer_valid_.store(false);
 }
 
 void DetectChannel::setSSLDetectResult(
@@ -276,9 +276,14 @@ void DetectChannel::setSSLDetectResult(
   , StreamType&& stream
   , MessageBufferType&& buffer)
 {
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(entity_id_);
+
   DCHECK(asioRegistry_->running_in_this_thread());
 
-  DVLOG(1)
+  DVLOG(99)
     << " detected connection as "
     << (handshakeResult ? "secure" : "unsecure");
 

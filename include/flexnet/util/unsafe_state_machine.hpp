@@ -12,7 +12,8 @@
 
 namespace basis {
 
-/// \note not thread-safe (but has some thread-safety checks in debug builds)
+/// \note Not thread-safe i.e. does not use any synchronization primitives
+/// (only with minimal thread-safety checks in debug builds)
 /// \note State must be a primitive type (for the std::atomic<State> typecast to work),
 /// and enums require an integer binding.
 // The UnsafeStateMachine class is a
@@ -241,7 +242,6 @@ class UnsafeStateMachine {
 
   State CurrentState() const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
     return current_state_.load();
   }
 
@@ -280,7 +280,7 @@ class UnsafeStateMachine {
     }
 
     // Update only if the entry and exit actions were successful.
-    current_state_ = next_state;
+    current_state_.store(next_state);
 
     DVLOG(99)
       << "Changing current state to " << current_state_.load();
@@ -293,8 +293,6 @@ class UnsafeStateMachine {
     const State& from_state
     , const Event& event) const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     // No transitions exist for this state.
     const auto transitions = table_.find(from_state);
     if (transitions == table_.end()) {
@@ -314,6 +312,9 @@ class UnsafeStateMachine {
   }
 
  private:
+  /// \note Thread collision warner used only for modification operations
+  /// because you may want to use unchangable storage
+  /// that can be read from multiple threads safely.
   // Thread collision warner to ensure that API is not called concurrently.
   // API allowed to call from multiple threads, but not
   // concurrently.
@@ -325,17 +326,14 @@ class UnsafeStateMachine {
 
   // A TransitionTable that stores valid transitions
   // from any given state.
-  LIVES_ON(debug_collision_warner_)
   TransitionTable table_;
 
   // A vector of actions that are executed upon entry
   // to any given state.
-  LIVES_ON(debug_collision_warner_)
   base::flat_map<State, std::vector<CallbackType>> entry_actions_;
 
   // A vector of actions that are executed upon exit
   // from any given state.
-  LIVES_ON(debug_collision_warner_)
   base::flat_map<State, std::vector<CallbackType>> exit_actions_;
 };
 

@@ -14,4 +14,10 @@ list(APPEND flexnet_SOURCES
   ${flexnet_src_DIR}/util/mime_type.cpp
   #
   ${flexnet_include_DIR}/util/limited_tcp_stream.hpp
+  #
+  ${flexnet_include_DIR}/util/lock_with_check.hpp
+  ${flexnet_src_DIR}/util/lock_with_check.cpp
+  #
+  ${flexnet_include_DIR}/util/periodic_validate_until.hpp
+  ${flexnet_src_DIR}/util/periodic_validate_until.cpp
 )

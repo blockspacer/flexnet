@@ -374,6 +374,6 @@ const std::string& MimeType::operator()
   } else {
     return default_mime_type_;
   }
-};
+}
 
 } // namespace flexnet

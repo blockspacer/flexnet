@@ -1,5 +1,7 @@
 #pragma once
 
+#include "flexnet/util/verify_nothing.hpp"
+
 #include <boost/algorithm/string.hpp>
 
 #include <base/macros.h>
@@ -52,29 +54,6 @@ ALLOW_BITMASK_OPERATORS(CheckedOptionalPermissions)
 
 namespace basis {
 
-// Creates a callback that does nothing when called.
-class BASE_EXPORT VerifyNothing {
- public:
-  template <typename... Args>
-  operator base::RepeatingCallback<bool(Args...)>() const {
-    return Repeatedly<Args...>();
-  }
-  template <typename... Args>
-  operator base::OnceCallback<bool(Args...)>() const {
-    return Once<Args...>();
-  }
-  // Explicit way of specifying a specific callback type when the compiler can't
-  // deduce it.
-  template <typename... Args>
-  static base::RepeatingCallback<bool(Args...)> Repeatedly() {
-    return base::BindRepeating([](Args... /*args*/){ return true; });
-  }
-  template <typename... Args>
-  static base::OnceCallback<bool(Args...)> Once() {
-    return base::BindOnce([](Args... /*args*/) { return true; });
-  }
-};
-
 enum class CheckedOptionalPolicy {
   // Will call `verifier_callback_.Run()` in any builds (including release),
   // so take care of performance
@@ -104,6 +83,17 @@ enum class CheckedOptionalPolicy {
 // than you can change `CheckedOptionalPermissions`.
 //
 // USAGE
+//
+//  // The io_context is required for all I/O
+//  basis::CheckedOptional<
+//    boost::asio::io_context
+//    , basis::CheckedOptionalPolicy::DebugOnly
+//  > ioc_{
+//      // it safe to read value from any thread
+//      // because its storage expected to be not modified
+//      basis::VerifyNothing::Repeatedly()
+//      , util::CheckedOptionalPermissions::Readable
+//      , base::in_place};
 //
 //  basis::CheckedOptional<
 //    StateMachineType
@@ -174,8 +164,6 @@ public:
   ALWAYS_INLINE
   bool runVerifierCallback() const NO_EXCEPTION
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Skip)
     {
       NOTREACHED();
@@ -195,8 +183,6 @@ public:
   ALWAYS_INLINE
   bool hasReadPermission() const NO_EXCEPTION
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Skip)
     {
       NOTREACHED();
@@ -216,8 +202,6 @@ public:
   ALWAYS_INLINE
   bool hasModifyPermission() const NO_EXCEPTION
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Skip)
     {
       NOTREACHED();
@@ -240,8 +224,6 @@ public:
   ALWAYS_INLINE
   base::Optional<Type>& optional()
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
@@ -264,8 +246,6 @@ public:
   ALWAYS_INLINE
   const base::Optional<Type>& optional() const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
@@ -294,8 +274,6 @@ public:
     , base::StringPiece reason_why_using_unsafe
     , base::OnceClosure&& check_unsafe_allowed = base::DoNothing::Once())
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     ignore_result(from_here);
     ignore_result(reason_why_using_unsafe);
     base::rvalue_cast(check_unsafe_allowed).Run();
@@ -309,8 +287,6 @@ public:
     , base::StringPiece reason_why_using_unsafe
     , base::OnceClosure&& check_unsafe_allowed = base::DoNothing::Once()) const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     ignore_result(from_here);
     ignore_result(reason_why_using_unsafe);
     base::rvalue_cast(check_unsafe_allowed).Run();
@@ -323,8 +299,6 @@ public:
   ALWAYS_INLINE
   Type& value()
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
@@ -351,8 +325,6 @@ public:
   ALWAYS_INLINE
   const Type& value() const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     if constexpr (VerifyPolicyType == CheckedOptionalPolicy::Always)
     {
       CHECK(runVerifierCallback())
@@ -382,8 +354,6 @@ public:
     , base::StringPiece reason_why_using_unsafe
     , base::OnceClosure&& check_unsafe_allowed = base::DoNothing::Once())
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     ignore_result(from_here);
     ignore_result(reason_why_using_unsafe);
     base::rvalue_cast(check_unsafe_allowed).Run();
@@ -399,8 +369,6 @@ public:
     , base::StringPiece reason_why_using_unsafe
     , base::OnceClosure&& check_unsafe_allowed = base::DoNothing::Once()) const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     ignore_result(from_here);
     ignore_result(reason_why_using_unsafe);
     base::rvalue_cast(check_unsafe_allowed).Run();
@@ -673,44 +641,33 @@ public:
 
   bool operator==(const CheckedOptional& that) const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     return value() == that.value();
   }
 
   bool operator!=(const CheckedOptional& that) const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     return !(*this == that);
   }
 
   bool operator<(const CheckedOptional& that) const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     return std::less<Type*>()(value(), that.value());
   }
 
   template <typename U>
   bool operator==(const U& that) const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     return value() == &that;
   }
 
   template <typename U>
   bool operator!=(const U& that) const
   {
-    DFAKE_SCOPED_RECURSIVE_LOCK(debug_collision_warner_);
-
     return !(*this == &that);
   }
 
 private:
-  VerifierCb verifier_callback_
-    LIVES_ON(debug_collision_warner_);
+  VerifierCb verifier_callback_;
 
   // MOTIVATION
   //
@@ -720,12 +677,13 @@ private:
   // or to force object to initialize only once
   // (just mark invalid after initialization to prohibit `emplace()`)
   util::CheckedOptionalPermissions CheckedOptionalPermissions{
-    util::CheckedOptionalPermissions::All}
-    LIVES_ON(debug_collision_warner_);
+    util::CheckedOptionalPermissions::All};
 
-  base::Optional<Type> value_
-    LIVES_ON(debug_collision_warner_);
+  base::Optional<Type> value_;
 
+  /// \note Thread collision warner used only for modification operations
+  /// because you may want to use unchangable storage
+  /// that can be read from multiple threads safely.
   // Thread collision warner to ensure that API is not called concurrently.
   // API allowed to call from multiple threads, but not
   // concurrently.
