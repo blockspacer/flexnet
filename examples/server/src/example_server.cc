@@ -37,6 +37,7 @@
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
+#include <basis/ECS/sequence_local_context.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -203,7 +204,7 @@ void ExampleServer::updateAsioRegistry() NO_EXCEPTION
   DCHECK_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
   DCHECK_CUSTOM_THREAD_GUARD(ioc_);
 
-  DCHECK_RUN_ON_SEQUENCED_TASK_RUNNER(periodicAsioTaskRunner_.get());
+  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
 
   /// \note you can not use `::boost::asio::post`
   /// if `ioc_->stopped()`
@@ -255,17 +256,27 @@ void ExampleServer::setupPeriodicAsioExecutor() NO_EXCEPTION
 {
   DCHECK_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
 
-  DCHECK_RUN_ON_SEQUENCED_TASK_RUNNER(periodicAsioTaskRunner_.get());
+  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
 
-  DCHECK(!periodicAsioExecutor_);
-  periodicAsioExecutor_
-    = std::make_unique<basis::PeriodicTaskExecutor>(
-        base::BindRepeating(
-          &ExampleServer::updateAsioRegistry
-          , base::Unretained(this))
+  base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
+    = ECS::SequenceLocalContext::getSequenceLocalInstance(
+        FROM_HERE, base::SequencedTaskRunnerHandle::Get());
+
+  DCHECK(sequenceLocalContext);
+  // Can not register same data type twice.
+  // Forces users to call `sequenceLocalContext->unset`.
+  DCHECK(!sequenceLocalContext->try_ctx<PeriodicAsioExecutorType>(FROM_HERE));
+  PeriodicAsioExecutorType& result
+    = sequenceLocalContext->set_once<PeriodicAsioExecutorType>(
+        FROM_HERE
+        , "PeriodicAsioExecutorType_" + FROM_HERE.ToString()
+        , base::BindRepeating(
+            &ExampleServer::updateAsioRegistry
+            , base::Unretained(this))
       );
 
-  periodicAsioExecutor_->startPeriodicTimer(
+  /// \todo make period configurable
+  result->startPeriodicTimer(
     base::TimeDelta::FromMilliseconds(100));
 }
 
@@ -273,10 +284,15 @@ void ExampleServer::deletePeriodicAsioExecutor() NO_EXCEPTION
 {
   DCHECK_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
 
-  DCHECK_RUN_ON_SEQUENCED_TASK_RUNNER(periodicAsioTaskRunner_.get());
+  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
 
-  DCHECK(periodicAsioExecutor_);
-  periodicAsioExecutor_.reset(nullptr);
+  base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
+    = ECS::SequenceLocalContext::getSequenceLocalInstance(
+        FROM_HERE, base::SequencedTaskRunnerHandle::Get());
+
+  DCHECK(sequenceLocalContext);
+  DCHECK(sequenceLocalContext->try_ctx<PeriodicAsioExecutorType>(FROM_HERE));
+  sequenceLocalContext->unset<PeriodicAsioExecutorType>(FROM_HERE);
 }
 
 void ExampleServer::runLoop() NO_EXCEPTION
@@ -467,8 +483,10 @@ void ExampleServer::runLoop() NO_EXCEPTION
   asio_thread_4.Stop();
   DCHECK(!asio_thread_4.IsRunning());
 
-  // wait for deletion  of `periodicAsioExecutor_`
+  // Wait for deletion  of `periodicAsioExecutor_`
   // on task runner associated with it
+  /// \note We can not just call `periodicAsioTaskRunner_.reset()` because
+  /// it is shared type and `PeriodicAsioExecutor` prolongs its lifetime
   {
     VoidPromise promise
       = base::PostPromise(FROM_HERE
@@ -478,6 +496,7 @@ void ExampleServer::runLoop() NO_EXCEPTION
             , base::Unretained(this)
           )
         );
+    /// \note Will block current thread for unspecified time.
     base::waitForPromiseResolve(
       promise
       , base::ThreadPool::GetInstance()->

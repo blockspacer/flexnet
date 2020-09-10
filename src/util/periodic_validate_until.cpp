@@ -91,7 +91,7 @@ PeriodicValidateUntil::VoidPromise
 
   DCHECK_CUSTOM_THREAD_GUARD(periodicVerifyRunner_);
   DCHECK(periodicVerifyRunner_);
-  DCHECK_RUN_ON_SEQUENCED_TASK_RUNNER(periodicVerifyRunner_.get());
+  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicVerifyRunner_.get());
 
   // promise will be resolved when `validationTask.Run()` returns true
   base::ManualPromiseResolver<

@@ -51,7 +51,9 @@ Listener::Listener(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , acceptorStrand_(ioc.get_executor())
+  , acceptorStrand_(
+      /// \note `get_executor` returns copy
+      ioc.get_executor())
   , acceptor_(ioc)
 #if DCHECK_IS_ON()
   , sm_(UNINITIALIZED, FillStateTransitionTable())
@@ -345,12 +347,14 @@ void Listener::allocateTcpResourceAndAccept()
   StrandComponent* asioStrandCtx
     = &tcpComponent->ctx_or_set_var<StrandComponent>(
         "Ctx_StrandComponent_" + base::GenerateGUID() // debug name
+        /// \note `get_executor` returns copy
         , ioc_->get_executor());
 
   // If the value already exists it is overwritten
   if(useCache) {
     asioStrandCtx = &tcpComponent->set_var<StrandComponent>(
       "Ctx_StrandComponent_" + base::GenerateGUID() // debug name
+      /// \note `get_executor` returns copy
       , ioc_->get_executor());
   }
 
@@ -359,7 +363,8 @@ void Listener::allocateTcpResourceAndAccept()
   // Also we expect that all allocated strands
   // have same io context executor
   DCHECK(asioStrandCtx->get_inner_executor()
-       == ioc_->get_executor());
+    /// \note `get_executor` returns copy
+    == ioc_->get_executor());
 
   // unable to `::boost::asio::post` on stopped ioc
   DCHECK(!ioc_->stopped());

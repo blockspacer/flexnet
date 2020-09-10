@@ -31,6 +31,7 @@
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
+#include <basis/strong_alias.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -95,13 +96,15 @@ class ExampleServer
   void hangleQuitSignal();
 
  private:
-  /// \note will stop periodic timer on scope exit
-  std::unique_ptr<
-    basis::PeriodicTaskExecutor
-  > periodicAsioExecutor_
-    /// \note initialized, used and destroyed
-    /// on `periodicAsioTaskRunner_`
-    GUARDED_BY(periodicAsioTaskRunner_);
+  // Create unique type to store in sequence-local-context
+  /// \note initialized, used and destroyed
+  /// on `periodicAsioTaskRunner_` sequence-local-context
+  using PeriodicAsioExecutorType
+    = util::StrongAlias<
+        class PeriodicAsioExecutorTag
+        /// \note will stop periodic timer on scope exit
+        , basis::PeriodicTaskExecutor
+      >;
 
   // The io_context is required for all I/O
   boost::asio::io_context ioc_
