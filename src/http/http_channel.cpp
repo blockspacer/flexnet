@@ -1,4 +1,3 @@
-#if 1
 #include "flexnet/http/http_channel.hpp" // IWYU pragma: associated
 #include "flexnet/util/mime_type.hpp"
 
@@ -712,4 +711,3 @@ void HttpChannel::onWrite(
 
 } // namespace http
 } // namespace flexnet
-#endif // 0

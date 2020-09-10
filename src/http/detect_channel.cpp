@@ -9,6 +9,7 @@
 #include <base/logging.h>
 #include <base/threading/thread.h>
 #include <base/task/thread_pool/thread_pool.h>
+#include <base/guid.h>
 
 #include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp>
@@ -290,43 +291,24 @@ void DetectChannel::setSSLDetectResult(
     << " detected connection as "
     << (handshakeResult ? "secure" : "unsecure");
 
-  /// \todo create utility function `cached_emplace`
   {
     using UniqueSSLDetectComponent
       = base::Optional<DetectChannel::SSLDetectResult>;
 
-    const bool useCache
-      = (*asioRegistry_)->has<UniqueSSLDetectComponent>(entity_id_);
-
+    // If the value already exists allow it to be re-used
     (*asioRegistry_)->remove_if_exists<
       ECS::UnusedSSLDetectResultTag
     >(entity_id_);
 
     UniqueSSLDetectComponent& detectResult
-      = useCache
-        /// \todo use get_or_emplace
-        ? (*asioRegistry_)->get<UniqueSSLDetectComponent>(entity_id_)
-        : (*asioRegistry_)->emplace<UniqueSSLDetectComponent>(
-            entity_id_
+      = (*asioRegistry_).reset_or_create_var<UniqueSSLDetectComponent>(
+            "UniqueSSLDetectComponent_" + base::GenerateGUID() // debug name
+            , entity_id_
             , base::in_place
             , base::rvalue_cast(ec)
             , base::rvalue_cast(handshakeResult)
             , base::rvalue_cast(stream)
             , base::rvalue_cast(buffer));
-
-    if(useCache) {
-      DCHECK(detectResult);
-      detectResult.emplace(
-            base::rvalue_cast(ec)
-            , base::rvalue_cast(handshakeResult)
-            , base::rvalue_cast(stream)
-            , base::rvalue_cast(buffer));
-      DVLOG(99)
-        << "using preallocated SSLDetectResult";
-    } else {
-      DVLOG(99)
-        << "allocating new SSLDetectResult";
-    }
   }
 }
 

@@ -80,31 +80,13 @@ void handleAcceptNewConnectionResult(
   using DetectChannelCtxComponent
     = base::Optional<::flexnet::http::DetectChannel>;
 
-  const bool useCache
-    = tcpComponent->try_ctx_var<DetectChannelCtxComponent>();
-
-  DVLOG(99)
-    << (useCache
-        ? "using preallocated DetectChannel"
-        : "allocating new DetectChannel");
-
   DetectChannelCtxComponent* detectChannelCtx
-    = &tcpComponent->ctx_or_set_var<DetectChannelCtxComponent>(
+    = &tcpComponent->reset_or_create_var<DetectChannelCtxComponent>(
         "Ctx_DetectChannel_" + base::GenerateGUID() // debug name
         , base::in_place
         , base::rvalue_cast(acceptResult.socket)
         , REFERENCED(asio_registry)
         , entity_id);
-
-  // If the value already exists it is overwritten
-  if(useCache) {
-    detectChannelCtx = &tcpComponent->set_var<DetectChannelCtxComponent>(
-        "Ctx_DetectChannel_" + base::GenerateGUID() // debug name
-        , base::in_place
-        , base::rvalue_cast(acceptResult.socket)
-        , REFERENCED(asio_registry)
-        , entity_id);
-  }
 
   // Check that if the value already existed
   // it was overwritten

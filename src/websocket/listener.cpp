@@ -336,27 +336,11 @@ void Listener::allocateTcpResourceAndAccept()
     << "using TcpConnection with id: "
     << (*asioRegistry_)->get<ECS::TcpConnection>(tcp_entity_id).debug_id;
 
-  const bool useCache
-    = tcpComponent->try_ctx_var<StrandComponent>();
-
-  DVLOG(99)
-    << (useCache
-        ? "using preallocated strand"
-        : "allocating new strand");
-
   StrandComponent* asioStrandCtx
-    = &tcpComponent->ctx_or_set_var<StrandComponent>(
+    = &tcpComponent->reset_or_create_var<StrandComponent>(
         "Ctx_StrandComponent_" + base::GenerateGUID() // debug name
         /// \note `get_executor` returns copy
         , ioc_->get_executor());
-
-  // If the value already exists it is overwritten
-  if(useCache) {
-    asioStrandCtx = &tcpComponent->set_var<StrandComponent>(
-      "Ctx_StrandComponent_" + base::GenerateGUID() // debug name
-      /// \note `get_executor` returns copy
-      , ioc_->get_executor());
-  }
 
   // Check that if the value already existed
   // it was overwritten
@@ -695,43 +679,24 @@ void Listener::setAcceptConnectionResult(
   // `ECS::TcpConnection` must be valid
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
 
-  /// \todo create utility function `cached_emplace`
   {
     using UniqueAcceptComponent
       = base::Optional<Listener::AcceptConnectionResult>;
 
-    const bool useCache
-      = (*asioRegistry_)->has<UniqueAcceptComponent>(tcp_entity_id);
-
+    // If the value already exists allow it to be re-used
     (*asioRegistry_)->remove_if_exists<
       ECS::UnusedAcceptResultTag
     >(tcp_entity_id);
 
     UniqueAcceptComponent& acceptResult
-      = useCache
-        /// \todo use get_or_emplace
-        ? (*asioRegistry_)->get<UniqueAcceptComponent>(tcp_entity_id)
-        : (*asioRegistry_)->emplace<UniqueAcceptComponent>(
-            tcp_entity_id
+      = (*asioRegistry_).reset_or_create_var<UniqueAcceptComponent>(
+            "UniqueAcceptComponent_" + base::GenerateGUID() // debug name
+            , tcp_entity_id
             , base::in_place
             , base::rvalue_cast(ec)
             , base::rvalue_cast(socket)
             /// \todo make us of it
             , /* force closing */ false);
-
-    if(useCache) {
-      DCHECK(acceptResult);
-      acceptResult.emplace(
-        base::rvalue_cast(ec)
-        , base::rvalue_cast(socket)
-        /// \todo make us of it
-        , /* force closing */ false);
-      DVLOG(99)
-        << "using preallocated AcceptConnectionResult";
-    } else {
-      DVLOG(99)
-        << "allocating new AcceptConnectionResult";
-    }
   }
 }
 

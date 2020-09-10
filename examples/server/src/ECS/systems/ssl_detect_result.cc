@@ -68,8 +68,6 @@ void handleSSLDetectResult(
 
   DCHECK(detectResult.stream.value().socket().is_open());
 
-  /// \todo: create http channel here
-#if 1
   ECS::TcpConnection& tcpComponent
     = asio_registry->get<ECS::TcpConnection>(entity_id);
 
@@ -84,43 +82,18 @@ void handleSSLDetectResult(
     using HttpChannelCtxComponent
       = base::Optional<::flexnet::http::HttpChannel>;
 
-    const bool useCache
-      = tcpComponent->try_ctx_var<HttpChannelCtxComponent>();
-
-    DVLOG(99)
-      << (useCache
-          ? "using preallocated http channel"
-          : "allocating new http channel");
-
     HttpChannelCtxComponent* channelCtx
-      = &tcpComponent->ctx_or_set_var<HttpChannelCtxComponent>(
+      = &tcpComponent->reset_or_create_var<HttpChannelCtxComponent>(
           "Ctx_http_Channel_" + base::GenerateGUID() // debug name
           , base::in_place
           , base::rvalue_cast(detectResult.stream.value())
           , base::rvalue_cast(detectResult.buffer)
           , REFERENCED(asio_registry)
           , entity_id);
-
-    // If the value already exists it is overwritten
-    if(useCache) {
-      channelCtx = &tcpComponent->set_var<HttpChannelCtxComponent>(
-          "Ctx_http_Channel_" + base::GenerateGUID() // debug name
-          , base::in_place
-          , base::rvalue_cast(detectResult.stream.value())
-          , base::rvalue_cast(detectResult.buffer)
-          , REFERENCED(asio_registry)
-          , entity_id);
-    }
 
     // start http session
     channelCtx->value().doReadAsync();
   }
-#else
-  /// \todo: create channel here
-  // Create the session and run it
-  //std::make_shared<session>(base::rvalue_cast(detectResult.stream.value().socket()))->run();
-  closeAndReleaseResources();
-#endif // 0
 }
 
 void updateSSLDetection(

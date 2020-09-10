@@ -1,7 +1,5 @@
 #pragma once
 
-#if 1
-
 #include "flexnet/util/checked_optional.hpp"
 #include "flexnet/util/limited_tcp_stream.hpp"
 #include "flexnet/util/lock_with_check.hpp"
@@ -418,5 +416,3 @@ private:
 
 } // namespace http
 } // namespace flexnet
-
-#endif // 0
