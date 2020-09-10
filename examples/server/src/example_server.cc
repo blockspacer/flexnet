@@ -251,6 +251,34 @@ void ExampleServer::updateAsioRegistry() NO_EXCEPTION
   );
 }
 
+void ExampleServer::setupPeriodicAsioExecutor() NO_EXCEPTION
+{
+  DCHECK_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
+
+  DCHECK_RUN_ON_SEQUENCED_TASK_RUNNER(periodicAsioTaskRunner_.get());
+
+  DCHECK(!periodicAsioExecutor_);
+  periodicAsioExecutor_
+    = std::make_unique<basis::PeriodicTaskExecutor>(
+        base::BindRepeating(
+          &ExampleServer::updateAsioRegistry
+          , base::Unretained(this))
+      );
+
+  periodicAsioExecutor_->startPeriodicTimer(
+    base::TimeDelta::FromMilliseconds(100));
+}
+
+void ExampleServer::deletePeriodicAsioExecutor() NO_EXCEPTION
+{
+  DCHECK_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
+
+  DCHECK_RUN_ON_SEQUENCED_TASK_RUNNER(periodicAsioTaskRunner_.get());
+
+  DCHECK(periodicAsioExecutor_);
+  periodicAsioExecutor_.reset(nullptr);
+}
+
 void ExampleServer::runLoop() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
@@ -275,16 +303,12 @@ void ExampleServer::runLoop() NO_EXCEPTION
          );
   }
 
-  /// \note will stop periodic timer on scope exit
-  basis::PeriodicTaskExecutor periodicAsioExecutor(
-    periodicAsioTaskRunner_
-    , base::BindRepeating(
-        &ExampleServer::updateAsioRegistry
-        , base::Unretained(this))
+  periodicAsioTaskRunner_->PostTask(FROM_HERE
+    , base::BindOnce(
+      &ExampleServer::setupPeriodicAsioExecutor
+      , base::Unretained(this)
+    )
   );
-
-  periodicAsioExecutor.startPeriodicTimer(
-    base::TimeDelta::FromMilliseconds(100));
 
   {
     base::Thread::Options options;
@@ -442,6 +466,30 @@ void ExampleServer::runLoop() NO_EXCEPTION
 
   asio_thread_4.Stop();
   DCHECK(!asio_thread_4.IsRunning());
+
+  // wait for deletion  of `periodicAsioExecutor_`
+  // on task runner associated with it
+  {
+    VoidPromise promise
+      = base::PostPromise(FROM_HERE
+          , periodicAsioTaskRunner_.get()
+          , base::BindOnce(
+            &ExampleServer::deletePeriodicAsioExecutor
+            , base::Unretained(this)
+          )
+        );
+    base::waitForPromiseResolve(
+      promise
+      , base::ThreadPool::GetInstance()->
+          CreateSequencedTaskRunnerWithTraits(
+            base::TaskTraits{
+              base::TaskPriority::BEST_EFFORT
+              , base::MayBlock()
+              , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+            }
+        )
+    );
+  }
 }
 
 void ExampleServer::prepareBeforeRunLoop() NO_EXCEPTION

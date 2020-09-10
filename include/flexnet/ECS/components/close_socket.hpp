@@ -33,8 +33,20 @@ struct CloseSocket
   using SocketType
     = ::boost::asio::ip::tcp::socket;
 
-  /// \todo use UnownedPtr
+  using ExecutorType
+    // usually same as `::boost::asio::io_context::executor_type`
+    = ::boost::asio::executor;
+
+  using StrandType
+    = ::boost::asio::strand<ExecutorType>;
+
+  /// \todo use UnownedRef
   SocketType* socket;
+
+  /// \todo use UnownedPtr
+  /// \note We fallback to default strand
+  /// if `CloseSocket::strand` is `nullptr`.
+  StrandType* strand;
 };
 
 } // namespace ECS

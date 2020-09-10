@@ -101,7 +101,8 @@ public:
     = ::boost::asio::ip::tcp::acceptor;
 
   using ExecutorType
-    = ::boost::asio::io_context::executor_type;
+    // usually same as `::boost::asio::io_context::executor_type`
+    = ::boost::asio::executor;
 
   using StrandType
     = ::boost::asio::strand<ExecutorType>;

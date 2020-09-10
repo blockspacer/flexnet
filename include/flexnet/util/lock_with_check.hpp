@@ -229,6 +229,41 @@ class SCOPED_LOCKABLE StrandCheckerScope {
   DCHECK((x)->RunsTasksInCurrentSequence())
 
 // Type of `x` is `basis::AnnotatedStrand&`
+//
+// EXAMPLE
+//
+// using ExecutorType
+//   = StreamType::executor_type;
+//
+// using StrandType
+//   = ::boost::asio::strand<ExecutorType>;
+//
+// // |stream_| and calls to |async_*| are guarded by strand
+// basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
+//   SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
+//     perConnectionStrand_
+//     // 1. It safe to read value from any thread
+//     // because its storage expected to be not modified.
+//     // 2. On each access to strand check that stream valid
+//     // otherwise `::boost::asio::post` may fail.
+//     , base::BindRepeating(
+//       [
+//       ](
+//         bool is_stream_valid
+//         , StreamType& stream
+//       ){
+//         /// \note |perConnectionStrand_|
+//         /// is valid as long as |stream_| valid
+//         /// i.e. valid util |stream_| moved out
+//         /// (it uses executor from stream).
+//         return is_stream_valid;
+//       }
+//       , is_stream_valid_.load()
+//       , REFERENCED(stream_.value())
+//     ));
+//
+// DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
+//
 #define DCHECK_RUN_ON_STRAND(x, Type)                                              \
   basis::StrandCheckerScope<Type> strand_check_scope(x); \
   DCHECK((x)); \

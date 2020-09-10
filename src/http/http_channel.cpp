@@ -3,6 +3,7 @@
 #include "flexnet/util/mime_type.hpp"
 
 #include "flexnet/ECS/tags.hpp"
+#include "flexnet/ECS/components/close_socket.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/optional.h>
@@ -102,6 +103,9 @@ handleRequest(
   auto const bad_request =
   [&req](beast::string_view why)
   {
+    DVLOG(99)
+      << "HTTPChannel sent `bad request` response";
+
     HttpChannel::ResponseToRequestType res{
       beast::http::status::bad_request
       , req.version()};
@@ -126,6 +130,9 @@ handleRequest(
   auto const not_found =
   [&req](beast::string_view target)
   {
+    DVLOG(99)
+      << "HTTPChannel sent `not found` response";
+
     HttpChannel::ResponseToRequestType res{
       beast::http::status::not_found
       , req.version()};
@@ -150,6 +157,9 @@ handleRequest(
   auto const server_error =
   [&req](beast::string_view what)
   {
+    DVLOG(99)
+      << "HTTPChannel sent `server error` response";
+
     HttpChannel::ResponseToRequestType res{
       beast::http::status::internal_server_error
       , req.version()};
@@ -175,6 +185,7 @@ handleRequest(
   if(custom_response) {
     /// \todo support custom_response
     //return sendCallback(custom_response.value());
+    NOTIMPLEMENTED();
     return sendCallback(bad_request("Not allowed"));
   }
 
@@ -182,6 +193,8 @@ handleRequest(
   if(req.method() != beast::http::verb::get
      && req.method() != beast::http::verb::head)
   {
+    DVLOG(99)
+      << "HTTPChannel sent `Unknown HTTP-method` response";
     return sendCallback(bad_request("Unknown HTTP-method"));
   }
 
@@ -190,6 +203,8 @@ handleRequest(
       req.target()[0] != '/' ||
       req.target().find("..") != beast::string_view::npos)
   {
+    DVLOG(99)
+      << "HTTPChannel sent `Illegal request-target` response";
     return sendCallback(bad_request("Illegal request-target"));
   }
 
@@ -197,6 +212,7 @@ handleRequest(
   std::string path = pathConcat(doc_root, req.target());
   if(req.target().back() == '/')
   {
+    /// \todo make customizable
     path.append("index.html");
   }
 
@@ -208,11 +224,18 @@ handleRequest(
   // Handle the case where the file doesn't exist
   if(ec == boost::system::errc::no_such_file_or_directory)
   {
+    DVLOG(99)
+      << "HTTPChannel unable to find file with path: "
+      << path;
     return sendCallback(not_found(req.target()));
   }
 
   // Handle an unknown error
-  if(ec) {
+  if(ec)
+  {
+    DVLOG(99)
+      << "HTTPChannel detected unknown error: "
+      << ec.message();
     return sendCallback(server_error(ec.message()));
   }
 
@@ -224,6 +247,9 @@ handleRequest(
   // Respond to HEAD request
   if(req.method() == beast::http::verb::head)
   {
+    DVLOG(99)
+      << "HTTPChannel detected `head` request";
+
     HttpChannel::ResponseEmptyType res{
       beast::http::status::ok, req.version()};
 
@@ -241,6 +267,9 @@ handleRequest(
   }
 
   // Respond to GET request
+  DCHECK(req.method() == beast::http::verb::get);
+    DVLOG(99)
+      << "HTTPChannel detected `get` request";
   HttpChannel::ResponseFileType res{
     std::piecewise_construct,
     std::make_tuple(base::rvalue_cast(fileBody))
@@ -288,15 +317,19 @@ HttpChannel::HttpChannel(
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  // The policy object, which is default constructed, or
-  // decay-copied upon construction, is attached to the stream
-  // and may be accessed through the function `rate_policy`.
-  //
-  // Here we set individual rate limits for reading and writing
-  stream_.rate_policy()
-    .read_limit(10000); // bytes per second
-  stream_.rate_policy()
-    .write_limit(850000); // bytes per second
+  /// \note we assume that configuring `stream_`
+  /// is thread-safe here
+  {
+    // The policy object, which is default constructed, or
+    // decay-copied upon construction, is attached to the stream
+    // and may be accessed through the function `rate_policy`.
+    //
+    // Here we set individual rate limits for reading and writing
+    stream_.rate_policy()
+      .read_limit(10000); // bytes per second
+    stream_.rate_policy()
+      .write_limit(850000); // bytes per second
+  }
 }
 
 NOT_THREAD_SAFE_FUNCTION()
@@ -304,12 +337,13 @@ HttpChannel::~HttpChannel()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
-
   /// \note do not call `close()` from destructor
   /// i.e. call `close()` manually
-  if(is_stream_valid_.load()) {
-    DCHECK(!isOpen()); /// \todo thread safety
+  if(is_stream_valid_.load())
+  {
+    /// \note we assume that reading unused `stream_`
+    /// is thread-safe here
+    DCHECK(!stream_.socket().is_open());
   }
 }
 
@@ -317,8 +351,10 @@ bool HttpChannel::isOpen()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(stream_);
   DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+
+  DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
   DCHECK(is_stream_valid_.load());
   return stream_.socket().is_open();
@@ -349,13 +385,11 @@ void HttpChannel::doRead()
   LOG_CALL(DVLOG(99));
 
   DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD(stream_);
   DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(buffer_);
+
+  DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
   DCHECK(is_stream_valid_.load());
-
-  DCHECK(perConnectionStrand_->running_in_this_thread());
 
   DVLOG(99)
     << "HTTP read remote_endpoint: "
@@ -380,25 +414,14 @@ void HttpChannel::doRead()
     , buffer_
     , parser_->get()
     /// \todo use base::BindFrontWrapper
-    /*, ::boost::beast::bind_front_handler([
-      ](
-        base::OnceClosure&& boundTask
-      ){
-        base::rvalue_cast(boundTask).Run();
-      }
-      , base::BindOnce(
-          &HttpChannel::onRead
-          , base::Unretained(this)
-        )
-    )*/
     , boost::asio::bind_executor(
         *perConnectionStrand_
         , ::std::bind(
-          &HttpChannel::onRead,
-          UNOWNED_LIFETIME(
-            this)
-          , std::placeholders::_1
-          , std::placeholders::_2
+            &HttpChannel::onRead,
+            UNOWNED_LIFETIME(
+              this)
+            , std::placeholders::_1
+            , std::placeholders::_2
           )
       )
   );
@@ -406,38 +429,51 @@ void HttpChannel::doRead()
 
 void HttpChannel::doEof()
 {
-  DCHECK_CUSTOM_THREAD_GUARD(stream_);
   DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
+
+  DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
   DCHECK(is_stream_valid_.load());
 
+  auto& socket
+    = beast::get_lowest_layer(stream_).socket();
+
   DVLOG(99)
     << "HTTPChannel::do_eof for remote_endpoint: "
-    << beast::get_lowest_layer(stream_)
-        .socket()
-        .remote_endpoint();
+    << socket.remote_endpoint();
 
-  /*// Schedule shutdown on asio thread
-  if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
-    asio_registry->emplace<ECS::CloseSocket>(entity_id
-      /// \note lifetime of `acceptResult` must be prolonged
-      , UNOWNED_LIFETIME() &acceptResult.socket);
-  }*/
-
-  /*// Send a TCP shutdown on asio thread
-  if(stream_.socket().is_open())
+  auto closeAndReleaseResources
+    = [this, &socket]()
   {
-    LOG(INFO) << "shutdown http socket...";
-    ErrorCode ec;
-    /// \todo async_shutdown ? why only for SSL async_shutdown? https://github.com/OzzieIsaacs/winmerge-qt/blob/master/ext/boost_1_70_0/libs/beast/example/advanced/server-flex/advanced_server_flex.cpp#L764
-    stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
-    if (ec) {
-      /// \note don't call fail handlers here to prevent recursion, just log error
-      LOG(WARNING) << "HTTP ServerSession shutdown: " << " : " << ec.message();
-    }
-  }*/
+    DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
+    DCHECK_CUSTOM_THREAD_GUARD(entity_id_);
 
-  // At this point the connection is closed gracefully
+    DCHECK(asioRegistry_->running_in_this_thread());
+
+    // Schedule shutdown on asio thread
+    if(!(*asioRegistry_)->has<ECS::CloseSocket>(entity_id_)) {
+      (*asioRegistry_)->emplace<ECS::CloseSocket>(entity_id_
+        /// \note lifetime of `acceptResult` must be prolonged
+        , UNOWNED_LIFETIME() &socket
+        , UNOWNED_LIFETIME() &perConnectionStrand_.data
+      );
+    }
+  };
+
+  // Set the timeout.
+  beast::get_lowest_layer(stream_)
+    .expires_after(std::chrono::seconds(kCloseTimeoutSec));
+
+  // mark SSL detection completed
+  ::boost::asio::post(
+    asioRegistry_->strand()
+    /// \todo use base::BindFrontWrapper
+    , ::boost::beast::bind_front_handler(
+        base::rvalue_cast(closeAndReleaseResources)
+      )
+  );
 }
 
 void HttpChannel::onFail(
@@ -450,45 +486,59 @@ void HttpChannel::onFail(
 
   DCHECK(is_stream_valid_.load());
 
-  /*DCHECK(fail_handler);
-
-  /// \note user can provide custom timeout handler e.t.c.
-  if(!fail_handler(shared_from_this(), &ec, what)){
-    return;
-  }*/
-
-  doEof();
-
-  // ssl::error::stream_truncated, also known as an SSL "short read",
-  // indicates the peer closed the connection without performing the
-  // required closing handshake (for example, Google does this to
-  // improve performance). Generally this can be a security issue,
-  // but if your communication protocol is self-terminated (as
-  // it is with both HTTP and WebSocket) then you may simply
-  // ignore the lack of close_notify.
-  //
-  // https://github.com/boostorg/beast/issues/38
-  //
-  // https://security.stackexchange.com/questions/91435/how-to-handle-a-malicious-ssl-tls-shutdown
-  //
-  // When a short read would cut off the end of an HTTP message,
-  // Beast returns the error beast::http::error::partial_message.
-  // Therefore, if we see a short read here, it has occurred
-  // after the message has been completed, so it is safe to ignore it.
-  /*if(ec == ::boost::asio::ssl::error::stream_truncated) {
-      return;
-  }*/
-
-  // Don't report these
-  /*if (ec == ::boost::asio::error::operation_aborted
-      || ec == ::websocket::error::closed) {
-    return;
+  // log errors with different log levels
+  // (log level based on error code)
+  {
+    // ssl::error::stream_truncated, also known as an SSL "short read",
+    // indicates the peer closed the connection without performing the
+    // required closing handshake (for example, Google does this to
+    // improve performance). Generally this can be a security issue,
+    // but if your communication protocol is self-terminated (as
+    // it is with both HTTP and WebSocket) then you may simply
+    // ignore the lack of close_notify.
+    //
+    // https://github.com/boostorg/beast/issues/38
+    //
+    // https://security.stackexchange.com/questions/91435/how-to-handle-a-malicious-ssl-tls-shutdown
+    //
+    // When a short read would cut off the end of an HTTP message,
+    // Beast returns the error beast::http::error::partial_message.
+    // Therefore, if we see a short read here, it has occurred
+    // after the message has been completed, so it is safe to ignore it.
+    if(ec == ::boost::asio::ssl::error::stream_truncated)
+    {
+      DVLOG(99)
+        << "HttpChannel::onFail (stream_truncated): "
+        << what
+        << " : "
+        << ec.message();
+    }
+    else if (ec == ::boost::asio::error::operation_aborted
+        || ec == ::boost::beast::websocket::error::closed)
+    {
+      DVLOG(99)
+        << "HttpChannel::onFail (operation_aborted or closed): "
+        << what
+        << " : "
+        << ec.message();
+    }
+    else if (ec == ::boost::beast::error::timeout)
+    {
+      DVLOG(99)
+        << "HttpChannel::onFail (timeout): "
+        << what
+        << " : "
+        << ec.message();
+    } else {
+      LOG(WARNING)
+        << "HttpChannel::onFail: "
+        << what
+        << " : "
+        << ec.message();
+    }
   }
 
-  if (ec == beast::error::timeout) {
-      LOG(INFO) << "|idle timeout when read"; //idle_timeout
-      isExpired_ = true;
-  }*/
+  doEof();
 }
 
 void HttpChannel::onRead(
@@ -497,8 +547,10 @@ void HttpChannel::onRead(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(stream_);
   DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+
+  DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
   // This means they closed the connection
   if(ec == beast::http::error::end_of_stream) {
@@ -514,7 +566,12 @@ void HttpChannel::onRead(
     return onFail(ec, "read");
   }
 
+  /// \todo create component ECS::HttpReadResult
+
   DCHECK(is_stream_valid_.load());
+
+  auto& socket
+    = beast::get_lowest_layer(stream_).socket();
 
   std::optional<ResponseToRequestType> http_resonse_on_fail
     = std::nullopt;
@@ -522,6 +579,9 @@ void HttpChannel::onRead(
   // See if it is a WebSocket Upgrade
   if(::boost::beast::websocket::is_upgrade(parser_->get()))
   {
+      DVLOG(99)
+        << "HTTPChannel websocket upgrade for remote_endpoint: "
+        << socket.remote_endpoint();
       /*DCHECK(on_websocket_upgrade_);
 
       /// \note websocket upgrade may fail with some http response, like `permission denied`
@@ -533,10 +593,15 @@ void HttpChannel::onRead(
       if(http_resonse_on_fail) {
         /// \note failed to create ws stream, continue with http stream
         DCHECK(is_stream_valid_.load());
-        LOG(WARNING) << "is_stream_valid_ = true";
+        DVLOG(99)
+          << "is_stream_valid_ = true";
 
-        // TODO: do we need to close http session here if failed to update request???
+        // close http session if failed
+        doEof();
       } else {
+        /// \todo
+        doEof();
+
         /// \note `stream_` can be moved to websocket session from http session,
         // so we can't use it here anymore
         is_stream_valid_ = false;
@@ -545,10 +610,14 @@ void HttpChannel::onRead(
         // The websocket::stream uses its own timeout settings.
         beast::get_lowest_layer(stream_).expires_never();
 
-        LOG(WARNING) << "is_stream_valid_ = false";
+        DVLOG(99)
+          << "is_stream_valid_ = false";
+
         return;
       }
   }
+
+  DCHECK(is_stream_valid_.load());
 
   /// \todo use send queue https://github.com/OzzieIsaacs/winmerge-qt/blob/master/ext/boost_1_70_0/libs/beast/example/advanced/server-flex/advanced_server_flex.cpp#L616
   // Send the response
@@ -556,8 +625,6 @@ void HttpChannel::onRead(
   // The following code requires generic
   // lambdas, available in C++14 and later.
   //
-  DCHECK(is_stream_valid_.load());
-
   handleRequest(
     /// \todo make configurable
     "/", // doc_root
@@ -565,26 +632,82 @@ void HttpChannel::onRead(
     http_resonse_on_fail, // optional custom resonse
     [this](auto&& response)
     {
+      DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+      DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+
+      DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
+
       // The lifetime of the message has to extend
       // for the duration of the async operation so
       // we use a shared_ptr to manage it.
       using response_type
         = typename std::decay<decltype(response)>::type;
+      /// \todo remove shared+ptr
       auto sp = std::make_shared<response_type>(
         std::forward<decltype(response)>(response));
-/*
+
       // Write the response
-      // NOTE: store `self` as separate variable
-      // due to ICE in gcc 7.3
-      auto self = shared_from_this();
-      beast::http::async_write(stream_, *sp,
-        [self, sp](
-            ErrorCode ec, std::size_t bytes)
-        {
-            self->onWrite(ec, bytes, sp->need_eof());
-        });*/
+      beast::http::async_write(stream_
+        , *sp
+        , boost::asio::bind_executor(
+            *perConnectionStrand_
+            /// \todo use base::BindFrontWrapper
+            /*, ::std::bind(
+                &HttpChannel::onWrite,
+                UNOWNED_LIFETIME(
+                  this)
+                , std::placeholders::_1
+                , std::placeholders::_2
+                , sp->need_eof()
+              )*/
+            , [
+                this
+                // extend lifetime of the message
+                , sp
+              ](
+               ErrorCode ec
+               , std::size_t bytes)
+              {
+                DCHECK(sp);
+
+                onWrite(ec, bytes, sp->need_eof());
+              }
+          )
+      );
     }
   );
+}
+
+void HttpChannel::onWrite(
+  ErrorCode ec
+  , std::size_t bytes_transferred
+  , bool close)
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+
+  DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
+
+  DCHECK(is_stream_valid_.load());
+
+  boost::ignore_unused(bytes_transferred);
+
+  // Handle the error, if any
+  if(ec) {
+    return onFail(ec, "write");
+  }
+
+  if(close) {
+    // This means we should close the connection, usually because
+    // the response indicated the "Connection: close" semantic.
+    doEof();
+    return;
+  }
+
+  // Read another request
+  doRead();
 }
 
 } // namespace http

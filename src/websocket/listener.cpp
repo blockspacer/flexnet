@@ -736,9 +736,6 @@ Listener::~Listener()
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
-
   /// \note we assume that |is_open|
   /// is thread-safe in destructor
   /// (but not thread-safe in general)

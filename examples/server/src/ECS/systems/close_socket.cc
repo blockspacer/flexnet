@@ -29,9 +29,28 @@ void handleClosingSocket(
     << "closing socket of connection with id: "
     << tcpComponent.debug_id;
 
+  // `socket` can be manipulated
+  // on user-provided asio `strand`
+  // (with fallback to default one).
+  /// \note Usually we close socket
+  /// when error occured or socket no more used,
+  /// so we can assume that is safe to use
+  /// any existing strand (or create new strand)
+  /// when `component.strand` is `nullptr`.
+  ECS::CloseSocket::StrandType* strandComponent
+    = component.strand;
+
+  // default strand used as fallback if `component.strand` is `nullptr`
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
-  Listener::StrandComponent& strandComponent
-    = tcpComponent->ctx_var<Listener::StrandComponent>();
+  Listener::StrandComponent& fallbackStrandComponent
+      = tcpComponent->ctx_var<Listener::StrandComponent>();
+
+  // Fallback to some valid strand
+  // if custom strand not provided.
+  if(strandComponent == nullptr)
+  {
+    strandComponent = &fallbackStrandComponent;
+  }
 
   base::OnceClosure doMarkUnused
     = base::BindOnce(
@@ -127,9 +146,10 @@ void handleClosingSocket(
         , base::rvalue_cast(doMarkUnused)
       );
 
+  DCHECK(strandComponent);
   // Schedule shutdown on asio thread
   ::boost::asio::post(
-    strandComponent
+    *strandComponent
     /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler([
       ](

@@ -103,7 +103,12 @@ public:
   static constexpr size_t kMaxMessageSizeByte = 100000;
 
   /// \todo make configurable
-  static constexpr size_t kExpireTimeoutSec = 60;
+  // Timeout for inactive connection
+  static constexpr size_t kExpireTimeoutSec = 20;
+
+  /// \todo make configurable
+  // Timeout during shutdown
+  static constexpr size_t kCloseTimeoutSec = 5;
 
 public:
   using RequestBodyType
@@ -327,9 +332,7 @@ private:
 
 private:
   StreamType stream_
-    /// \note moved between threads,
-    /// take care of thread-safety!
-    SET_CUSTOM_THREAD_GUARD(stream_);
+    GUARDED_BY(perConnectionStrand_);
 
   // |stream_| and calls to |async_*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
@@ -362,9 +365,7 @@ private:
 
   // The dynamic buffer to store recieved data
   MessageBufferType buffer_
-    /// \note moved between threads,
-    /// take care of thread-safety!
-    SET_CUSTOM_THREAD_GUARD(buffer_);
+    GUARDED_BY(perConnectionStrand_);
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
@@ -403,7 +404,8 @@ private:
   boost::optional<
     ::boost::beast::http::request_parser<
       RequestBodyType>
-  > parser_;
+  > parser_
+    GUARDED_BY(perConnectionStrand_);
 
   /// \todo SSL support
   /// ::boost::asio::ssl::context

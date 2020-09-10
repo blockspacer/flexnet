@@ -73,6 +73,10 @@ class ExampleServer
   NOT_THREAD_SAFE_FUNCTION()
   void updateAsioRegistry() NO_EXCEPTION;
 
+  void setupPeriodicAsioExecutor() NO_EXCEPTION;
+
+  void deletePeriodicAsioExecutor() NO_EXCEPTION;
+
   MUST_USE_RETURN_VALUE
   StatusPromise stopAcceptors() NO_EXCEPTION;
 
@@ -89,6 +93,15 @@ class ExampleServer
   void stopIOContext() NO_EXCEPTION;
 
   void hangleQuitSignal();
+
+ private:
+  /// \note will stop periodic timer on scope exit
+  std::unique_ptr<
+    basis::PeriodicTaskExecutor
+  > periodicAsioExecutor_
+    /// \note initialized, used and destroyed
+    /// on `periodicAsioTaskRunner_`
+    GUARDED_BY(periodicAsioTaskRunner_);
 
   // The io_context is required for all I/O
   boost::asio::io_context ioc_

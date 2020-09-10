@@ -27,6 +27,8 @@ void handleSSLDetectResult(
   auto closeAndReleaseResources
     = [&detectResult, &asio_registry, entity_id]()
   {
+    DCHECK(asio_registry.running_in_this_thread());
+
     // Set the timeout.
     ::boost::beast::get_lowest_layer(detectResult.stream.value())
         .expires_after(std::chrono::seconds(
@@ -36,7 +38,9 @@ void handleSSLDetectResult(
     if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
       asio_registry->emplace<ECS::CloseSocket>(entity_id
         /// \note lifetime of `detectResult` must be prolonged
-        , UNOWNED_LIFETIME() &detectResult.stream.value().socket());
+        , UNOWNED_LIFETIME() &detectResult.stream.value().socket()
+        , /* strand */ nullptr
+      );
     }
   };
 
@@ -94,7 +98,6 @@ void handleSSLDetectResult(
           , base::in_place
           , base::rvalue_cast(detectResult.stream.value())
           , base::rvalue_cast(detectResult.buffer)
-          //, REFERENCED(strandComponent)
           , REFERENCED(asio_registry)
           , entity_id);
 
@@ -105,7 +108,6 @@ void handleSSLDetectResult(
           , base::in_place
           , base::rvalue_cast(detectResult.stream.value())
           , base::rvalue_cast(detectResult.buffer)
-          //, REFERENCED(strandComponent)
           , REFERENCED(asio_registry)
           , entity_id);
     }

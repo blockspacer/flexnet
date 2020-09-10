@@ -38,11 +38,14 @@ void handleAcceptNewConnectionResult(
   auto closeAndReleaseResources
     = [&acceptResult, &asio_registry, entity_id]()
   {
+    DCHECK(asio_registry.running_in_this_thread());
+
     // Schedule shutdown on asio thread
     if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
       asio_registry->emplace<ECS::CloseSocket>(entity_id
         /// \note lifetime of `acceptResult` must be prolonged
-        , UNOWNED_LIFETIME() &acceptResult.socket);
+        , UNOWNED_LIFETIME() &acceptResult.socket
+        , /* strand */ nullptr);
     }
   };
 
