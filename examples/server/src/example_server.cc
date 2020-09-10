@@ -11,6 +11,7 @@
 #include <flexnet/ECS/tags.hpp>
 #include <flexnet/util/lock_with_check.hpp>
 #include <flexnet/util/periodic_validate_until.hpp>
+#include <flexnet/util/scoped_sequence_context_var.hpp>
 
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
@@ -252,49 +253,6 @@ void ExampleServer::updateAsioRegistry() NO_EXCEPTION
   );
 }
 
-void ExampleServer::setupPeriodicAsioExecutor() NO_EXCEPTION
-{
-  DCHECK_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
-
-  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
-
-  base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
-    = ECS::SequenceLocalContext::getSequenceLocalInstance(
-        FROM_HERE, base::SequencedTaskRunnerHandle::Get());
-
-  DCHECK(sequenceLocalContext);
-  // Can not register same data type twice.
-  // Forces users to call `sequenceLocalContext->unset`.
-  DCHECK(!sequenceLocalContext->try_ctx<PeriodicAsioExecutorType>(FROM_HERE));
-  PeriodicAsioExecutorType& result
-    = sequenceLocalContext->set_once<PeriodicAsioExecutorType>(
-        FROM_HERE
-        , "PeriodicAsioExecutorType_" + FROM_HERE.ToString()
-        , base::BindRepeating(
-            &ExampleServer::updateAsioRegistry
-            , base::Unretained(this))
-      );
-
-  /// \todo make period configurable
-  result->startPeriodicTimer(
-    base::TimeDelta::FromMilliseconds(100));
-}
-
-void ExampleServer::deletePeriodicAsioExecutor() NO_EXCEPTION
-{
-  DCHECK_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
-
-  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
-
-  base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
-    = ECS::SequenceLocalContext::getSequenceLocalInstance(
-        FROM_HERE, base::SequencedTaskRunnerHandle::Get());
-
-  DCHECK(sequenceLocalContext);
-  DCHECK(sequenceLocalContext->try_ctx<PeriodicAsioExecutorType>(FROM_HERE));
-  sequenceLocalContext->unset<PeriodicAsioExecutorType>(FROM_HERE);
-}
-
 void ExampleServer::runLoop() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
@@ -305,26 +263,6 @@ void ExampleServer::runLoop() NO_EXCEPTION
   DCHECK_RUN_ON(&sequence_checker_);
 
   prepareBeforeRunLoop();
-
-  {
-    DCHECK(!periodicAsioTaskRunner_);
-    periodicAsioTaskRunner_
-      = base::ThreadPool::GetInstance()->
-         CreateSequencedTaskRunnerWithTraits(
-           base::TaskTraits{
-             base::TaskPriority::BEST_EFFORT
-             , base::MayBlock()
-             , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
-           }
-         );
-  }
-
-  periodicAsioTaskRunner_->PostTask(FROM_HERE
-    , base::BindOnce(
-      &ExampleServer::setupPeriodicAsioExecutor
-      , base::Unretained(this)
-    )
-  );
 
   {
     base::Thread::Options options;
@@ -466,7 +404,87 @@ void ExampleServer::runLoop() NO_EXCEPTION
     DCHECK(asio_thread_4.IsRunning());
   }
 
-  run_loop_.Run();
+
+  {
+    DCHECK(!periodicAsioTaskRunner_);
+    periodicAsioTaskRunner_
+      = base::ThreadPool::GetInstance()->
+         CreateSequencedTaskRunnerWithTraits(
+           base::TaskTraits{
+             base::TaskPriority::BEST_EFFORT
+             , base::MayBlock()
+             , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+           }
+         );
+  }
+
+  // Must be resolved when all resources required by `run_loop_.Run()`
+  // are freed.
+  VoidPromise promiseRunDone
+    = VoidPromise::CreateResolved(FROM_HERE);
+
+  {
+    // Create UNIQUE type to store in sequence-local-context
+    /// \note initialized, used and destroyed
+    /// on `periodicAsioTaskRunner_` sequence-local-context
+    using AsioUpdater
+      = util::StrongAlias<
+          class PeriodicAsioExecutorTag
+          /// \note will stop periodic timer on scope exit
+          , basis::PeriodicTaskExecutor
+        >;
+
+    /// \note Will free stored variable on scope exit.
+    basis::ScopedSequenceCtxVar<AsioUpdater> scopedSequencedAsioExecutor
+      (periodicAsioTaskRunner_);
+
+    VoidPromise emplaceDonePromise
+      = scopedSequencedAsioExecutor.emplace_async(FROM_HERE
+            , "PeriodicAsioExecutor" // debug name
+            , base::BindRepeating(
+                &ExampleServer::updateAsioRegistry
+                , base::Unretained(this))
+      )
+    .ThenOn(periodicAsioTaskRunner_
+      , FROM_HERE
+      , base::BindOnce(
+        []
+        (
+          scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner
+          , AsioUpdater* periodicAsioExecutor
+        ){
+          LOG_CALL(DVLOG(99));
+
+          /// \todo make period configurable
+          (*periodicAsioExecutor)->startPeriodicTimer(
+            base::TimeDelta::FromMilliseconds(100));
+
+          DCHECK(periodicAsioTaskRunner->RunsTasksInCurrentSequence());
+        }
+        , periodicAsioTaskRunner_
+      )
+    );
+    /// \note Will block current thread for unspecified time.
+    base::waitForPromiseResolve(FROM_HERE, emplaceDonePromise);
+
+    // Append promise to chain as nested promise.
+    promiseRunDone =
+      promiseRunDone
+      .ThenOn(periodicAsioTaskRunner_
+        , FROM_HERE
+        // Wait for deletion  of `periodicAsioExecutor_`
+        // on task runner associated with it
+        // otherwise you can get `use-after-free` error
+        // on resources bound to periodic callback.
+        /// \note We can not just call `periodicAsioTaskRunner_.reset()`
+        /// because `periodicAsioTaskRunner_` is shared type
+        /// and because `PeriodicAsioExecutor` prolongs its lifetime.
+        , scopedSequencedAsioExecutor.promiseDeletion()
+        , /*nestedPromise*/ true
+      );
+
+    run_loop_.Run();
+  }
 
   DVLOG(9)
     << "Main run loop finished";
@@ -483,32 +501,8 @@ void ExampleServer::runLoop() NO_EXCEPTION
   asio_thread_4.Stop();
   DCHECK(!asio_thread_4.IsRunning());
 
-  // Wait for deletion  of `periodicAsioExecutor_`
-  // on task runner associated with it
-  /// \note We can not just call `periodicAsioTaskRunner_.reset()` because
-  /// it is shared type and `PeriodicAsioExecutor` prolongs its lifetime
-  {
-    VoidPromise promise
-      = base::PostPromise(FROM_HERE
-          , periodicAsioTaskRunner_.get()
-          , base::BindOnce(
-            &ExampleServer::deletePeriodicAsioExecutor
-            , base::Unretained(this)
-          )
-        );
-    /// \note Will block current thread for unspecified time.
-    base::waitForPromiseResolve(
-      promise
-      , base::ThreadPool::GetInstance()->
-          CreateSequencedTaskRunnerWithTraits(
-            base::TaskTraits{
-              base::TaskPriority::BEST_EFFORT
-              , base::MayBlock()
-              , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
-            }
-        )
-    );
-  }
+  /// \note Will block current thread for unspecified time.
+  base::waitForPromiseResolve(FROM_HERE, promiseRunDone);
 }
 
 void ExampleServer::prepareBeforeRunLoop() NO_EXCEPTION

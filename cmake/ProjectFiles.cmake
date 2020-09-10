@@ -23,4 +23,7 @@ list(APPEND flexnet_SOURCES
   #
   ${flexnet_include_DIR}/util/periodic_validate_until.hpp
   ${flexnet_src_DIR}/util/periodic_validate_until.cpp
+  #
+  ${flexnet_include_DIR}/util/scoped_sequence_context_var.hpp
+  ${flexnet_src_DIR}/util/scoped_sequence_context_var.cpp
 )

@@ -74,10 +74,6 @@ class ExampleServer
   NOT_THREAD_SAFE_FUNCTION()
   void updateAsioRegistry() NO_EXCEPTION;
 
-  void setupPeriodicAsioExecutor() NO_EXCEPTION;
-
-  void deletePeriodicAsioExecutor() NO_EXCEPTION;
-
   MUST_USE_RETURN_VALUE
   StatusPromise stopAcceptors() NO_EXCEPTION;
 
@@ -96,16 +92,6 @@ class ExampleServer
   void hangleQuitSignal();
 
  private:
-  // Create unique type to store in sequence-local-context
-  /// \note initialized, used and destroyed
-  /// on `periodicAsioTaskRunner_` sequence-local-context
-  using PeriodicAsioExecutorType
-    = util::StrongAlias<
-        class PeriodicAsioExecutorTag
-        /// \note will stop periodic timer on scope exit
-        , basis::PeriodicTaskExecutor
-      >;
-
   // The io_context is required for all I/O
   boost::asio::io_context ioc_
     // It safe to read value from any thread because its storage
