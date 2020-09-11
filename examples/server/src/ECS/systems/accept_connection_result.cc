@@ -83,7 +83,6 @@ void handleAcceptNewConnectionResult(
   DetectChannelCtxComponent* detectChannelCtx
     = &tcpComponent->reset_or_create_var<DetectChannelCtxComponent>(
         "Ctx_DetectChannel_" + base::GenerateGUID() // debug name
-        , base::in_place
         , base::rvalue_cast(acceptResult.socket)
         , REFERENCED(asio_registry)
         , entity_id);

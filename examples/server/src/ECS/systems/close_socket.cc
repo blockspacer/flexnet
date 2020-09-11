@@ -49,7 +49,7 @@ void handleClosingSocket(
   // if custom strand not provided.
   if(strandComponent == nullptr)
   {
-    strandComponent = &fallbackStrandComponent;
+    strandComponent = &(fallbackStrandComponent.value());
   }
 
   base::OnceClosure doMarkUnused

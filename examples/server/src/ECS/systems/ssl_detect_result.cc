@@ -85,11 +85,16 @@ void handleSSLDetectResult(
     HttpChannelCtxComponent* channelCtx
       = &tcpComponent->reset_or_create_var<HttpChannelCtxComponent>(
           "Ctx_http_Channel_" + base::GenerateGUID() // debug name
-          , base::in_place
           , base::rvalue_cast(detectResult.stream.value())
           , base::rvalue_cast(detectResult.buffer)
           , REFERENCED(asio_registry)
           , entity_id);
+
+    // Check that if the value already existed
+    // it was overwritten
+    {
+      DCHECK(channelCtx->value().entityId() == entity_id);
+    }
 
     // start http session
     channelCtx->value().doReadAsync();

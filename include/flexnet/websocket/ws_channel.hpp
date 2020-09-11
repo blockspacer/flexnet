@@ -34,6 +34,9 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
 
 namespace base { struct NoReject; }
 
@@ -52,15 +55,18 @@ namespace ECS {
 } // namespace ECS
 
 namespace flexnet {
-namespace http {
+namespace ws {
 
+/// \todo support both SslWebsocketSession and PlainWebsocketSession
+/// as in github.com/iotaledger/hub/blob/master/common/http_server_base.cc#L203
+///
 /// \note Does not have `reconnect` method
 /// i.e. you must create new instance when you want to reconnect.
 ///
 // Code based on
 // boost.org/doc/libs/1_71_0/libs/beast/example/websocket/server/async/websocket_server_async.cpp
 //
-// A class which represents a single http connection
+// A class which represents a single websocket connection
 //
 // MOTIVATION
 //
@@ -96,7 +102,7 @@ namespace http {
 // Use plain collbacks (do not use `base::Promise` etc.)
 // and avoid heap memory allocations
 // because performance is critical here.
-class HttpChannel
+class WsChannel
 {
 public:
   /// \todo make configurable
@@ -111,6 +117,13 @@ public:
   static constexpr size_t kCloseTimeoutSec = 5;
 
 public:
+  template<class Body, class Allocator>
+  using UpgradeRequestType
+    = boost::beast::http::request<
+        Body
+        , boost::beast::http::basic_fields<Allocator>
+      >;
+
   using RequestBodyType
     = ::boost::beast::http::string_body;
 
@@ -145,37 +158,140 @@ public:
   using AsioTcp
     = ::boost::asio::ip::tcp;
 
+  struct QueuedMessage {
+    /// \todo remove shared_ptr
+    std::shared_ptr<const std::string> data;
+    bool is_binary;
+  };
+
 public:
-  HttpChannel(
+  WsChannel(
     // Take ownership of the stream
     StreamType&& stream
-    // Take ownership of the buffer
-    , MessageBufferType&& buffer
     , ECS::AsioRegistry& asioRegistry
     , const ECS::Entity entity_id);
 
-  HttpChannel(
-    HttpChannel&& other) = delete;
+  WsChannel(
+    WsChannel&& other) = delete;
 
   /// \note can destruct on any thread
   NOT_THREAD_SAFE_FUNCTION()
-  ~HttpChannel();
+  ~WsChannel();
 
-  /// \todo thread safety
+  // Start the asynchronous operation
+  template<class Body, class Allocator>
+  void startAccept(
+    // Clients sends the HTTP request
+    // asking for a WebSocket connection
+    UpgradeRequestType<Body, Allocator>&& req)
+  {
+    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+
+    DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
+
+    // Accept the websocket handshake
+    ws_.async_accept(
+      req,
+      /// \todo use base::BindFrontWrapper
+      /*::boost::beast::bind_front_handler([
+        ](
+          base::OnceCallback<void(ErrorCode)>&& task
+          , ErrorCode ec
+        ){
+          DCHECK(task);
+          base::rvalue_cast(task).Run(ec);
+        }
+        , base::BindOnce(
+          &WsChannel::onAccept
+          , UNOWNED_LIFETIME(base::Unretained(this))
+        )
+      )*/
+      boost::asio::bind_executor(
+        *perConnectionStrand_
+        , ::std::bind(
+            &WsChannel::onAccept,
+            UNOWNED_LIFETIME(
+              this)
+            , std::placeholders::_1
+          )
+      )
+    );
+  }
+
+  // Start the asynchronous operation
+  template<class Body, class Allocator>
+  void startAcceptAsync(
+    // Clients sends the HTTP request
+    // asking for a WebSocket connection
+    UpgradeRequestType<Body, Allocator>&& req)
+  {
+    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+
+    ::boost::asio::post(
+      *perConnectionStrand_
+      /// \todo use base::BindFrontWrapper
+      , ::boost::beast::bind_front_handler([
+          ](
+            base::OnceClosure&& task
+          ){
+            DCHECK(task);
+            base::rvalue_cast(task).Run();
+          }
+          , base::BindOnce(
+            &WsChannel::startAccept<Body, Allocator>
+            , UNOWNED_LIFETIME(base::Unretained(this))
+            , base::Passed(base::rvalue_cast(req))
+          )
+        )
+      /*, boost::asio::bind_executor(
+        *perConnectionStrand_
+        , ::std::bind(
+            &WsChannel::startAccept<Body, Allocator>,
+            UNOWNED_LIFETIME(
+              this)
+            , base::rvalue_cast(req)
+          )
+      )*/
+    );
+  }
+
+  void doRead();
+
+  void onClose(ErrorCode ec);
+
   MUST_USE_RETURN_VALUE
   bool isOpen();
 
-  void doRead();
+#if 0
+  /**
+  * @brief starts async writing to client
+  */
+  void sendMessageAsync(
+    const std::string& message
+    , bool is_binary = true) override;
+
+  /**
+  * @brief starts async writing to client
+  */
+  void sendMessage(
+    const std::string& message
+    , bool is_binary = true) override;
 
   void doReadAsync();
 
   void handleWebsocketUpgrade(
     ErrorCode ec
-    , std::size_t bytes_transferred
-    , StreamType&& stream
-    , boost::beast::http::request<
-        RequestBodyType
-      >&& req);
+    , std::size_t bytes_transferred);
+
+  /// \note `stream_` can be moved to websocket session from http session,
+  /// so we can't use it here anymore
+  MUST_USE_RETURN_VALUE
+  bool isStreamValid() const
+  {
+    DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+    return is_stream_valid_.load();
+  }
+#endif // 0
 
   template <typename CallbackT>
   auto postTaskOnConnectionStrand(
@@ -191,26 +307,8 @@ public:
       , std::forward<CallbackT>(task));
   }
 
-  MUST_USE_RETURN_VALUE
-  base::WeakPtr<HttpChannel> weakSelf() const NO_EXCEPTION
-  {
-    DCHECK_CUSTOM_THREAD_GUARD(weak_this_);
-
-    // It is thread-safe to copy |base::WeakPtr|.
-    // Weak pointers may be passed safely between sequences, but must always be
-    // dereferenced and invalidated on the same SequencedTaskRunner otherwise
-    // checking the pointer would be racey.
-    return weak_this_;
-  }
-
-  /// \note `stream_` can be moved to websocket session from http session,
-  /// so we can't use it here anymore
-  MUST_USE_RETURN_VALUE
-  bool isStreamValid() const
-  {
-    DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
-    return is_stream_valid_.load();
-  }
+  // calls `ws_.socket().shutdown`
+  void doEof();
 
   /// \note returns COPY because of thread safety reasons:
   /// `entity_id_` assumed to be NOT changed,
@@ -222,55 +320,65 @@ public:
     return entity_id_;
   }
 
+  MUST_USE_RETURN_VALUE
+  base::WeakPtr<WsChannel> weakSelf() const NO_EXCEPTION
+  {
+    DCHECK_CUSTOM_THREAD_GUARD(weak_this_);
+
+    // It is thread-safe to copy |base::WeakPtr|.
+    // Weak pointers may be passed safely between sequences, but must always be
+    // dereferenced and invalidated on the same SequencedTaskRunner otherwise
+    // checking the pointer would be racey.
+    return weak_this_;
+  }
+
 private:
+  void onAccept(
+    ErrorCode ec);
+
   void onRead(
     ErrorCode ec
     , std::size_t bytes_transferred);
 
+#if 0
+
+  void onClose(
+    ErrorCode ec);
+
   void onWrite(
     ErrorCode ec
-    , std::size_t bytes_transferred
-    , bool close);
+    , std::size_t bytes_transferred);
+
+  void onPing(
+    ErrorCode ec);
+#endif // 0
 
   void onFail(
     ErrorCode ec
     , char const* what);
 
-  // calls `stream_.socket().shutdown`
-  void doEof();
-
 private:
-  StreamType stream_
+
+  /**
+   * The websocket::stream class template
+   * provides asynchronous and blocking message-oriented
+   * functionality necessary for clients and servers
+   * to utilize the WebSocket protocol.
+   * @note all asynchronous operations are performed
+   * within the same implicit or explicit strand.
+   **/
+  boost::beast::websocket::stream<
+    // stream with custom rate limiter
+    ::boost::beast::limited_tcp_stream
+  > ws_
+    GUARDED_BY(perConnectionStrand_);
+
+  bool isSendBusy_
     GUARDED_BY(perConnectionStrand_);
 
   // |stream_| and calls to |async_*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
-    SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
-      perConnectionStrand_
-      // 1. It safe to read value from any thread
-      // because its storage expected to be not modified.
-      // 2. On each access to strand check that stream valid
-      // otherwise `::boost::asio::post` may fail.
-      , base::BindRepeating(
-        [
-        ](
-          bool is_stream_valid
-          , StreamType& stream
-        ){
-          /// \note |perConnectionStrand_|
-          /// is valid as long as |stream_| valid
-          /// i.e. valid util |stream_| moved out
-          /// (it uses executor from stream).
-          return is_stream_valid;
-        }
-        , is_stream_valid_.load()
-        , REFERENCED(stream_.value())
-      ));
-
-  /// \note `stream_` can be moved to websocket session from http session
-  std::atomic<bool> is_stream_valid_
-    // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(is_stream_valid_);
+    SET_CUSTOM_THREAD_GUARD(perConnectionStrand_);
 
   // The dynamic buffer to store recieved data
   MessageBufferType buffer_
@@ -279,7 +387,7 @@ private:
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
   // (guarantees that |this| will not be used-after-free).
-  base::WeakPtrFactory<HttpChannel> weak_ptr_factory_
+  base::WeakPtrFactory<WsChannel> weak_ptr_factory_
     GUARDED_BY(sequence_checker_);
 
   // After constructing |weak_ptr_factory_|
@@ -289,7 +397,7 @@ private:
   // which is safe to do from any
   // thread according to weak_ptr.h (versus calling
   // |weak_ptr_factory_.GetWeakPtr() which is not).
-  const base::WeakPtr<HttpChannel> weak_this_
+  const base::WeakPtr<WsChannel> weak_this_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
     SET_CUSTOM_THREAD_GUARD(weak_this_);
@@ -307,23 +415,21 @@ private:
     // expected to be not modified (if properly initialized)
     SET_CUSTOM_THREAD_GUARD(entity_id_);
 
-  // The parser is stored in an optional container so we can
-  // construct it from scratch at the beginning
-  // of each new message.
-  boost::optional<
-    ::boost::beast::http::request_parser<
-      RequestBodyType>
-  > parser_
-    GUARDED_BY(perConnectionStrand_);
-
   /// \todo SSL support
   /// ::boost::asio::ssl::context
+
+  /**
+   * We want to send more than one message at a time,
+   * so we need to implement your own write queue.
+   * @see github.com/boostorg/beast/issues/1207
+   **/
+  std::vector<std::shared_ptr<QueuedMessage>> sendQueue_;
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(HttpChannel);
+  DISALLOW_COPY_AND_ASSIGN(WsChannel);
 };
 
-} // namespace http
+} // namespace ws
 } // namespace flexnet

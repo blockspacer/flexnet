@@ -25,7 +25,7 @@
 #include <ratio>
 #include <type_traits>
 
-namespace beast = boost::beast;
+namespace beast = ::boost::beast;
 
 namespace flexnet {
 namespace http {
@@ -267,7 +267,9 @@ void DetectChannel::onDetected(
     )
   );
 
+  // we moved `stream_` out
   is_stream_valid_.store(false);
+  // we moved `buffer_` out
   is_buffer_valid_.store(false);
 }
 
@@ -304,7 +306,6 @@ void DetectChannel::setSSLDetectResult(
       = (*asioRegistry_).reset_or_create_var<UniqueSSLDetectComponent>(
             "UniqueSSLDetectComponent_" + base::GenerateGUID() // debug name
             , entity_id_
-            , base::in_place
             , base::rvalue_cast(ec)
             , base::rvalue_cast(handshakeResult)
             , base::rvalue_cast(stream)

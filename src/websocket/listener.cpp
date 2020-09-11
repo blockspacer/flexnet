@@ -305,6 +305,7 @@ void Listener::allocateTcpResourceAndAccept()
 
   DCHECK(asioRegistry_->running_in_this_thread());
 
+  /// \todo make configurable
   const size_t kWarnBigRegistrySize = 100000;
   LOG_IF(WARNING
     , (*asioRegistry_)->size() > kWarnBigRegistrySize)
@@ -346,7 +347,7 @@ void Listener::allocateTcpResourceAndAccept()
   // it was overwritten
   // Also we expect that all allocated strands
   // have same io context executor
-  DCHECK(asioStrandCtx->get_inner_executor()
+  DCHECK(asioStrandCtx->value().get_inner_executor()
     /// \note `get_executor` returns copy
     == ioc_->get_executor());
 
@@ -363,7 +364,7 @@ void Listener::allocateTcpResourceAndAccept()
         &Listener::asyncAccept
         , this
         , COPIED(
-            util::UnownedPtr<StrandType>(asioStrandCtx))
+            util::UnownedPtr<StrandType>(&asioStrandCtx->value()))
         , COPIED(tcp_entity_id))
   );
 }
@@ -440,7 +441,14 @@ void Listener::asyncAccept(
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
-  DCHECK(isAcceptorOpen());
+
+  if(!isAcceptorOpen())
+  {
+    LOG(WARNING)
+      << "unable to accept new connection:"
+         " acceptor not open";
+    return;
+  }
 
   DCHECK(
     sm_.CurrentState() == Listener::STARTED);
@@ -622,6 +630,7 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
   } else {
     DCHECK(socket.is_open());
     const EndpointType& remote_endpoint
+      /// \note Transport endpoint must be connected i.e. `is_open()`
       = socket.remote_endpoint();
     VLOG(9)
         << "Listener accepted remote endpoint: "
@@ -692,7 +701,6 @@ void Listener::setAcceptConnectionResult(
       = (*asioRegistry_).reset_or_create_var<UniqueAcceptComponent>(
             "UniqueAcceptComponent_" + base::GenerateGUID() // debug name
             , tcp_entity_id
-            , base::in_place
             , base::rvalue_cast(ec)
             , base::rvalue_cast(socket)
             /// \todo make us of it

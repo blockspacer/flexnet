@@ -1,8 +1,9 @@
 #include "flexnet/http/http_channel.hpp" // IWYU pragma: associated
 #include "flexnet/util/mime_type.hpp"
-
+#include "flexnet/websocket/ws_channel.hpp"
 #include "flexnet/ECS/tags.hpp"
 #include "flexnet/ECS/components/close_socket.hpp"
+#include "flexnet/ECS/components/tcp_connection.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/optional.h>
@@ -10,6 +11,7 @@
 #include <base/macros.h>
 #include <base/logging.h>
 #include <base/threading/thread.h>
+#include <base/guid.h>
 #include <base/task/thread_pool/thread_pool.h>
 
 #include <basis/move_only.hpp>
@@ -42,7 +44,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace beast = boost::beast;
+namespace beast = ::boost::beast;
 
 namespace {
 
@@ -83,6 +85,7 @@ pathConcat(
   return result;
 }
 
+/// \todo refactor to HTTP request router
 // This function produces an HTTP response for the given
 // request. The type of the response object depends on the
 // contents of the request, so the interface requires the
@@ -109,6 +112,7 @@ handleRequest(
       beast::http::status::bad_request
       , req.version()};
 
+    /// \todo make configurable
     res.set(beast::http::field::server
       , BOOST_BEAST_VERSION_STRING);
 
@@ -136,9 +140,12 @@ handleRequest(
       beast::http::status::not_found
       , req.version()};
 
-    res.set(beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+    /// \todo make configurable
+    res.set(beast::http::field::server
+      , BOOST_BEAST_VERSION_STRING);
 
-    res.set(beast::http::field::content_type, "text/html");
+    res.set(beast::http::field::content_type
+      , "text/html");
 
     res.keep_alive(req.keep_alive());
 
@@ -163,6 +170,7 @@ handleRequest(
       beast::http::status::internal_server_error
       , req.version()};
 
+    /// \todo make configurable
     res.set(beast::http::field::server
       , BOOST_BEAST_VERSION_STRING);
 
@@ -325,8 +333,10 @@ HttpChannel::HttpChannel(
     //
     // Here we set individual rate limits for reading and writing
     stream_.rate_policy()
+      /// \todo make configurable
       .read_limit(10000); // bytes per second
     stream_.rate_policy()
+      /// \todo make configurable
       .write_limit(850000); // bytes per second
   }
 }
@@ -390,11 +400,18 @@ void HttpChannel::doRead()
 
   DCHECK(is_stream_valid_.load());
 
-  DVLOG(99)
-    << "HTTP read remote_endpoint: "
-    << beast::get_lowest_layer(stream_)
-        .socket()
-        .remote_endpoint();
+  auto& socket
+    = beast::get_lowest_layer(stream_).socket();
+
+  if(socket.is_open())
+  {
+    DVLOG(99)
+      << "HTTP read remote_endpoint: "
+      << beast::get_lowest_layer(stream_)
+          .socket()
+          /// \note Transport endpoint must be connected i.e. `is_open()`
+          .remote_endpoint();
+  }
 
   // Construct a new parser for each message
   parser_.emplace();
@@ -439,9 +456,13 @@ void HttpChannel::doEof()
   auto& socket
     = beast::get_lowest_layer(stream_).socket();
 
-  DVLOG(99)
-    << "HTTPChannel::do_eof for remote_endpoint: "
-    << socket.remote_endpoint();
+  if(socket.is_open())
+  {
+    DVLOG(99)
+      << "HTTPChannel::do_eof for remote_endpoint: "
+      /// \note Transport endpoint must be connected i.e. `is_open()`
+      << socket.remote_endpoint();
+  }
 
   auto closeAndReleaseResources
     = [this, &socket]()
@@ -548,6 +569,7 @@ void HttpChannel::onRead(
 
   DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
   DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -562,7 +584,8 @@ void HttpChannel::onRead(
 
   // Handle the error, if any
   if(ec) {
-    return onFail(ec, "read");
+    onFail(ec, "read");
+    return;
   }
 
   /// \todo create component ECS::HttpReadResult
@@ -572,48 +595,54 @@ void HttpChannel::onRead(
   auto& socket
     = beast::get_lowest_layer(stream_).socket();
 
-  std::optional<ResponseToRequestType> http_resonse_on_fail
-    = std::nullopt;
-
   // See if it is a WebSocket Upgrade
   if(::boost::beast::websocket::is_upgrade(parser_->get()))
   {
+    if(socket.is_open())
+    {
       DVLOG(99)
         << "HTTPChannel websocket upgrade for remote_endpoint: "
+        /// \note Transport endpoint must be connected i.e. `is_open()`
         << socket.remote_endpoint();
-      /*DCHECK(on_websocket_upgrade_);
+    }
 
-      /// \note websocket upgrade may fail with some http response, like `permission denied`
+    // Disable the timeout.
+    // The websocket::stream uses its own timeout settings.
+    beast::get_lowest_layer(stream_).expires_never();
 
-      http_resonse_on_fail
-        = on_websocket_upgrade_(shared_from_this(), &ec, bytes_transferred);
-      */
+#if 1
+    // create websocket connection
+    ::boost::asio::post(
+      asioRegistry_->strand()
+      /// \todo use base::BindFrontWrapper
+      , ::boost::beast::bind_front_handler([
+        ](
+          base::OnceClosure&& boundTask
+        ){
+          base::rvalue_cast(boundTask).Run();
+        }
+        , base::BindOnce(
+            &HttpChannel::handleWebsocketUpgrade
+            , base::Unretained(this)
+            , ec
+            , bytes_transferred
+            , base::rvalue_cast(stream_)
+            , base::Passed(base::rvalue_cast(parser_->release()))
+          )
+      )
+    );
+#else
+   doEof();
+#endif
 
-      if(http_resonse_on_fail) {
-        /// \note failed to create ws stream, continue with http stream
-        DCHECK(is_stream_valid_.load());
-        DVLOG(99)
-          << "is_stream_valid_ = true";
+    /// \note `stream_` can be moved to websocket session from http session,
+    // so we can't use it here anymore
+    is_stream_valid_ = false;
 
-        // close http session if failed
-        doEof();
-      } else {
-        /// \todo
-        doEof();
+    DVLOG(99)
+      << "is_stream_valid_ = false";
 
-        /// \note `stream_` can be moved to websocket session from http session,
-        // so we can't use it here anymore
-        is_stream_valid_ = false;
-
-        // Disable the timeout.
-        // The websocket::stream uses its own timeout settings.
-        beast::get_lowest_layer(stream_).expires_never();
-
-        DVLOG(99)
-          << "is_stream_valid_ = false";
-
-        return;
-      }
+    return;
   }
 
   DCHECK(is_stream_valid_.load());
@@ -628,7 +657,7 @@ void HttpChannel::onRead(
     /// \todo make configurable
     "/", // doc_root
     parser_->release(),
-    http_resonse_on_fail, // optional custom resonse
+    std::nullopt, // optional custom response
     [this](auto&& response)
     {
       DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
@@ -636,16 +665,16 @@ void HttpChannel::onRead(
 
       DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
-      // The lifetime of the message has to extend
-      // for the duration of the async operation so
-      // we use a shared_ptr to manage it.
       using response_type
         = typename std::decay<decltype(response)>::type;
-      /// \todo remove shared+ptr
+      /// \todo remove shared_ptr
       auto sp = std::make_shared<response_type>(
         std::forward<decltype(response)>(response));
 
       // Write the response
+      // The lifetime of the message `response` has to extend
+      // for the duration of the async operation
+      // (you can use a shared_ptr to manage it).
       beast::http::async_write(stream_
         , *sp
         , boost::asio::bind_executor(
@@ -677,10 +706,62 @@ void HttpChannel::onRead(
   );
 }
 
+
+void HttpChannel::handleWebsocketUpgrade(
+  HttpChannel::ErrorCode ec
+  , std::size_t bytes_transferred
+  , StreamType&& stream
+  , boost::beast::http::request<
+      RequestBodyType
+    >&& req)
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(entity_id_);
+
+  DCHECK(asioRegistry_->running_in_this_thread());
+
+  ECS::TcpConnection& tcpComponent
+    = (*asioRegistry_)->get<ECS::TcpConnection>(entity_id_);
+
+  DVLOG(99)
+    << "using TcpConnection with id: "
+    << tcpComponent.debug_id;
+
+  /// \note it is not ordinary ECS component,
+  /// it is stored in entity context (not in ECS registry)
+  using WsChannelComponent
+    = base::Optional<::flexnet::ws::WsChannel>;
+
+  WsChannelComponent* wsChannelCtx
+    = &tcpComponent->reset_or_create_var<WsChannelComponent>(
+        "Ctx_WsChannelComponent_" + base::GenerateGUID() // debug name
+        , base::rvalue_cast(stream)
+        , REFERENCED(*asioRegistry_)
+        , entity_id_);
+
+  // we moved `stream_` out
+  is_stream_valid_.store(false);
+
+  // Check that if the value already existed
+  // it was overwritten
+  {
+    DCHECK(wsChannelCtx->value().entityId() == entity_id_);
+  }
+
+  // start websocket session
+  ::flexnet::ws::WsChannel& wsChannel
+    = const_cast<::flexnet::ws::WsChannel&>(wsChannelCtx->value());
+
+  wsChannel.startAcceptAsync(base::rvalue_cast(req));
+}
+
 void HttpChannel::onWrite(
   ErrorCode ec
   , std::size_t bytes_transferred
-  , bool close)
+  , bool closeInResponse)
 {
   LOG_CALL(DVLOG(99));
 
@@ -695,10 +776,11 @@ void HttpChannel::onWrite(
 
   // Handle the error, if any
   if(ec) {
-    return onFail(ec, "write");
+    onFail(ec, "write");
+    return;
   }
 
-  if(close) {
+  if(closeInResponse) {
     // This means we should close the connection, usually because
     // the response indicated the "Connection: close" semantic.
     doEof();

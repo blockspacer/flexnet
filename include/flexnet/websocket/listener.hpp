@@ -110,7 +110,7 @@ public:
   // Each created network entity will store
   // `::boost::asio::strand` as ECS component.
   using StrandComponent
-    = StrandType;
+    = base::Optional<StrandType>;
 
   using StatusPromise
     = base::Promise<util::Status, base::NoReject>;

@@ -131,6 +131,11 @@ void ExampleServer::hangleQuitSignal()
          }
       })
   )
+  ///
+  /// \todo send `close` for each connection on sigquit
+  ///
+  /// ...
+  ///
   // async-wait for destruction of existing connections
   .ThenOn(mainLoopRunner_
     , FROM_HERE
