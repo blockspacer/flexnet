@@ -284,6 +284,7 @@ void WsChannel::onClose(ErrorCode ec)
 
   if(ec)
   {
+    /// \todo prevent infinite recursion
     onFail(ec, "close");
     return;
   }
@@ -379,7 +380,8 @@ void WsChannel::onRead(
     return;
   }
 
-  if (!buffer_.size()) {
+  if (!buffer_.size())
+  {
     // may be empty if connection reset by peer
     DVLOG(99)
       << "WebsocketChannel::on_read:"
@@ -388,7 +390,8 @@ void WsChannel::onRead(
   }
 
   DCHECK(kMaxMessageSizeByte > 1);
-  if (buffer_.size() > kMaxMessageSizeByte) {
+  if (buffer_.size() > kMaxMessageSizeByte)
+  {
     DVLOG(99)
       << "WebsocketChannel::on_read:"
          " Too big messageBuffer of size "

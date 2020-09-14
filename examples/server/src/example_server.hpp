@@ -93,6 +93,9 @@ class ExampleServer
   // (used on app termination)
   void closeNetworkResources() NO_EXCEPTION;
 
+  void validateAndFreeNetworkResources(
+    base::RepeatingClosure resolveCallback) NO_EXCEPTION;
+
   void stopIOContext() NO_EXCEPTION;
 
   void hangleQuitSignal();

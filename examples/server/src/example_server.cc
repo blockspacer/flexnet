@@ -172,14 +172,6 @@ void ExampleServer::hangleQuitSignal()
          }
       })
   )
-  // send async-close for each connection (on app termination)
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        &ExampleServer::closeNetworkResources
-        , base::Unretained(this)
-    )
-  )
   // async-wait for destruction of existing connections
   .ThenOn(mainLoopRunner_
     , FROM_HERE
@@ -266,6 +258,10 @@ void ExampleServer::updateConsoleTerminal() NO_EXCEPTION
 
   std::string line;
 
+  /// \todo getline blocks without timeout, so add timeout like in
+  /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
+  /// or stackoverflow.com/a/34994150
+  /// i.e. use STDIN_FILENO and poll
   std::getline(std::cin, line);
 
   DVLOG(99)
@@ -778,7 +774,7 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
   DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
   DCHECK_CUSTOM_THREAD_GUARD(ioc_);
 
-  DCHECK_RUN_ON(&sequence_checker_);
+  DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
   /// \note you can not use `::boost::asio::post`
   /// if `ioc_->stopped()`
@@ -876,6 +872,62 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
   );
 }
 
+void ExampleServer::validateAndFreeNetworkResources(
+  base::RepeatingClosure resolveCallback) NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+
+  DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
+
+  LOG(INFO)
+    << "waiting for cleanup of asio registry...";
+
+  /// \note you can not use `::boost::asio::post`
+  /// if `ioc->stopped()`
+  {
+    DCHECK(!ioc_.stopped()); // io_context::stopped is thread-safe
+  }
+
+  // send async-close for each connection (on app termination)
+  /// \note we periodically call `close` for network entities
+  /// because some entities may be not fully created i.e.
+  /// we wait for scheduled tasks that will fully create entities.
+  closeNetworkResources();
+
+  // redirect task to strand
+  ::boost::asio::post(
+    asioRegistry_.strand()
+    , std::bind(
+      []
+      (
+        ECS::AsioRegistry& asioRegistry
+        , COPIED() base::RepeatingClosure resolveCallback)
+      {
+        LOG_CALL(DVLOG(99));
+
+        DCHECK(asioRegistry.running_in_this_thread());
+
+        if(asioRegistry->empty()) {
+          DVLOG(9)
+            << "registry is empty";
+          DCHECK(resolveCallback);
+          // will stop periodic check and resolve promise
+          resolveCallback.Run();
+        } else {
+          DVLOG(9)
+            << "registry is NOT empty with size:"
+            << asioRegistry->size();
+        }
+      }
+      , REFERENCED(asioRegistry_)
+      , COPIED(resolveCallback)
+    )
+  );
+}
+
 ExampleServer::VoidPromise
   ExampleServer::promiseNetworkResourcesFreed() NO_EXCEPTION
 {
@@ -895,51 +947,8 @@ ExampleServer::VoidPromise
   // Periodic task will be redirected to `asio_registry.strand()`.
   basis::PeriodicValidateUntil::ValidationTaskType validationTask
     = base::BindRepeating(
-        [
-        ](
-          boost::asio::io_context& ioc
-          , ECS::AsioRegistry& asio_registry
-          , COPIED() base::RepeatingClosure resolveCallback
-        ){
-          LOG(INFO)
-            << "waiting for cleanup of asio registry...";
-
-          /// \note you can not use `::boost::asio::post`
-          /// if `ioc->stopped()`
-          {
-            DCHECK(!ioc.stopped()); // io_context::stopped is thread-safe
-          }
-
-          // redirect task to strand
-          ::boost::asio::post(
-            asio_registry.strand()
-            , std::bind(
-              []
-              (
-                ECS::AsioRegistry& asioRegistry
-                , COPIED() base::RepeatingClosure resolveCallback)
-              {
-                LOG_CALL(DVLOG(99));
-
-                DCHECK(asioRegistry.running_in_this_thread());
-
-                if(asioRegistry->empty()) {
-                  DVLOG(9)
-                    << "registry is empty";
-                  DCHECK(resolveCallback);
-                  resolveCallback.Run();
-                } else {
-                  DVLOG(9)
-                    << "registry is NOT empty";
-                }
-              }
-              , REFERENCED(asio_registry)
-              , COPIED(resolveCallback)
-            )
-          );
-        }
-        , REFERENCED(ioc_)
-        , REFERENCED(asioRegistry_)
+        &ExampleServer::validateAndFreeNetworkResources
+        , base::Unretained(this)
     );
 
   return periodicValidateUntil_.runPromise(FROM_HERE
@@ -947,7 +956,10 @@ ExampleServer::VoidPromise
         base::TimeDelta::FromSeconds(15)} // debug-only expiration time
     , basis::PeriodicCheckUntil::CheckPeriod{
         base::TimeDelta::FromSeconds(1)}
-    , "destruction of allocated connections hanged" // debug-only error
+      // debug-only error
+    , "Destruction of allocated connections hanged."
+      "ECS registry must become empty after some time (during app termination)."
+      "Not empty registry indicates bugs that need to be reported."
     , base::rvalue_cast(validationTask)
   )
   .ThenHere(

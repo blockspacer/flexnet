@@ -102,6 +102,13 @@ class PeriodicValidateUntil {
     , const std::string& errorText
     , ValidationTaskType&& validationTask);
 
+  bool RunsVerifierInCurrentSequence() const NO_EXCEPTION
+  {
+    DCHECK_CUSTOM_THREAD_GUARD(periodicVerifyRunner_);
+
+    return periodicVerifyRunner_->RunsTasksInCurrentSequence();
+  }
+
  private:
   VoidPromise promiseValidationDone(
     ValidationTaskType&& validationTask) NO_EXCEPTION;
