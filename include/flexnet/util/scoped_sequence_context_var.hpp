@@ -120,10 +120,31 @@ class ScopedSequenceCtxVar
 
     taskRunner_->PostTask(FROM_HERE
       , base::BindOnce(
-        &ScopedSequenceCtxVar::destructVar
-        , base::Unretained(this)
+          &destructScopedSequenceCtxVar
+          , taskRunner_ // prolong lifetime
+          , base::Passed(destructionResolver_.GetRepeatingResolveCallback())
       )
     );
+  }
+
+  /// \note can be called AFTER destructor finished
+  static void destructScopedSequenceCtxVar(
+    scoped_refptr<base::SequencedTaskRunner> taskRunner
+    , base::OnceClosure resolveCb)
+  {
+    DCHECK_RUN_ON_SEQUENCED_RUNNER(taskRunner.get());
+
+    base::rvalue_cast(resolveCb).Run();
+
+    LOG_CALL(DVLOG(99));
+
+    base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
+      = ECS::SequenceLocalContext::getSequenceLocalInstance(
+          FROM_HERE, base::SequencedTaskRunnerHandle::Get());
+
+    DCHECK(sequenceLocalContext);
+    DCHECK(sequenceLocalContext->try_ctx<Type>(FROM_HERE));
+    sequenceLocalContext->unset<Type>(FROM_HERE);
   }
 
   VoidPromise promiseDeletion()
@@ -179,24 +200,6 @@ class ScopedSequenceCtxVar
           , std::forward<Args>(args)...
         );
     return &result;
-  }
-
- private:
-  void destructVar()
-  {
-    LOG_CALL(DVLOG(99));
-
-    DCHECK_RUN_ON_SEQUENCED_RUNNER(taskRunner_.get());
-
-    base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
-      = ECS::SequenceLocalContext::getSequenceLocalInstance(
-          FROM_HERE, base::SequencedTaskRunnerHandle::Get());
-
-    DCHECK(sequenceLocalContext);
-    DCHECK(sequenceLocalContext->try_ctx<Type>(FROM_HERE));
-    sequenceLocalContext->unset<Type>(FROM_HERE);
-
-    destructionResolver_.GetRepeatingResolveCallback().Run();
   }
 
  private:

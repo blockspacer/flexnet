@@ -71,6 +71,8 @@ class ExampleServer
   void prepareBeforeRunLoop() NO_EXCEPTION
     RUN_ON(&sequence_checker_);
 
+  void updateConsoleTerminal() NO_EXCEPTION;
+
   NOT_THREAD_SAFE_FUNCTION()
   void updateAsioRegistry() NO_EXCEPTION;
 
@@ -86,6 +88,10 @@ class ExampleServer
   /// i.e. do not allocate new connections
   MUST_USE_RETURN_VALUE
   VoidPromise promiseNetworkResourcesFreed() NO_EXCEPTION;
+
+  // send async-close for each connection
+  // (used on app termination)
+  void closeNetworkResources() NO_EXCEPTION;
 
   void stopIOContext() NO_EXCEPTION;
 
@@ -153,6 +159,12 @@ class ExampleServer
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
     SET_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
+
+  scoped_refptr<base::SequencedTaskRunner>
+    periodicConsoleTaskRunner_
+    // It safe to read value from any thread because its storage
+    // expected to be not modified (if properly initialized)
+    SET_CUSTOM_THREAD_GUARD(periodicConsoleTaskRunner_);
 
   basis::PeriodicValidateUntil periodicValidateUntil_{};
 

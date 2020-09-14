@@ -296,7 +296,8 @@ public:
   template <typename CallbackT>
   auto postTaskOnConnectionStrand(
     const base::Location& from_here
-    , CallbackT&& task)
+    , CallbackT&& task
+    , bool nestedPromise = false)
   {
     DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
 
@@ -304,7 +305,8 @@ public:
       from_here
       // Post our work to the strand, to prevent data race
       , *perConnectionStrand_
-      , std::forward<CallbackT>(task));
+      , std::forward<CallbackT>(task)
+      , nestedPromise);
   }
 
   // calls `ws_.socket().shutdown`

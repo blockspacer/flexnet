@@ -255,7 +255,8 @@ public:
   MUST_USE_RETURN_VALUE
   auto postTaskOnStrand(
     const base::Location& from_here
-    , CallbackT&& task)
+    , CallbackT&& task
+    , bool nestedPromise = false)
   {
     DCHECK_CUSTOM_THREAD_GUARD(stream_);
     DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
@@ -266,7 +267,8 @@ public:
       from_here
       // Post our work to the strand, to prevent data race
       , *perConnectionStrand_
-      , std::forward<CallbackT>(task));
+      , std::forward<CallbackT>(task)
+      , nestedPromise);
   }
 
   /// \note returns COPY because of thread safety reasons:

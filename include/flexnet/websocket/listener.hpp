@@ -214,7 +214,8 @@ public:
   template <typename CallbackT>
   auto postTaskOnAcceptorStrand(
     const base::Location& from_here
-    , CallbackT&& task)
+    , CallbackT&& task
+    , bool nestedPromise = false)
   {
     DCHECK_CUSTOM_THREAD_GUARD(acceptorStrand_);
     DCHECK_CUSTOM_THREAD_GUARD(ioc_);
@@ -225,7 +226,8 @@ public:
       from_here
       // Post our work to the strand, to prevent data race
       , *acceptorStrand_
-      , std::forward<CallbackT>(task));
+      , std::forward<CallbackT>(task)
+      , nestedPromise);
   }
 
   // checks whether server is accepting new connections

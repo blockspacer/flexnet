@@ -306,6 +306,10 @@ void WsChannel::doEof()
   // Close the WebSocket connection
   if(ws_.is_open())
   {
+    // Set the timeout.
+    beast::get_lowest_layer(ws_)
+      .expires_after(std::chrono::seconds(kCloseTimeoutSec));
+
     DVLOG(99)
       << "WsChannel::do_eof for remote_endpoint: "
       /// \note Transport endpoint must be connected i.e. `is_open()`
@@ -346,10 +350,6 @@ void WsChannel::doEof()
       );
     }
   };
-
-  // Set the timeout.
-  beast::get_lowest_layer(ws_)
-    .expires_after(std::chrono::seconds(kCloseTimeoutSec));
 
   // mark SSL detection completed
   ::boost::asio::post(

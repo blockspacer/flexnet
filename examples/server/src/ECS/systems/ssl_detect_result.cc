@@ -29,10 +29,13 @@ void handleSSLDetectResult(
   {
     DCHECK(asio_registry.running_in_this_thread());
 
-    // Set the timeout.
-    ::boost::beast::get_lowest_layer(detectResult.stream.value())
-        .expires_after(std::chrono::seconds(
-          kShutdownExpireTimeoutSec));
+    /// \note we are closing unused stream, so it must be thread-safe here
+    if(detectResult.stream.value().socket().is_open()) {
+      // Set the timeout.
+      ::boost::beast::get_lowest_layer(detectResult.stream.value())
+          .expires_after(std::chrono::seconds(
+            kShutdownExpireTimeoutSec));
+    }
 
     // Schedule shutdown on asio thread
     if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
@@ -53,8 +56,6 @@ void handleSSLDetectResult(
 
     closeAndReleaseResources();
 
-    DCHECK(!detectResult.stream.value().socket().is_open());
-
     return;
   }
 
@@ -65,8 +66,6 @@ void handleSSLDetectResult(
     LOG(INFO)
       << "Completed NOT secure handshake of new connection";
   }
-
-  DCHECK(detectResult.stream.value().socket().is_open());
 
   ECS::TcpConnection& tcpComponent
     = asio_registry->get<ECS::TcpConnection>(entity_id);

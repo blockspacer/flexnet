@@ -462,6 +462,10 @@ void HttpChannel::doEof()
       << "HTTPChannel::do_eof for remote_endpoint: "
       /// \note Transport endpoint must be connected i.e. `is_open()`
       << socket.remote_endpoint();
+
+    // Set the timeout.
+    beast::get_lowest_layer(stream_)
+      .expires_after(std::chrono::seconds(kCloseTimeoutSec));
   }
 
   auto closeAndReleaseResources
@@ -481,10 +485,6 @@ void HttpChannel::doEof()
       );
     }
   };
-
-  // Set the timeout.
-  beast::get_lowest_layer(stream_)
-    .expires_after(std::chrono::seconds(kCloseTimeoutSec));
 
   // mark SSL detection completed
   ::boost::asio::post(

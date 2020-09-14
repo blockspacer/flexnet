@@ -334,12 +334,14 @@ class LOCKABLE
   MUST_USE_RETURN_VALUE
   bool Acquire() const NO_EXCEPTION EXCLUSIVE_LOCK_FUNCTION()
   {
+    DCHECK(callback_);
     return callback_.Run();
   }
 
   MUST_USE_RETURN_VALUE
   bool Release() const NO_EXCEPTION UNLOCK_FUNCTION()
   {
+    DCHECK(callback_);
     return callback_.Run();
   }
 
