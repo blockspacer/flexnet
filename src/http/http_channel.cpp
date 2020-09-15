@@ -341,10 +341,11 @@ HttpChannel::HttpChannel(
   }
 }
 
-NOT_THREAD_SAFE_FUNCTION()
 HttpChannel::~HttpChannel()
 {
   LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON_ANY_THREAD(HttpChannelDestructor);
 
   /// \note do not call `close()` from destructor
   /// i.e. call `close()` manually

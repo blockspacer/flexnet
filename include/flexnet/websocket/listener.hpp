@@ -85,6 +85,12 @@ namespace ws {
 class Listener
 {
 public:
+  /// \note Callback creates ECS entity used as `asio connection`,
+  /// sets common components and performs checks
+  /// (if entity was re-used from cache some components must be reset)
+  using EntityAllocatorCb
+    = base::RepeatingCallback<ECS::Entity()>;
+
   using EndpointType
     = ::boost::asio::ip::tcp::endpoint;
 
@@ -200,7 +206,8 @@ public:
    IoContext& ioc
     , EndpointType&& endpoint
     // ECS registry used to create `per-connection entity`
-    , ECS::AsioRegistry& asioRegistry);
+    , ECS::AsioRegistry& asioRegistry
+    , EntityAllocatorCb entityAllocator);
 
   Listener(
     Listener&& other) = delete;
@@ -212,6 +219,7 @@ public:
   StatusPromise configureAndRun();
 
   template <typename CallbackT>
+  MUST_USE_RETURN_VALUE
   auto postTaskOnAcceptorStrand(
     const base::Location& from_here
     , CallbackT&& task
@@ -296,9 +304,8 @@ private:
 
   // Report a failure
   /// \note not thread-safe, so keep it for logging purposes only
-  NOT_THREAD_SAFE_FUNCTION()
   void logFailure(
-    const ErrorCode& ec, char const* what);
+    const ErrorCode& ec, char const* what) RUN_ON_ANY_THREAD(logFailure);
 
   MUST_USE_RETURN_VALUE
     ::util::Status configureAcceptor();
@@ -316,7 +323,7 @@ private:
   /**
    * ASCII diagram generated using asciiflow.com
           +-------------------+----------------+----------------+----------------+
-          |                   ^                ^                ^                |
+          ^                   ^                ^                ^                |
           |                   |     START      |                |                |
           |                   |   +---------+  |                |                |
           |                   |   |         |  |                |                |
@@ -359,8 +366,6 @@ private:
 
     return sm_table_;
   }
-
-  ECS::Entity createTcpEntity();
 
 private:
   // Provides I/O functionality
@@ -446,6 +451,10 @@ private:
   StateMachineType sm_
     GUARDED_BY(acceptorStrand_);
 #endif // DCHECK_IS_ON()
+
+  EntityAllocatorCb entityAllocator_;
+
+  CREATE_CUSTOM_THREAD_GUARD(logFailure);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

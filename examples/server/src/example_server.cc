@@ -7,10 +7,13 @@
 #include "ECS/systems/close_socket.hpp"
 
 #include <flexnet/websocket/listener.hpp>
+#include <flexnet/websocket/ws_channel.hpp>
+#include <flexnet/http/http_channel.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/websocket/ws_channel.hpp>
 #include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
+#include <flexnet/ECS/components/close_socket.hpp>
 #include <flexnet/util/lock_with_check.hpp>
 #include <flexnet/util/periodic_validate_until.hpp>
 #include <flexnet/util/scoped_sequence_context_var.hpp>
@@ -22,6 +25,7 @@
 #include <base/run_loop.h>
 #include <base/macros.h>
 #include <base/logging.h>
+#include <base/guid.h>
 #include <base/files/file_path.h>
 #include <base/threading/platform_thread.h>
 #include <base/threading/thread.h>
@@ -76,6 +80,17 @@ const base::Feature kFeatureConsoleTerminal {
   kFeatureConsoleTerminalName, base::FEATURE_DISABLED_BY_DEFAULT
 };
 
+#if DCHECK_IS_ON()
+// must match type of `entt::type_info<SomeType>::id()`
+using entt_type_info_id_type
+  = std::uint32_t;
+
+struct DebugComponentIdWithName {
+  std::string debugName;
+  entt_type_info_id_type id;
+};
+#endif // DCHECK_IS_ON()
+
 } // namespace
 
 namespace ECS {
@@ -97,7 +112,12 @@ ExampleServer::ExampleServer(
     , listener_{
         ioc_
         , EndpointType{tcpEndpoint_}
-        , REFERENCED(asioRegistry_)}
+        , REFERENCED(asioRegistry_)
+        , base::BindRepeating(
+            &ExampleServer::allocateTcpEntity
+            , base::Unretained(this)
+          )
+      }
     , signals_set_(ioc_, SIGINT, SIGTERM)
     , mainLoopRunner_{
         base::MessageLoop::current()->task_runner()}
@@ -136,6 +156,279 @@ ExampleServer::ExampleServer(
 
 
   signals_set_.async_wait(base::rvalue_cast(sigQuitCallback));
+}
+
+ECS::Entity ExampleServer::allocateTcpEntity() NO_EXCEPTION
+{
+  using DetectChannel
+    = ::flexnet::http::DetectChannel;
+
+  using Listener
+    = ::flexnet::ws::Listener;
+
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
+
+  DCHECK(asioRegistry_.running_in_this_thread());
+
+  // Avoid extra allocations
+  // with memory pool in ECS style using |ECS::UnusedTag|
+  // (objects that are no more in use can return into pool)
+  /// \note do not forget to free some memory in pool periodically
+  auto registry_group
+    /// \todo use `entt::group` instead of `entt::view` here
+    /// if it will speed things up
+    /// i.e. measure perf. and compare results
+    = asioRegistry_->view<ECS::TcpConnection, ECS::UnusedTag>(
+        entt::exclude<
+          // entity in destruction
+          ECS::NeedToDestroyTag
+        >
+      );
+
+  ECS::Entity tcp_entity_id
+    = ECS::NULL_ENTITY;
+
+  bool usedCache = false;
+
+  if(registry_group.empty())
+  {
+    tcp_entity_id = asioRegistry_->create();
+    DCHECK(!usedCache);
+    DVLOG(99)
+      << "allocating new network entity";
+    DCHECK(asioRegistry_->valid(tcp_entity_id));
+  } else { // if from `cache`
+    usedCache = true;
+
+    // reuse any unused entity (if found)
+    for(const ECS::Entity& entity_id : registry_group)
+    {
+      if(!asioRegistry_->valid(entity_id)) {
+        // skip invalid entities
+        continue;
+      }
+      tcp_entity_id = entity_id;
+      // need only first valid entity
+      break;
+    }
+
+    /// \note may not find valid entities,
+    /// so checks for `ECS::NULL_ENTITY` using `registry.valid`
+    if(asioRegistry_->valid(tcp_entity_id)) {
+      asioRegistry_->remove<ECS::UnusedTag>(tcp_entity_id);
+      DVLOG(99)
+        << "using preallocated network entity with id: "
+        << asioRegistry_->get<ECS::TcpConnection>(tcp_entity_id).debug_id;
+
+    } else {
+      tcp_entity_id = asioRegistry_->create();
+      DCHECK(!usedCache);
+      DVLOG(99)
+        << "allocating new network entity";
+    }
+  } // else
+
+  DCHECK(asioRegistry_->valid(tcp_entity_id));
+
+  /// \note `tcpComponent.context.empty()` may be false
+  /// if unused `tcpComponent` found using `registry.get`
+  /// i.e. we do not fully reset `tcpComponent`,
+  /// so reset each type stored in context individually.
+  ECS::TcpConnection& tcpComponent
+    = asioRegistry_->get_or_emplace<ECS::TcpConnection>(
+        tcp_entity_id
+        , "TcpConnection_" + base::GenerateGUID() // debug name
+      );
+
+  if(usedCache)
+  {
+    /// \todo move `cached entity usage validator` to separate callback
+    // Clear cached data.
+    // We re-use some old network entity,
+    // so need to reset entity state.
+    DCHECK(asioRegistry_->valid(tcp_entity_id));
+
+    // sanity check
+    CHECK(asioRegistry_->has<
+        ECS::TcpConnection
+      >(tcp_entity_id));
+
+    // sanity check
+    CHECK(!asioRegistry_->has<
+        ECS::UnusedTag
+      >(tcp_entity_id));
+
+    // sanity check
+    CHECK(!asioRegistry_->has<
+        ECS::NeedToDestroyTag
+      >(tcp_entity_id));
+
+    /// \note not cached, affects performance
+    asioRegistry_->remove_if_exists<
+      ECS::ClosingWebsocket
+    >(tcp_entity_id);
+
+    /// \note not cached, affects performance
+    asioRegistry_->remove_if_exists<
+      ECS::CloseSocket
+    >(tcp_entity_id);
+
+    // required to process `SSLDetectResult` once
+    // (i.e. not handle outdated result)
+    asioRegistry_->emplace_or_replace<
+      ECS::UnusedSSLDetectResultTag
+    >(tcp_entity_id);
+
+    // required to process `AcceptResult` once
+    // (i.e. not handle outdated result)
+    asioRegistry_->emplace_or_replace<
+      ECS::UnusedAcceptResultTag
+    >(tcp_entity_id);
+
+#if DCHECK_IS_ON()
+    /// \note place here only types that can be re-used
+    /// i.e. components that can be re-used from cache
+    static std::vector<
+      DebugComponentIdWithName
+    > allowedComponents{
+      {
+        "TcpConnection"
+        , entt::type_info<ECS::TcpConnection>::id()
+      }
+      , {
+        "SSLDetectResult"
+        , entt::type_info<base::Optional<DetectChannel::SSLDetectResult>>::id()
+      }
+      , {
+        "UnusedSSLDetectResultTag"
+        , entt::type_info<ECS::UnusedSSLDetectResultTag>::id()
+      }
+      , {
+        "AcceptConnectionResult"
+        , entt::type_info<base::Optional<Listener::AcceptConnectionResult>>::id()
+      }
+      , {
+        "UnusedAcceptResultTag"
+        , entt::type_info<ECS::UnusedAcceptResultTag>::id()
+      }
+    };
+
+    // visit entity and get the types of components it manages
+    asioRegistry_->visit(tcp_entity_id
+      , [this, tcp_entity_id]
+      (const entt_type_info_id_type type_id)
+      {
+        const auto it
+          = std::find_if(allowedComponents.begin()
+            , allowedComponents.end()
+            // custom comparator
+            , [&type_id]
+            (const DebugComponentIdWithName& x)
+            {
+              DVLOG(99)
+                << " x.id = "
+                << x.id
+                << " type_id ="
+                << type_id;
+              /// \note compare only by id, without debug name
+              return x.id == type_id;
+            }
+          );
+
+        if(it == allowedComponents.end())
+        {
+          DLOG(ERROR)
+            << " cached entity with id = "
+            << tcp_entity_id
+            << " is NOT allowed to contain component with id = "
+            << type_id;
+          NOTREACHED();
+        } else {
+          DVLOG(99)
+            << " cached entity with id = "
+            << tcp_entity_id
+            << " re-uses component with name ="
+            << it->debugName
+            << " component with id = "
+            << type_id;
+        }
+      }
+    );
+
+    ECS::UnsafeTypeContext& ctx
+      = tcpComponent.context;
+
+    std::vector<ECS::UnsafeTypeContext::variable_data>& ctxVars
+      = ctx.vars();
+
+    /// \note place here only types that can be re-used
+    /// i.e. context vars that can be re-used from cache
+    static std::vector<
+      DebugComponentIdWithName
+    > allowedCtxVars{
+      {
+        "StrandComponent"
+        , entt::type_info<Listener::StrandComponent>::id()
+      }
+      , {
+        "HttpChannel"
+        , entt::type_info<base::Optional<::flexnet::http::HttpChannel>>::id()
+      }
+      , {
+        "WsChannel"
+        , entt::type_info<base::Optional<::flexnet::ws::WsChannel>>::id()
+      }
+      , {
+        "DetectChannel"
+        , entt::type_info<base::Optional<::flexnet::http::DetectChannel>>::id()
+      }
+    };
+
+    for(auto pos = ctxVars.size(); pos; --pos)
+    {
+      auto type_id = ctxVars[pos-1].type_id;
+
+      const auto it
+        = std::find_if(allowedCtxVars.begin()
+          , allowedCtxVars.end()
+          // custom comparator
+          , [&type_id]
+          (const DebugComponentIdWithName& x)
+          {
+            DVLOG(99)
+              << " x.id = "
+              << x.id
+              << " type_id ="
+              << type_id;
+            /// \note compare only by id, without debug name
+            return x.id == type_id;
+          }
+        );
+
+      if(it == allowedCtxVars.end())
+      {
+        DLOG(ERROR)
+          << " cached context var with id = "
+          << tcp_entity_id
+          << " is NOT allowed to contain context var with id = "
+          << type_id;
+        NOTREACHED();
+      } else {
+        DVLOG(99)
+          << " cached entity with id = "
+          << tcp_entity_id
+          << " re-uses context var with name ="
+          << it->debugName
+          << " context var with id = "
+          << type_id;
+      }
+    }
+#endif // DCHECK_IS_ON()
+  } // if
+
+  return tcp_entity_id;
 }
 
 void ExampleServer::hangleQuitSignal()
@@ -261,7 +554,13 @@ void ExampleServer::updateConsoleTerminal() NO_EXCEPTION
   /// \todo getline blocks without timeout, so add timeout like in
   /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
   /// or stackoverflow.com/a/34994150
-  /// i.e. use STDIN_FILENO and poll
+  /// i.e. use STDIN_FILENO and poll in Linux
+  /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
+  /// or need the GetStdHandle function to obtain a handle
+  /// to the console, then you can use WaitForSingleObject
+  /// to wait for an event to happen on that handle, with a timeout
+  /// see stackoverflow.com/a/21749034
+  /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
   std::getline(std::cin, line);
 
   DVLOG(99)
@@ -590,6 +889,7 @@ void ExampleServer::runLoop() NO_EXCEPTION
         = scopedSequencedAsioExecutor.emplace_async(FROM_HERE
               , "PeriodicAsioExecutor" // debug name
               , base::BindRepeating(
+                  /// \note updateAsioRegistry is not thread-safe
                   &ExampleServer::updateAsioRegistry
                   , base::Unretained(this))
         )
@@ -707,17 +1007,17 @@ void ExampleServer::prepareBeforeRunLoop() NO_EXCEPTION
 }
 
 template<typename ComponentType>
-using EmplaceThenCb
+using IterateRegistryCb
   = base::RepeatingCallback<
-      void(ECS::Entity)>;
+      void(ECS::Entity, ECS::Registry& registry)>;
 
 // Use it if you want to perform some task with entity and then mark entity
-// as `already processed`.
+// as `already processed` (to avoid processing twice).
 //
 // ALGORITHM
 //
 // 1 step:
-// Executes provided callback.
+// Executes provided callback (per each entity in `entities view`).
 // 2 step:
 // Adds component into each entity in `entities view`
 // using provided ECS registry.
@@ -729,8 +1029,8 @@ template<
   // arguments for component construction
   , class... Args
 >
-static void emplaceThen(
-  EmplaceThenCb<ComponentType> taskCb
+static void executeAndEmplace(
+  IterateRegistryCb<ComponentType> taskCb
   , ECS::AsioRegistry& asioRegistry
   , EntitiesViewType& ecsView
   , Args&&... args)
@@ -741,11 +1041,11 @@ static void emplaceThen(
 
   ecsView
     .each(
-      [&taskCb, ... args = std::forward<Args>(args)]
+      [&taskCb, &asioRegistry, ... args = std::forward<Args>(args)]
       (const auto& entity
        , const auto& component)
     {
-      taskCb.Run(entity);
+      taskCb.Run(entity, asioRegistry.registry());
     });
 
   asioRegistry->insert<ComponentType>(
@@ -762,6 +1062,7 @@ static void emplaceThen(
       (const auto& entity
        , const auto& component)
     {
+      // inserted component must exist
       DCHECK(asioRegistry->has<ComponentType>(entity));
     });
 #endif // DCHECK_IS_ON()
@@ -809,12 +1110,15 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
               >
             );
 
-        EmplaceThenCb<ECS::ClosingWebsocket> doEofWebsocket
+        IterateRegistryCb<ECS::ClosingWebsocket> doEofWebsocket
           = base::BindRepeating(
               []
               (ECS::AsioRegistry& asioRegistry
-               , ECS::Entity entity)
+               , ECS::Entity entity
+               , ECS::Registry& registry)
         {
+          ignore_result(registry);
+
           using namespace ::flexnet::ws;
 
           LOG_CALL(DVLOG(99));
@@ -861,7 +1165,9 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
             << "no open websocket connections,"
                " nothing to close";
         } else {
-          emplaceThen<ECS::ClosingWebsocket>(
+          // execute callback `doEofWebsocket` per each entity,
+          // then mark each entity with `ECS::ClosingWebsocket`
+          executeAndEmplace<ECS::ClosingWebsocket>(
             doEofWebsocket
             , asioRegistry
             , ecsView);
@@ -953,8 +1259,10 @@ ExampleServer::VoidPromise
 
   return periodicValidateUntil_.runPromise(FROM_HERE
     , basis::EndingTimeout{
+        /// \todo make configurable
         base::TimeDelta::FromSeconds(15)} // debug-only expiration time
     , basis::PeriodicCheckUntil::CheckPeriod{
+        /// \todo make configurable
         base::TimeDelta::FromSeconds(1)}
       // debug-only error
     , "Destruction of allocated connections hanged."

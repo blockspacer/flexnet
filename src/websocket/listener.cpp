@@ -1,7 +1,7 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
-
 #include "flexnet/ECS/tags.hpp"
 #include "flexnet/ECS/components/tcp_connection.hpp"
+#include "flexnet/ECS/components/close_socket.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/bind.h>
@@ -10,9 +10,10 @@
 #include <base/macros.h>
 #include <base/sequence_checker.h>
 #include <base/guid.h>
-
 #include <base/threading/thread.h>
 #include <base/task/thread_pool/thread_pool.h>
+
+#include <basis/ECS/ecs.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/scoped_cleanup.hpp>
 #include <basis/status/status_macros.hpp>
@@ -42,7 +43,8 @@ namespace ws {
 Listener::Listener(
   IoContext& ioc
   , EndpointType&& endpoint
-  , ECS::AsioRegistry& asioRegistry)
+  , ECS::AsioRegistry& asioRegistry
+  , EntityAllocatorCb entityAllocator)
   : ioc_(REFERENCED(ioc))
   , endpoint_(endpoint)
   , asioRegistry_(REFERENCED(asioRegistry))
@@ -58,13 +60,13 @@ Listener::Listener(
 #if DCHECK_IS_ON()
   , sm_(UNINITIALIZED, FillStateTransitionTable())
 #endif // DCHECK_IS_ON()
+  , entityAllocator_(entityAllocator)
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-NOT_THREAD_SAFE_FUNCTION()
 void Listener::logFailure(
   const ErrorCode& ec, char const* what)
 {
@@ -146,7 +148,10 @@ void Listener::logFailure(
   acceptor_.open(endpoint_.protocol(), ec);
   if (ec)
   {
-    logFailure(ec, "open");
+    {
+      DCHECK_RUN_ON_ANY_THREAD(logFailure);
+      logFailure(ec, "open");
+    }
     return MAKE_ERROR()
            << "Could not call open for acceptor";
   }
@@ -183,7 +188,10 @@ void Listener::logFailure(
     , ec);
   if (ec)
   {
-    logFailure(ec, "set_option");
+    {
+      DCHECK_RUN_ON_ANY_THREAD(logFailure);
+      logFailure(ec, "set_option");
+    }
     return MAKE_ERROR()
            << "Could not call set_option for acceptor";
   }
@@ -192,7 +200,10 @@ void Listener::logFailure(
   acceptor_.bind(endpoint_, ec);
   if (ec)
   {
-    logFailure(ec, "bind");
+    {
+      DCHECK_RUN_ON_ANY_THREAD(logFailure);
+      logFailure(ec, "bind");
+    }
     return MAKE_ERROR()
            << "Could not call bind for acceptor";
   }
@@ -206,7 +217,10 @@ void Listener::logFailure(
     , ec);
   if (ec)
   {
-    logFailure(ec, "listen");
+    {
+      DCHECK_RUN_ON_ANY_THREAD(logFailure);
+      logFailure(ec, "listen");
+    }
     return MAKE_ERROR()
            << "Could not call listen for acceptor";
   }
@@ -319,23 +333,18 @@ void Listener::allocateTcpResourceAndAccept()
    << " and unused entities can be freed"
       " with proper frequency.";
 
+  DCHECK(entityAllocator_);
   ECS::Entity tcp_entity_id
-    = createTcpEntity();
+    = entityAllocator_.Run();
   DCHECK((*asioRegistry_)->valid(tcp_entity_id));
 
-  /// \note `tcpComponent.context.empty()` may be false
-  /// if unused `tcpComponent` found using `registry.get`
-  /// i.e. we do not fully reset `tcpComponent`,
-  /// so reset each type stored in context individually.
+  DCHECK((*asioRegistry_)->has<ECS::TcpConnection>(tcp_entity_id));
   ECS::TcpConnection& tcpComponent
-    = (*asioRegistry_)->get_or_emplace<ECS::TcpConnection>(
-        tcp_entity_id
-        , "TcpConnection_" + base::GenerateGUID() // debug name
-      );
+    = (*asioRegistry_)->get<ECS::TcpConnection>(tcp_entity_id);
 
   DVLOG(99)
     << "using TcpConnection with id: "
-    << (*asioRegistry_)->get<ECS::TcpConnection>(tcp_entity_id).debug_id;
+    << tcpComponent.debug_id;
 
   StrandComponent* asioStrandCtx
     = &tcpComponent->reset_or_create_var<StrandComponent>(
@@ -367,71 +376,6 @@ void Listener::allocateTcpResourceAndAccept()
             util::UnownedPtr<StrandType>(&asioStrandCtx->value()))
         , COPIED(tcp_entity_id))
   );
-}
-
-ECS::Entity Listener::createTcpEntity()
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
-
-  DCHECK(asioRegistry_->running_in_this_thread());
-
-  // Avoid extra allocations
-  // with memory pool in ECS style using |ECS::UnusedTag|
-  // (objects that are no more in use can return into pool)
-  /// \note do not forget to free some memory in pool periodically
-  auto registry_group
-    /// \todo use `entt::group` instead of `entt::view` here
-    /// if it will speed things up
-    /// i.e. measure perf. and compare results
-    = (*asioRegistry_)->view<ECS::TcpConnection, ECS::UnusedTag>(
-        entt::exclude<
-          // entity in destruction
-          ECS::NeedToDestroyTag
-        >
-      );
-
-  ECS::Entity tcp_entity_id
-    = ECS::NULL_ENTITY;
-
-  if(registry_group.empty())
-  {
-    tcp_entity_id = (*asioRegistry_)->create();
-    DVLOG(99)
-      << "allocating new network entity";
-    DCHECK((*asioRegistry_)->valid(tcp_entity_id));
-    return tcp_entity_id;
-  }
-
-  // reuse any unused entity (if found)
-  for(const ECS::Entity& entity_id : registry_group)
-  {
-    if(!(*asioRegistry_)->valid(entity_id)) {
-      // skip invalid entities
-      continue;
-    }
-    tcp_entity_id = entity_id;
-    // need only first valid entity
-    break;
-  }
-
-  /// \note may not find valid entities,
-  /// so checks for `ECS::NULL_ENTITY` using `registry.valid`
-  if((*asioRegistry_)->valid(tcp_entity_id)) {
-    (*asioRegistry_)->remove<ECS::UnusedTag>(tcp_entity_id);
-    DVLOG(99)
-      << "using preallocated network entity with id: "
-      << (*asioRegistry_)->get<ECS::TcpConnection>(tcp_entity_id).debug_id;
-  } else {
-    tcp_entity_id = (*asioRegistry_)->create();
-    DVLOG(99)
-      << "allocating new network entity";
-  }
-
-  DCHECK((*asioRegistry_)->valid(tcp_entity_id));
-
-  return tcp_entity_id;
 }
 
 void Listener::asyncAccept(
@@ -536,7 +480,10 @@ void Listener::asyncAccept(
     acceptor_.cancel(ec);
     if (ec)
     {
-      logFailure(ec, "acceptor_cancel");
+      {
+        DCHECK_RUN_ON_ANY_THREAD(logFailure);
+        logFailure(ec, "acceptor_cancel");
+      }
 
       return MAKE_ERROR()
              << "Failed to call acceptor_cancel for acceptor";
@@ -547,7 +494,10 @@ void Listener::asyncAccept(
     /// \note stopped acceptor may be continued via `async_accept`
     acceptor_.close(ec);
     if (ec) {
-      logFailure(ec, "acceptor_close");
+      {
+        DCHECK_RUN_ON_ANY_THREAD(logFailure);
+        logFailure(ec, "acceptor_close");
+      }
 
       return MAKE_ERROR()
              << "Failed to call acceptor_close for acceptor";
@@ -617,6 +567,7 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
 
   if (ec)
   {
+    DCHECK_RUN_ON_ANY_THREAD(logFailure);
     logFailure(ec, "accept");
   }
 
@@ -678,6 +629,7 @@ void Listener::setAcceptConnectionResult(
   DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
 
   DCHECK(asioRegistry_->running_in_this_thread());
+  DCHECK((*asioRegistry_)->valid(tcp_entity_id));
 
   DVLOG(99)
     << " added new connection";
@@ -694,8 +646,8 @@ void Listener::setAcceptConnectionResult(
 
     // If the value already exists allow it to be re-used
     (*asioRegistry_)->remove_if_exists<
-      ECS::UnusedAcceptResultTag
-    >(tcp_entity_id);
+        ECS::UnusedAcceptResultTag
+      >(tcp_entity_id);
 
     UniqueAcceptComponent& acceptResult
       = (*asioRegistry_).reset_or_create_var<UniqueAcceptComponent>(
@@ -703,7 +655,7 @@ void Listener::setAcceptConnectionResult(
             , tcp_entity_id
             , base::rvalue_cast(ec)
             , base::rvalue_cast(socket)
-            /// \todo make us of it
+            /// \todo make use of it
             , /* force closing */ false);
   }
 }

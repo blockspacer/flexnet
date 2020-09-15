@@ -73,8 +73,21 @@ class ExampleServer
 
   void updateConsoleTerminal() NO_EXCEPTION;
 
-  NOT_THREAD_SAFE_FUNCTION()
-  void updateAsioRegistry() NO_EXCEPTION;
+  /// \note creates ECS entity used as `asio connection`,
+  /// sets common components and performs checks
+  /// (if entity was re-used from cache some components must be reset)
+  //
+  // MOTIVATION
+  //
+  // Each component type must be reset if you want to re-use it
+  // (i.e. if you want to use `cache` to avoid allocations).
+  // If you manually registered component in `allowed` list,
+  // then we can assume that component can be re-used.
+  // We prohibit any `unknown` types in entities that can be re-used.
+  MUST_USE_RETURN_VALUE
+  ECS::Entity allocateTcpEntity() NO_EXCEPTION;
+
+  void updateAsioRegistry() NO_EXCEPTION RUN_ON_ANY_THREAD(updateAsioRegistry);
 
   MUST_USE_RETURN_VALUE
   StatusPromise stopAcceptors() NO_EXCEPTION;
@@ -170,6 +183,8 @@ class ExampleServer
     SET_CUSTOM_THREAD_GUARD(periodicConsoleTaskRunner_);
 
   basis::PeriodicValidateUntil periodicValidateUntil_{};
+
+  CREATE_CUSTOM_THREAD_GUARD(updateAsioRegistry);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

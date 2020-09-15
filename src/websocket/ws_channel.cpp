@@ -158,9 +158,10 @@ WsChannel::WsChannel(
   }
 }
 
-NOT_THREAD_SAFE_FUNCTION()
 WsChannel::~WsChannel()
 {
+  DCHECK_RUN_ON_ANY_THREAD(WsChannelDestructor);
+
   LOG_CALL(DVLOG(99));
 
   /// \note we assume that reading unused `ws_` is thread-safe here

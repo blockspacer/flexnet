@@ -448,60 +448,14 @@ class SCOPED_LOCKABLE
   DISALLOW_COPY_AND_ASSIGN(AutoFakeLockWithCheck);
 };
 
-// Used for documentation purposes (checks nothing).
-/// \note It is not real lock, only annotated as lock.
-/// It just calls callback on scope entry AND exit.
-extern basis::FakeLockWithCheck<bool()>
-  fakeLockDocumentNotThreadChecked;
-
-// Documents that variable allowed to be used from any thread
-// and you MUST take care of thread-safety somehow.
-//
-// USE CASE EXAMPLES
-//
-// 1. Unmodified global variable can be used from any thread
-// (if properly initialized).
-// It safe to read value from any thread
-// because its storage expected to be not modified,
-// we just need to check storage validity.
-// 2. Thread-safe type (like atomic).
-#define ANY_THREAD_GUARD() \
-  basis::fakeLockDocumentNotThreadChecked
-
-#define GUARDED_BY_ANY_THREAD() \
-  GUARDED_BY(ANY_THREAD_GUARD())
-
-/// \note Prefer instead RUN_ON(ANY_THREAD_GUARD(), m1, m2)
-// Documents that function allowed to be used from any thread
-// and you MUST take care of thread-safety somehow.
-#define RUN_ON_ANY_THREAD() \
-  THREAD_ANNOTATION_ATTRIBUTE__(exclusive_locks_required(ANY_THREAD_GUARD()))
-
-// Allow to use code that can be used from any thread
-// (in current scope only).
-//
-// Used for documentation purposes, so it is good idea
-// to pass affected function names, variable names, etc.
-//
-// EXAMPLE
-// class MySharedClass {
-//   ~MySharedClass()
-//   {
-//     // documents that destructor called from any thread
-//     DCHECK_RUN_ON_ANY_THREAD(MySharedClass);
-//   }
-// };
-//
-// // documents that `periodicRunner_` and `someVar` used from any thread
-// DCHECK_RUN_ON_ANY_THREAD(periodicRunner_ && someVar);
-// DCHECK(periodicRunner_.doSomeTask(someVar));
-#define DCHECK_RUN_ON_ANY_THREAD(x) \
-  basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, bool()> \
-    auto_lock_run_on_any_thread( \
-      ANY_THREAD_GUARD())
-
 #define CUSTOM_THREAD_GUARD(Name) \
   fakeLockDummy##Name
+
+#define CREATE_CUSTOM_THREAD_GUARD(Name) \
+  basis::FakeLockWithCheck<bool()> \
+    CUSTOM_THREAD_GUARD(Name) { \
+    basis::VerifyNothing::Repeatedly() \
+  }
 
 // Per-variable alternative to `GUARDED_BY`
 // Documents that you must take care of thread safety somehow.
@@ -509,6 +463,9 @@ extern basis::FakeLockWithCheck<bool()>
 // that can be used from multiple threads.
 #define SET_CUSTOM_THREAD_GUARD(Name) \
   GUARDED_BY(CUSTOM_THREAD_GUARD(Name)); \
+  CREATE_CUSTOM_THREAD_GUARD(Name)
+
+#define CREATE_CUSTOM_THREAD_GUARD_WITH_CHECK(Name) \
   basis::FakeLockWithCheck<bool()> \
     CUSTOM_THREAD_GUARD(Name) { \
     basis::VerifyNothing::Repeatedly() \
@@ -540,10 +497,7 @@ extern basis::FakeLockWithCheck<bool()>
 //       ));
 #define SET_CUSTOM_THREAD_GUARD_WITH_CHECK(Name, Callback) \
   GUARDED_BY(CUSTOM_THREAD_GUARD(Name)); \
-  basis::FakeLockWithCheck<bool()> \
-    CUSTOM_THREAD_GUARD(Name) { \
-    basis::VerifyNothing::Repeatedly() \
-  }
+  CREATE_CUSTOM_THREAD_GUARD_WITH_CHECK(Name)
 
 /// \note Prefer instead RUN_ON(CUSTOM_THREAD_GUARD(Name), m1, m2)
 // Per-variable alternative to `RUN_ON`
@@ -561,5 +515,64 @@ extern basis::FakeLockWithCheck<bool()>
   basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, bool()> \
     auto_lock_run_on_##Name( \
       CUSTOM_THREAD_GUARD(Name))
+
+// Documents that variable allowed to be used from any thread
+// and you MUST take care of thread-safety somehow.
+//
+// USE CASE EXAMPLES
+//
+// 1. Unmodified global variable can be used from any thread
+// (if properly initialized).
+// It safe to read value from any thread
+// because its storage expected to be not modified,
+// we just need to check storage validity.
+// 2. Thread-safe type (like atomic).
+#define ANY_THREAD_GUARD(Name) \
+  CUSTOM_THREAD_GUARD(Name)
+
+#define GUARDED_BY_ANY_THREAD(Name) \
+  GUARDED_BY(ANY_THREAD_GUARD(Name))
+
+/// \note You can combine it with `mutexes` like so: `RUN_ON(ANY_THREAD_GUARD(), m1, m2)`
+// Documents that function allowed to be used from any thread
+// and you MUST take care of thread-safety somehow.
+//
+// USAGE
+//
+//   void logFailure(
+//     const ErrorCode& ec, char const* what) RUN_ON_ANY_THREAD(logFailure);
+//
+//   // ...
+//   CREATE_CUSTOM_THREAD_GUARD(logFailure);
+//   // ...
+//
+//   {
+//     DCHECK_RUN_ON_ANY_THREAD(logFailure);
+//     logFailure(ec, "open");
+//   }
+#define RUN_ON_ANY_THREAD(Name) \
+  THREAD_ANNOTATION_ATTRIBUTE__(exclusive_locks_required(ANY_THREAD_GUARD(Name)))
+
+// Allow to use code that can be used from any thread
+// (in current scope only).
+//
+// Used for documentation purposes, so it is good idea
+// to pass affected function names, variable names, etc.
+//
+// EXAMPLE
+// class MySharedClass {
+//   // ...
+//   CREATE_CUSTOM_THREAD_GUARD(MySharedClassDestructor);
+//   // ...
+//   ~MySharedClass()
+//   {
+//     // documents that destructor called from any thread
+//     DCHECK_RUN_ON_ANY_THREAD(MySharedClassDestructor);
+//   }
+// };
+#define DCHECK_RUN_ON_ANY_THREAD(Name) \
+  basis::AutoFakeLockWithCheck<basis::FakeLockPolicyDebugOnly, bool()> \
+    auto_lock_run_on_any_thread( \
+      ANY_THREAD_GUARD(Name))
 
 } // namespace basis

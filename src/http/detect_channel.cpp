@@ -53,9 +53,10 @@ DetectChannel::DetectChannel(
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-NOT_THREAD_SAFE_FUNCTION()
 DetectChannel::~DetectChannel()
 {
+  DCHECK_RUN_ON_ANY_THREAD(DetectChannelDestructor);
+
   LOG_CALL(DVLOG(99));
 }
 
@@ -131,8 +132,10 @@ void DetectChannel::runDetector(
     , FROM_HERE
     , timeout_task_runner
     , basis::EndingTimeout{
+        /// \todo make configurable
         base::TimeDelta::FromSeconds(7)}
     , basis::PeriodicCheckUntil::CheckPeriod{
+        /// \todo make configurable
         base::TimeDelta::FromMinutes(1)}
     , "detection of new connection hanged")));
 
@@ -299,8 +302,8 @@ void DetectChannel::setSSLDetectResult(
 
     // If the value already exists allow it to be re-used
     (*asioRegistry_)->remove_if_exists<
-      ECS::UnusedSSLDetectResultTag
-    >(entity_id_);
+        ECS::UnusedSSLDetectResultTag
+      >(entity_id_);
 
     UniqueSSLDetectComponent& detectResult
       = (*asioRegistry_).reset_or_create_var<UniqueSSLDetectComponent>(

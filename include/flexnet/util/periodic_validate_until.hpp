@@ -111,7 +111,8 @@ class PeriodicValidateUntil {
 
  private:
   VoidPromise promiseValidationDone(
-    ValidationTaskType&& validationTask) NO_EXCEPTION;
+    ValidationTaskType&& validationTask
+    , basis::PeriodicCheckUntil::CheckPeriod&& checkPeriod) NO_EXCEPTION;
 
  private:
   scoped_refptr<base::SequencedTaskRunner> periodicVerifyRunner_

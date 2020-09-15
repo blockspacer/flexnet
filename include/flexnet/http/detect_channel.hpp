@@ -186,7 +186,6 @@ public:
     DetectChannel&& other) = delete;
 
   /// \note can destruct on any thread
-  NOT_THREAD_SAFE_FUNCTION()
   ~DetectChannel();
 
   // calls |beast::async_detect_*|
@@ -396,6 +395,9 @@ private:
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
     SET_CUSTOM_THREAD_GUARD(entity_id_);
+
+  /// \note can destruct on any thread
+  CREATE_CUSTOM_THREAD_GUARD(DetectChannelDestructor);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

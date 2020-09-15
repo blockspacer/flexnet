@@ -44,7 +44,8 @@ PeriodicValidateUntil::VoidPromise PeriodicValidateUntil::runPromise(
           , from_here
           , timeoutTaskRunner_
           , base::Passed(base::rvalue_cast(debugEndingTimeout))
-          , base::Passed(base::rvalue_cast(checkPeriod))
+          // refresh period for (debug-only) execution time limiter
+          , COPIED() checkPeriod
           , errorText))
   );
 
@@ -66,6 +67,8 @@ PeriodicValidateUntil::VoidPromise PeriodicValidateUntil::runPromise(
         &PeriodicValidateUntil::promiseValidationDone
         , base::Unretained(this)
         , base::Passed(base::rvalue_cast(validationTask))
+          // refresh period for periodic validation
+        , COPIED() checkPeriod
       )
       , /*nestedPromise*/ true
   )
@@ -85,7 +88,8 @@ PeriodicValidateUntil::VoidPromise PeriodicValidateUntil::runPromise(
 
 PeriodicValidateUntil::VoidPromise
   PeriodicValidateUntil::promiseValidationDone(
-    ValidationTaskType&& validationTask) NO_EXCEPTION
+    ValidationTaskType&& validationTask
+    , basis::PeriodicCheckUntil::CheckPeriod&& checkPeriod) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -115,7 +119,7 @@ PeriodicValidateUntil::VoidPromise
     , COPIED() wrappedValidationTask);
 
   basis::startPeriodicTaskExecutorOnSequence(
-    base::TimeDelta::FromMilliseconds(500));
+    checkPeriod.value());
 
   return promiseResolver.promise();
 }

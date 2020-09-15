@@ -175,7 +175,6 @@ public:
     WsChannel&& other) = delete;
 
   /// \note can destruct on any thread
-  NOT_THREAD_SAFE_FUNCTION()
   ~WsChannel();
 
   // Start the asynchronous operation
@@ -294,6 +293,7 @@ public:
 #endif // 0
 
   template <typename CallbackT>
+  MUST_USE_RETURN_VALUE
   auto postTaskOnConnectionStrand(
     const base::Location& from_here
     , CallbackT&& task
@@ -316,6 +316,7 @@ public:
   /// `entity_id_` assumed to be NOT changed,
   /// so its copy can be read from any thread.
   /// `ECS::Entity` is just number, so can be copied freely.
+  MUST_USE_RETURN_VALUE
   ECS::Entity entityId() const
   {
     DCHECK_CUSTOM_THREAD_GUARD(entity_id_);
@@ -429,6 +430,9 @@ private:
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
+
+  /// \note can destruct on any thread
+  CREATE_CUSTOM_THREAD_GUARD(WsChannelDestructor);
 
   DISALLOW_COPY_AND_ASSIGN(WsChannel);
 };
