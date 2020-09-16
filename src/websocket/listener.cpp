@@ -72,6 +72,8 @@ void Listener::logFailure(
 {
   LOG_CALL(DVLOG(99));
 
+  DCHECK_RUN_ON_ANY_THREAD(fn_logFailure);
+
   // NOTE: If you got logFailure: accept: Too many open files
   // set ulimit -n 4096, see stackoverflow.com/a/8583083/10904212
   // Restart the accept operation if we got the connection_aborted error
@@ -148,10 +150,7 @@ void Listener::logFailure(
   acceptor_.open(endpoint_.protocol(), ec);
   if (ec)
   {
-    {
-      DCHECK_RUN_ON_ANY_THREAD(logFailure);
-      logFailure(ec, "open");
-    }
+    logFailure(ec, "open");
     return MAKE_ERROR()
            << "Could not call open for acceptor";
   }
@@ -188,10 +187,7 @@ void Listener::logFailure(
     , ec);
   if (ec)
   {
-    {
-      DCHECK_RUN_ON_ANY_THREAD(logFailure);
-      logFailure(ec, "set_option");
-    }
+    logFailure(ec, "set_option");
     return MAKE_ERROR()
            << "Could not call set_option for acceptor";
   }
@@ -200,10 +196,7 @@ void Listener::logFailure(
   acceptor_.bind(endpoint_, ec);
   if (ec)
   {
-    {
-      DCHECK_RUN_ON_ANY_THREAD(logFailure);
-      logFailure(ec, "bind");
-    }
+    logFailure(ec, "bind");
     return MAKE_ERROR()
            << "Could not call bind for acceptor";
   }
@@ -217,10 +210,7 @@ void Listener::logFailure(
     , ec);
   if (ec)
   {
-    {
-      DCHECK_RUN_ON_ANY_THREAD(logFailure);
-      logFailure(ec, "listen");
-    }
+    logFailure(ec, "listen");
     return MAKE_ERROR()
            << "Could not call listen for acceptor";
   }
@@ -282,7 +272,7 @@ void Listener::doAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
 
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
@@ -302,7 +292,7 @@ void Listener::doAccept()
   /// BEFORE anyone connected
   /// (before callback of `async_accept`)
   ::boost::asio::post(
-    asioRegistry_->strand()
+    asioRegistry_->asioStrand()
     , ::std::bind(
         &Listener::allocateTcpResourceAndAccept
         , this)
@@ -313,9 +303,9 @@ void Listener::allocateTcpResourceAndAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(acceptorStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_acceptorStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
 
   DCHECK(asioRegistry_->running_in_this_thread());
 
@@ -480,11 +470,7 @@ void Listener::asyncAccept(
     acceptor_.cancel(ec);
     if (ec)
     {
-      {
-        DCHECK_RUN_ON_ANY_THREAD(logFailure);
-        logFailure(ec, "acceptor_cancel");
-      }
-
+      logFailure(ec, "acceptor_cancel");
       return MAKE_ERROR()
              << "Failed to call acceptor_cancel for acceptor";
     }
@@ -495,7 +481,6 @@ void Listener::asyncAccept(
     acceptor_.close(ec);
     if (ec) {
       {
-        DCHECK_RUN_ON_ANY_THREAD(logFailure);
         logFailure(ec, "acceptor_close");
       }
 
@@ -557,9 +542,9 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(acceptorStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_acceptorStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(unownedPerConnectionStrand
@@ -567,7 +552,6 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
 
   if (ec)
   {
-    DCHECK_RUN_ON_ANY_THREAD(logFailure);
     logFailure(ec, "accept");
   }
 
@@ -591,7 +575,7 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
   // mark connection as newly created
   // (or as failed with error code)
   ::boost::asio::post(
-    asioRegistry_->strand()
+    asioRegistry_->asioStrand()
     /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler([
       ](
@@ -626,7 +610,7 @@ void Listener::setAcceptConnectionResult(
   , ErrorCode&& ec
   , SocketType&& socket)
 {
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
 
   DCHECK(asioRegistry_->running_in_this_thread());
   DCHECK((*asioRegistry_)->valid(tcp_entity_id));
@@ -682,17 +666,13 @@ Listener::~Listener()
   // make sure that all allocated
   // `per-connection resources` are freed
   // i.e. use check `registry.empty()`
-  DCHECK(asioRegistry_
-    ->registry_unsafe(FROM_HERE
-      , "access from destructor when ioc->stopped"
-        " i.e. no running asio threads that use |asioRegistry_|"
-      , base::BindOnce([](const util::UnownedRef<IoContext>& ioc)
-        {
-          // checks that access to |asioRegistry_| is thread-safe
-          DCHECK(ioc->stopped());
-        }
-        , CONST_REFERENCED(ioc_)))
-    .empty());
+  {
+    /// \note (thread-safety) access from destructor when ioc->stopped
+    /// i.e. assume no running asio threads that use |asioRegistry_|
+    DCHECK_RUN_ON_ANY_THREAD(asioRegistry_->fn_registry);
+
+    DCHECK(asioRegistry_->registry().empty());
+  }
 
   /// \note Callbacks posted on |io_context| can use |this|,
   /// so make sure that |this| outlives |io_context|
@@ -714,7 +694,7 @@ bool Listener::isAcceptorOpen() const
 
 bool Listener::isAcceptingInThisThread() const NO_EXCEPTION
 {
-  DCHECK_CUSTOM_THREAD_GUARD(acceptorStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_acceptorStrand_);
 
   /// \note `running_in_this_thread()` assumed to be thread-safe
   return acceptorStrand_->running_in_this_thread();

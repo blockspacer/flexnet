@@ -20,7 +20,7 @@ void handleSSLDetectResult(
 {
   using namespace ::flexnet::http;
 
-  DCHECK(asio_registry.running_in_this_thread());
+  DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
 
   LOG_CALL(DVLOG(99));
 
@@ -108,8 +108,7 @@ void updateSSLDetection(
   using view_component
     = base::Optional<DetectChannel::SSLDetectResult>;
 
-  DCHECK(
-    asio_registry.running_in_this_thread());
+  DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
 
   auto registry_group
     = asio_registry->view<view_component>(

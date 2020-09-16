@@ -1,8 +1,6 @@
 #pragma once
 
-#include "flexnet/util/checked_optional.hpp"
 #include "flexnet/util/limited_tcp_stream.hpp"
-#include "flexnet/util/lock_with_check.hpp"
 
 #include <base/callback.h>
 #include <base/macros.h>
@@ -13,6 +11,8 @@
 #include <base/synchronization/atomic_flag.h>
 #include <base/threading/thread_collision_warner.h>
 
+#include <basis/lock_with_check.hpp>
+#include <basis/checked_optional.hpp>
 #include <basis/ECS/asio_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/move_only.hpp>
@@ -186,7 +186,8 @@ public:
     DetectChannel&& other) = delete;
 
   /// \note can destruct on any thread
-  ~DetectChannel();
+  ~DetectChannel()
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_DetectChannelDestructor);
 
   // calls |beast::async_detect_*|
   void runDetector(
@@ -197,7 +198,7 @@ public:
   MUST_USE_RETURN_VALUE
   base::WeakPtr<DetectChannel> weakSelf() const NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD(weak_this_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_weak_this_);
 
     // It is thread-safe to copy |base::WeakPtr|.
     // Weak pointers may be passed safely between sequences, but must always be
@@ -209,8 +210,8 @@ public:
   MUST_USE_RETURN_VALUE
   bool isDetectingInThisThread() const NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
-    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
 
     /// \note |perConnectionStrand_|
     /// is valid as long as |stream_| valid
@@ -226,8 +227,8 @@ public:
   MUST_USE_RETURN_VALUE
   const StrandType& perConnectionStrand() NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
-    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
 
     /// \note |perConnectionStrand_|
     /// is valid as long as |stream_| valid
@@ -243,7 +244,7 @@ public:
   /// and thread-safe when you call |executor()|
   boost::asio::executor executor() NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD(stream_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_stream_);
 
     DCHECK(stream_.has_value());
     return /// \note `get_executor` returns copy
@@ -257,8 +258,8 @@ public:
     , CallbackT&& task
     , bool nestedPromise = false)
   {
-    DCHECK_CUSTOM_THREAD_GUARD(stream_);
-    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_stream_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
 
     DCHECK(stream_.has_value()
       && stream_.value().socket().is_open());
@@ -276,13 +277,13 @@ public:
   /// `ECS::Entity` is just number, so can be copied freely.
   ECS::Entity entityId() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD(entity_id_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_entity_id_);
     return entity_id_;
   }
 
   bool isDetected()
   {
-    DCHECK_CUSTOM_THREAD_GUARD(atomicDetectDoneFlag_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_atomicDetectDoneFlag_);
     return atomicDetectDoneFlag_.load();
   }
 
@@ -307,7 +308,8 @@ private:
     // and no error occurred, otherwise `false`.
     , bool&& handshakeResult
     , StreamType&& stream
-    , MessageBufferType&& buffer);
+    , MessageBufferType&& buffer)
+    RUN_ON(&asioRegistry_->strand);
 
   void configureDetector
     (const std::chrono::seconds& expire_timeout);
@@ -318,23 +320,23 @@ private:
   base::Optional<StreamType> stream_
     /// \note moved between threads,
     /// take care of thread-safety!
-    SET_CUSTOM_THREAD_GUARD(stream_);
+    SET_CUSTOM_THREAD_GUARD(guard_stream_);
 
   // |stream_| moved in |onDetected|
   std::atomic<bool> is_stream_valid_
     // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(is_stream_valid_);
+    SET_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
 
   // The dynamic buffer to use during `beast::async_detect_ssl`
   MessageBufferType buffer_
     /// \note moved between threads,
     /// take care of thread-safety!
-    SET_CUSTOM_THREAD_GUARD(buffer_);
+    SET_CUSTOM_THREAD_GUARD(guard_buffer_);
 
   // |buffer_| moved in |onDetected|
   std::atomic<bool> is_buffer_valid_
     // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(is_buffer_valid_);
+    SET_CUSTOM_THREAD_GUARD(guard_is_buffer_valid_);
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
@@ -352,12 +354,12 @@ private:
   const base::WeakPtr<DetectChannel> weak_this_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(weak_this_);
+    SET_CUSTOM_THREAD_GUARD(guard_weak_this_);
 
   // |stream_| and calls to |async_detect*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
     SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
-      perConnectionStrand_
+      guard_perConnectionStrand_
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
       // 2. On each access to strand check that stream valid
@@ -381,23 +383,23 @@ private:
   // will be set by |onDetected|
   std::atomic<bool> atomicDetectDoneFlag_
     // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(atomicDetectDoneFlag_);
+    SET_CUSTOM_THREAD_GUARD(guard_atomicDetectDoneFlag_);
 
   // used by |entity_id_|
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(asioRegistry_);
+    SET_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(entity_id_);
+    SET_CUSTOM_THREAD_GUARD(guard_entity_id_);
 
   /// \note can destruct on any thread
-  CREATE_CUSTOM_THREAD_GUARD(DetectChannelDestructor);
+  CREATE_CUSTOM_THREAD_GUARD(fn_DetectChannelDestructor);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

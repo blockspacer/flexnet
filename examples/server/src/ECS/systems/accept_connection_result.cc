@@ -21,7 +21,7 @@ void handleAcceptNewConnectionResult(
   using namespace ::flexnet::ws;
   using namespace ::flexnet::http;
 
-  DCHECK(asio_registry.running_in_this_thread());
+  DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
 
   // each entity representing tcp connection
   // must have that component
@@ -123,7 +123,7 @@ void updateNewConnections(
   using view_component
     = base::Optional<Listener::AcceptConnectionResult>;
 
-  DCHECK(asio_registry.running_in_this_thread());
+  DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
 
   // Avoid extra allocations
   // with memory pool in ECS style using |ECS::UnusedTag|

@@ -3,8 +3,6 @@
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/ECS/tags.hpp>
-#include <flexnet/util/lock_with_check.hpp>
-#include <flexnet/util/periodic_validate_until.hpp>
 
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
@@ -19,6 +17,9 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
 
+#include <basis/checked_optional.hpp>
+#include <basis/lock_with_check.hpp>
+#include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/asio_registry.hpp>
@@ -63,7 +64,8 @@ class ExampleServer
 
   ~ExampleServer();
 
-  void runLoop() NO_EXCEPTION;
+  void runLoop() NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
  private:
   // Loads configurations,
@@ -71,7 +73,9 @@ class ExampleServer
   void prepareBeforeRunLoop() NO_EXCEPTION
     RUN_ON(&sequence_checker_);
 
-  void updateConsoleTerminal() NO_EXCEPTION;
+  // reads line from console terminal
+  void updateConsoleTerminal() NO_EXCEPTION
+    RUN_ON(periodicConsoleTaskRunner_.get());
 
   /// \note creates ECS entity used as `asio connection`,
   /// sets common components and performs checks
@@ -87,38 +91,46 @@ class ExampleServer
   MUST_USE_RETURN_VALUE
   ECS::Entity allocateTcpEntity() NO_EXCEPTION;
 
-  void updateAsioRegistry() NO_EXCEPTION RUN_ON_ANY_THREAD(updateAsioRegistry);
+  void scheduleAsioRegistryUpdate() NO_EXCEPTION
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_scheduleAsioRegistryUpdate);
 
   MUST_USE_RETURN_VALUE
-  StatusPromise stopAcceptors() NO_EXCEPTION;
+  StatusPromise stopAcceptors() NO_EXCEPTION
+    RUN_ON(&sequence_checker_);
 
   MUST_USE_RETURN_VALUE
-  VoidPromise configureAndRunAcceptor() NO_EXCEPTION;
+  VoidPromise configureAndRunAcceptor() NO_EXCEPTION
+    RUN_ON(&sequence_checker_);
 
   // Call during server termination.
   /// \note make sure connections recieved `stop` message
   /// and acceptors stopped
   /// i.e. do not allocate new connections
   MUST_USE_RETURN_VALUE
-  VoidPromise promiseNetworkResourcesFreed() NO_EXCEPTION;
+  VoidPromise promiseNetworkResourcesFreed() NO_EXCEPTION
+    RUN_ON(&sequence_checker_);
 
   // send async-close for each connection
   // (used on app termination)
-  void closeNetworkResources() NO_EXCEPTION;
+  void closeNetworkResources() NO_EXCEPTION
+    RUN_ON(periodicValidateUntil_.taskRunner().get());
 
   void validateAndFreeNetworkResources(
-    base::RepeatingClosure resolveCallback) NO_EXCEPTION;
+    base::RepeatingClosure resolveCallback) NO_EXCEPTION
+    RUN_ON(periodicValidateUntil_.taskRunner().get());
 
-  void stopIOContext() NO_EXCEPTION;
+  void stopIOContext() NO_EXCEPTION
+    RUN_ON(&sequence_checker_);
 
-  void hangleQuitSignal();
+  void hangleQuitSignal()
+    RUN_ON(&sequence_checker_);
 
  private:
   // The io_context is required for all I/O
   boost::asio::io_context ioc_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(ioc_);
+    SET_CUSTOM_THREAD_GUARD(guard_ioc_);
 
   const EndpointType tcpEndpoint_
     GUARDED_BY(sequence_checker_);
@@ -128,12 +140,12 @@ class ExampleServer
   //   {::boost::asio::ssl::context::tlsv12}
   //   // It safe to read value from any thread because its storage
   //   // expected to be not modified (if properly initialized)
-  //   SET_CUSTOM_THREAD_GUARD(mainLoopRunner_);
+  //   SET_CUSTOM_THREAD_GUARD(guard_mainLoopRunner_);
 
   ECS::AsioRegistry asioRegistry_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(asioRegistry_);
+    SET_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
 
   ws::Listener listener_
     GUARDED_BY(sequence_checker_);
@@ -152,7 +164,7 @@ class ExampleServer
     mainLoopRunner_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(mainLoopRunner_);
+    SET_CUSTOM_THREAD_GUARD(guard_mainLoopRunner_);
 
   /// \todo custom thread message pump
   base::Thread asio_thread_1
@@ -174,17 +186,18 @@ class ExampleServer
     periodicAsioTaskRunner_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
+    SET_CUSTOM_THREAD_GUARD(guard_periodicAsioTaskRunner_);
 
   scoped_refptr<base::SequencedTaskRunner>
     periodicConsoleTaskRunner_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(periodicConsoleTaskRunner_);
+    SET_CUSTOM_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
 
   basis::PeriodicValidateUntil periodicValidateUntil_{};
 
-  CREATE_CUSTOM_THREAD_GUARD(updateAsioRegistry);
+  /// \note scheduleAsioRegistryUpdate is not thread-safe
+  CREATE_CUSTOM_THREAD_GUARD(fn_scheduleAsioRegistryUpdate);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

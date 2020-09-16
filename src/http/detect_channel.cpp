@@ -55,7 +55,7 @@ DetectChannel::DetectChannel(
 
 DetectChannel::~DetectChannel()
 {
-  DCHECK_RUN_ON_ANY_THREAD(DetectChannelDestructor);
+  DCHECK_RUN_ON_ANY_THREAD(fn_DetectChannelDestructor);
 
   LOG_CALL(DVLOG(99));
 }
@@ -65,7 +65,7 @@ void DetectChannel::configureDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(stream_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_stream_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -93,11 +93,11 @@ void DetectChannel::runDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD(stream_);
-  DCHECK_CUSTOM_THREAD_GUARD(buffer_);
-  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(is_buffer_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_stream_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_buffer_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_is_buffer_valid_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -216,12 +216,12 @@ void DetectChannel::onDetected(
 
   DCHECK(isDetectingInThisThread());
 
-  DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(is_buffer_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(stream_);
-  DCHECK_CUSTOM_THREAD_GUARD(buffer_);
-  DCHECK_CUSTOM_THREAD_GUARD(atomicDetectDoneFlag_);
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_is_buffer_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_stream_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_buffer_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_atomicDetectDoneFlag_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
 
   DCHECK(is_stream_valid_.load());
   DCHECK(is_buffer_valid_.load());
@@ -249,7 +249,7 @@ void DetectChannel::onDetected(
 
   // mark SSL detection completed
   ::boost::asio::post(
-    asioRegistry_->strand()
+    asioRegistry_->asioStrand()
     /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler([
       ](
@@ -287,8 +287,8 @@ void DetectChannel::setSSLDetectResult(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(entity_id_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_entity_id_);
 
   DCHECK(asioRegistry_->running_in_this_thread());
 

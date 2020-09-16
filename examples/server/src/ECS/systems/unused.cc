@@ -10,7 +10,7 @@ namespace ECS {
 void updateUnusedSystem(
   ECS::AsioRegistry& asio_registry)
 {
-  DCHECK(asio_registry.running_in_this_thread());
+  DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
 
   auto registry_group
     = asio_registry->view<ECS::UnusedTag>(

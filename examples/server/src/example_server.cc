@@ -14,9 +14,6 @@
 #include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
 #include <flexnet/ECS/components/close_socket.hpp>
-#include <flexnet/util/lock_with_check.hpp>
-#include <flexnet/util/periodic_validate_until.hpp>
-#include <flexnet/util/scoped_sequence_context_var.hpp>
 
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
@@ -50,6 +47,9 @@
 #include <base/trace_event/process_memory_dump.h>
 #include <base/trace_event/trace_event.h>
 
+#include <basis/lock_with_check.hpp>
+#include <basis/task/periodic_validate_until.hpp>
+#include <basis/scoped_sequence_context_var.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/asio_registry.hpp>
@@ -145,7 +145,7 @@ ExampleServer::ExampleServer(
         LOG(INFO)
           << "got stop signal";
         {
-          DCHECK_CUSTOM_THREAD_GUARD(mainLoopRunner_);
+          DCHECK_CUSTOM_THREAD_GUARD(guard_mainLoopRunner_);
           DCHECK(mainLoopRunner_);
           (mainLoopRunner_)->PostTask(FROM_HERE
             , base::BindRepeating(
@@ -168,7 +168,7 @@ ECS::Entity ExampleServer::allocateTcpEntity() NO_EXCEPTION
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
 
   DCHECK(asioRegistry_.running_in_this_thread());
 
@@ -435,9 +435,9 @@ void ExampleServer::hangleQuitSignal()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_RUN_ON(&sequence_checker_);
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  DCHECK_CUSTOM_THREAD_GUARD(mainLoopRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_mainLoopRunner_);
 
   // stop accepting of new connections
   base::PostPromise(FROM_HERE
@@ -526,7 +526,7 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_RUN_ON(&sequence_checker_);
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   return base::Promises::All(FROM_HERE
     /// \todo add more acceptors
@@ -535,10 +535,10 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors() NO_EXCEPTION
 
 void ExampleServer::updateConsoleTerminal() NO_EXCEPTION
 {
-  DCHECK_CUSTOM_THREAD_GUARD(periodicConsoleTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
 
-  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicConsoleTaskRunner_.get());
+  DCHECK(periodicConsoleTaskRunner_->RunsTasksInCurrentSequence());
 
   if(ioc_.stopped()) // io_context::stopped is thread-safe
   {
@@ -572,7 +572,7 @@ void ExampleServer::updateConsoleTerminal() NO_EXCEPTION
     DVLOG(99)
       << "got `stop` console command";
 
-    DCHECK_CUSTOM_THREAD_GUARD(mainLoopRunner_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_mainLoopRunner_);
     DCHECK(mainLoopRunner_);
     (mainLoopRunner_)->PostTask(FROM_HERE
       , base::BindRepeating(
@@ -581,11 +581,13 @@ void ExampleServer::updateConsoleTerminal() NO_EXCEPTION
   }
 }
 
-void ExampleServer::updateAsioRegistry() NO_EXCEPTION
+void ExampleServer::scheduleAsioRegistryUpdate() NO_EXCEPTION
 {
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_periodicAsioTaskRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
+
+  DCHECK_RUN_ON_ANY_THREAD(fn_scheduleAsioRegistryUpdate);
 
   DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
 
@@ -597,15 +599,18 @@ void ExampleServer::updateAsioRegistry() NO_EXCEPTION
       << "skipping update of registry"
          " because of stopped io context";
 
-    DCHECK(asioRegistry_.registry_unsafe(FROM_HERE
-      , "we can access empty (unused) registry"
-        " from any thread when ioc stopped").empty());
+    {
+      /// \note (thread-safety) access when ioc->stopped
+      /// i.e. assume no running asio threads that use |asioRegistry_|
+      DCHECK_RUN_ON_ANY_THREAD(asioRegistry_.fn_registry);
+      DCHECK(asioRegistry_.registry().empty());
+    }
 
     return;
   }
 
   ::boost::asio::post(
-    asioRegistry_.strand()
+    asioRegistry_.asioStrand()
     /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler([
       ](
@@ -639,9 +644,9 @@ void ExampleServer::runLoop() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(periodicAsioTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD(periodicConsoleTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_periodicAsioTaskRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
 
   DCHECK_RUN_ON(&sequence_checker_);
 
@@ -889,8 +894,8 @@ void ExampleServer::runLoop() NO_EXCEPTION
         = scopedSequencedAsioExecutor.emplace_async(FROM_HERE
               , "PeriodicAsioExecutor" // debug name
               , base::BindRepeating(
-                  /// \note updateAsioRegistry is not thread-safe
-                  &ExampleServer::updateAsioRegistry
+                  /// \note scheduleAsioRegistryUpdate is not thread-safe
+                  &ExampleServer::scheduleAsioRegistryUpdate
                   , base::Unretained(this))
         )
       .ThenOn(periodicAsioTaskRunner_
@@ -1045,7 +1050,7 @@ static void executeAndEmplace(
       (const auto& entity
        , const auto& component)
     {
-      taskCb.Run(entity, asioRegistry.registry());
+      taskCb.Run(entity, (*asioRegistry));
     });
 
   asioRegistry->insert<ComponentType>(
@@ -1072,8 +1077,8 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -1083,7 +1088,7 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
 
   // redirect task to strand
   ::boost::asio::post(
-    asioRegistry_.strand()
+    asioRegistry_.asioStrand()
     , std::bind(
       []
       (
@@ -1183,8 +1188,8 @@ void ExampleServer::validateAndFreeNetworkResources(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -1205,7 +1210,7 @@ void ExampleServer::validateAndFreeNetworkResources(
 
   // redirect task to strand
   ::boost::asio::post(
-    asioRegistry_.strand()
+    asioRegistry_.asioStrand()
     , std::bind(
       []
       (
@@ -1239,10 +1244,10 @@ ExampleServer::VoidPromise
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
 
-  DCHECK_RUN_ON(&sequence_checker_);
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   /// \note you can not use `::boost::asio::post`
   /// if `ioc_->stopped()`
@@ -1250,7 +1255,7 @@ ExampleServer::VoidPromise
 
   // Will check periodically if `asioRegistry->empty()` and if true,
   // than promise will be resolved.
-  // Periodic task will be redirected to `asio_registry.strand()`.
+  // Periodic task will be redirected to `asio_registry.asioStrand()`.
   basis::PeriodicValidateUntil::ValidationTaskType validationTask
     = base::BindRepeating(
         &ExampleServer::validateAndFreeNetworkResources
@@ -1287,9 +1292,9 @@ ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(mainLoopRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_mainLoopRunner_);
 
-  DCHECK_RUN_ON(&sequence_checker_);
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   return listener_.configureAndRun()
   .ThenOn(mainLoopRunner_
@@ -1308,9 +1313,9 @@ void ExampleServer::stopIOContext() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
 
-  DCHECK_RUN_ON(&sequence_checker_);
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   {
     // Stop the io_context. This will cause run()
@@ -1325,7 +1330,7 @@ ExampleServer::~ExampleServer()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
 
   DCHECK_RUN_ON(&sequence_checker_);
 

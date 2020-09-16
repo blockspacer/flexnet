@@ -1,9 +1,5 @@
 #pragma once
 
-#include "flexnet/util/checked_optional.hpp"
-#include "flexnet/util/unsafe_state_machine.hpp"
-#include "flexnet/util/lock_with_check.hpp"
-
 #include <basis/ECS/asio_registry.hpp>
 #include <basis/bitmask.h>
 
@@ -14,6 +10,9 @@
 #include <base/memory/weak_ptr.h>
 #include <base/sequence_checker.h>
 
+#include <basis/checked_optional.hpp>
+#include <basis/state_machine/unsafe_state_machine.hpp>
+#include <basis/lock_with_check.hpp>
 #include <basis/promise/promise.h>
 #include <basis/promise/post_promise.h>
 #include <basis/status/status.hpp>
@@ -225,8 +224,8 @@ public:
     , CallbackT&& task
     , bool nestedPromise = false)
   {
-    DCHECK_CUSTOM_THREAD_GUARD(acceptorStrand_);
-    DCHECK_CUSTOM_THREAD_GUARD(ioc_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_acceptorStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
 
     // unable to `::boost::asio::post` on stopped ioc
     DCHECK(!ioc_->stopped());
@@ -262,7 +261,7 @@ public:
   MUST_USE_RETURN_VALUE
   base::WeakPtr<Listener> weakSelf() const NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD(weak_this_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_weak_this_);
 
     // It is thread-safe to copy |base::WeakPtr|.
     // Weak pointers may be passed safely between sequences, but must always be
@@ -292,20 +291,22 @@ private:
     util::UnownedPtr<StrandType> unownedPerConnectionStrand
     , ECS::Entity tcp_entity_id);
 
-  void allocateTcpResourceAndAccept();
+  void allocateTcpResourceAndAccept()
+    RUN_ON(&asioRegistry_->strand);
 
   // store result of |acceptor_.async_accept(...)|
   // in `per-connection entity`
   void setAcceptConnectionResult(
-     // `per-connection entity`
-      ECS::Entity tcp_entity_id
-      , ErrorCode&& ec
-      , SocketType&& socket);
+    // `per-connection entity`
+    ECS::Entity tcp_entity_id
+    , ErrorCode&& ec
+    , SocketType&& socket)
+    RUN_ON(&asioRegistry_->strand);
 
   // Report a failure
   /// \note not thread-safe, so keep it for logging purposes only
-  void logFailure(
-    const ErrorCode& ec, char const* what) RUN_ON_ANY_THREAD(logFailure);
+  void logFailure(const ErrorCode& ec, char const* what)
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_logFailure);
 
   MUST_USE_RETURN_VALUE
     ::util::Status configureAcceptor();
@@ -372,7 +373,7 @@ private:
   const util::UnownedRef<IoContext> ioc_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(ioc_);
+    SET_CUSTOM_THREAD_GUARD(guard_ioc_);
 
   // acceptor will listen that address
   const EndpointType endpoint_
@@ -382,7 +383,7 @@ private:
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(asioRegistry_);
+    SET_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
 
   // base::WeakPtr can be used to ensure that any callback bound
   // to an object is canceled when that object is destroyed
@@ -400,7 +401,7 @@ private:
   const base::WeakPtr<Listener> weak_this_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(weak_this_);
+    SET_CUSTOM_THREAD_GUARD(guard_weak_this_);
 
   // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
@@ -408,7 +409,7 @@ private:
   /// has scheduled or execting tasks.
   const basis::AnnotatedStrand<ExecutorType> acceptorStrand_
     SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
-      acceptorStrand_
+      guard_acceptorStrand_
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
       // 2. On each access to strand check that ioc not stopped
@@ -454,7 +455,7 @@ private:
 
   EntityAllocatorCb entityAllocator_;
 
-  CREATE_CUSTOM_THREAD_GUARD(logFailure);
+  CREATE_CUSTOM_THREAD_GUARD(fn_logFailure);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

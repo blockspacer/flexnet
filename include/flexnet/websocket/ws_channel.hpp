@@ -1,8 +1,6 @@
 #pragma once
 
-#include "flexnet/util/checked_optional.hpp"
 #include "flexnet/util/limited_tcp_stream.hpp"
-#include "flexnet/util/lock_with_check.hpp"
 
 #include <base/callback.h>
 #include <base/macros.h>
@@ -13,6 +11,8 @@
 #include <base/synchronization/atomic_flag.h>
 #include <base/threading/thread_collision_warner.h>
 
+#include <basis/checked_optional.hpp>
+#include <basis/lock_with_check.hpp>
 #include <basis/ECS/asio_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/status/statusor.hpp>
@@ -175,7 +175,8 @@ public:
     WsChannel&& other) = delete;
 
   /// \note can destruct on any thread
-  ~WsChannel();
+  ~WsChannel()
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_WsChannelDestructor);
 
   // Start the asynchronous operation
   template<class Body, class Allocator>
@@ -183,10 +184,11 @@ public:
     // Clients sends the HTTP request
     // asking for a WebSocket connection
     UpgradeRequestType<Body, Allocator>&& req)
+    RUN_ON(&perConnectionStrand_)
   {
-    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
 
-    DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
+    DCHECK(perConnectionStrand_->running_in_this_thread());
 
     // Accept the websocket handshake
     ws_.async_accept(
@@ -224,7 +226,7 @@ public:
     // asking for a WebSocket connection
     UpgradeRequestType<Body, Allocator>&& req)
   {
-    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
 
     ::boost::asio::post(
       *perConnectionStrand_
@@ -254,12 +256,15 @@ public:
     );
   }
 
-  void doRead();
+  void doRead()
+    RUN_ON(&perConnectionStrand_);
 
-  void onClose(ErrorCode ec);
+  void onClose(ErrorCode ec)
+    RUN_ON(&perConnectionStrand_);
 
   MUST_USE_RETURN_VALUE
-  bool isOpen();
+  bool isOpen()
+    RUN_ON(&perConnectionStrand_);
 
 #if 0
   /**
@@ -287,7 +292,7 @@ public:
   MUST_USE_RETURN_VALUE
   bool isStreamValid() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD(is_stream_valid_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
     return is_stream_valid_.load();
   }
 #endif // 0
@@ -299,7 +304,7 @@ public:
     , CallbackT&& task
     , bool nestedPromise = false)
   {
-    DCHECK_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
 
     return base::PostPromiseOnAsioExecutor(
       from_here
@@ -310,7 +315,8 @@ public:
   }
 
   // calls `ws_.socket().shutdown`
-  void doEof();
+  void doEof()
+    RUN_ON(&perConnectionStrand_);
 
   /// \note returns COPY because of thread safety reasons:
   /// `entity_id_` assumed to be NOT changed,
@@ -319,14 +325,14 @@ public:
   MUST_USE_RETURN_VALUE
   ECS::Entity entityId() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD(entity_id_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_entity_id_);
     return entity_id_;
   }
 
   MUST_USE_RETURN_VALUE
   base::WeakPtr<WsChannel> weakSelf() const NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD(weak_this_);
+    DCHECK_CUSTOM_THREAD_GUARD(guard_weak_this_);
 
     // It is thread-safe to copy |base::WeakPtr|.
     // Weak pointers may be passed safely between sequences, but must always be
@@ -336,12 +342,11 @@ public:
   }
 
 private:
-  void onAccept(
-    ErrorCode ec);
+  void onAccept(ErrorCode ec)
+    RUN_ON(&perConnectionStrand_);
 
-  void onRead(
-    ErrorCode ec
-    , std::size_t bytes_transferred);
+  void onRead(ErrorCode ec, std::size_t bytes_transferred)
+    RUN_ON(&perConnectionStrand_);
 
 #if 0
 
@@ -358,7 +363,8 @@ private:
 
   void onFail(
     ErrorCode ec
-    , char const* what);
+    , char const* what)
+    RUN_ON(&perConnectionStrand_);
 
 private:
 
@@ -381,7 +387,7 @@ private:
 
   // |stream_| and calls to |async_*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
-    SET_CUSTOM_THREAD_GUARD(perConnectionStrand_);
+    SET_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
 
   // The dynamic buffer to store recieved data
   MessageBufferType buffer_
@@ -403,20 +409,20 @@ private:
   const base::WeakPtr<WsChannel> weak_this_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(weak_this_);
+    SET_CUSTOM_THREAD_GUARD(guard_weak_this_);
 
   // used by |entity_id_|
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(asioRegistry_);
+    SET_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
     // It safe to read value from any thread because its storage
     // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(entity_id_);
+    SET_CUSTOM_THREAD_GUARD(guard_entity_id_);
 
   /// \todo SSL support
   /// ::boost::asio::ssl::context
@@ -432,7 +438,7 @@ private:
   SEQUENCE_CHECKER(sequence_checker_);
 
   /// \note can destruct on any thread
-  CREATE_CUSTOM_THREAD_GUARD(WsChannelDestructor);
+  CREATE_CUSTOM_THREAD_GUARD(fn_WsChannelDestructor);
 
   DISALLOW_COPY_AND_ASSIGN(WsChannel);
 };

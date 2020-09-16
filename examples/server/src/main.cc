@@ -9,8 +9,6 @@
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/ECS/tags.hpp>
-#include <flexnet/util/lock_with_check.hpp>
-#include <flexnet/util/periodic_validate_until.hpp>
 
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
@@ -25,6 +23,8 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
 
+#include <basis/lock_with_check.hpp>
+#include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/asio_registry.hpp>
@@ -68,6 +68,9 @@ int main(int argc, char* argv[])
 
   /// \todo custom config manager
   /// ConfigManager configManager;
+
+  /// \todo custom plugin manager
+  /// PluginManager pluginManager;
 
   ExampleServer exampleServer;
 

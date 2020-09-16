@@ -20,7 +20,7 @@ void handleClosingSocket(
 {
   using namespace ::flexnet::ws;
 
-  DCHECK(asio_registry.running_in_this_thread());
+  DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
 
   ECS::TcpConnection& tcpComponent
     = asio_registry->get<ECS::TcpConnection>(entity_id);
@@ -128,7 +128,7 @@ void handleClosingSocket(
 
           // Schedule change on registry thread
           ::boost::asio::post(
-            asio_registry.strand()
+            asio_registry.asioStrand()
             /// \todo use base::BindFrontWrapper
             , ::boost::beast::bind_front_handler([
               ](
@@ -171,7 +171,7 @@ void updateClosingSockets(
   using view_component
     = ECS::CloseSocket;
 
-  DCHECK(asio_registry.running_in_this_thread());
+  DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
 
   // Avoid extra allocations
   // with memory pool in ECS style using |ECS::UnusedTag|
