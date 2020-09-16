@@ -59,16 +59,16 @@ WsChannel::WsChannel(
   StreamType&& stream
   , ECS::AsioRegistry& asioRegistry
   , const ECS::Entity entity_id)
-  : ws_(base::rvalue_cast(COPY_ON_MOVE(stream)))
+  : ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_ptr_factory_(COPIED(this)))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(weak_ptr_factory_.GetWeakPtr()))
+  , ws_(base::rvalue_cast(COPY_ON_MOVE(stream)))
   , isSendBusy_(false)
   , perConnectionStrand_(
       /// \note `get_executor` returns copy
       ws_.get_executor())
   , buffer_{}
-  , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_ptr_factory_(COPIED(this)))
-  , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_this_(weak_ptr_factory_.GetWeakPtr()))
   , asioRegistry_(REFERENCED(asioRegistry))
   , entity_id_(entity_id)
 {
@@ -160,7 +160,7 @@ WsChannel::WsChannel(
 
 WsChannel::~WsChannel()
 {
-  DCHECK_RUN_ON_ANY_THREAD(fn_WsChannelDestructor);
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(fn_WsChannelDestructor);
 
   LOG_CALL(DVLOG(99));
 
@@ -175,7 +175,7 @@ void WsChannel::onFail(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -238,7 +238,7 @@ void WsChannel::onAccept(ErrorCode ec)
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -256,7 +256,7 @@ void WsChannel::doRead()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -285,7 +285,7 @@ void WsChannel::onClose(ErrorCode ec)
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -303,8 +303,8 @@ void WsChannel::doEof()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -343,9 +343,9 @@ void WsChannel::doEof()
   {
     LOG_CALL(DVLOG(99));
 
-    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
-    DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
-    DCHECK_CUSTOM_THREAD_GUARD(guard_entity_id_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_entity_id_);
 
     DCHECK(asioRegistry_->running_in_this_thread());
 
@@ -375,7 +375,7 @@ void WsChannel::onRead(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -424,7 +424,7 @@ bool WsChannel::isOpen()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 

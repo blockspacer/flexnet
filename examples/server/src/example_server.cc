@@ -73,6 +73,7 @@
 
 namespace {
 
+// USAGE: ./appexe --enable-features=console_terminal,other1,other2
 constexpr char kFeatureConsoleTerminalName[]
   = "console_terminal";
 
@@ -81,15 +82,242 @@ const base::Feature kFeatureConsoleTerminal {
 };
 
 #if DCHECK_IS_ON()
-// must match type of `entt::type_info<SomeType>::id()`
+// Must match type of `entt::type_info<SomeType>::id()`
 using entt_type_info_id_type
   = std::uint32_t;
 
+// Used to prohibit unknown types of components.
 struct DebugComponentIdWithName {
   std::string debugName;
   entt_type_info_id_type id;
 };
 #endif // DCHECK_IS_ON()
+
+class ConsoleInputUpdater
+{
+ public:
+  using HandleConsoleInputCb
+    = base::RepeatingCallback<void(const std::string&)>;
+
+  ConsoleInputUpdater(
+    scoped_refptr<base::SequencedTaskRunner>& periodicConsoleTaskRunner
+    , boost::asio::io_context& ioc
+    , scoped_refptr<base::SingleThreadTaskRunner>& mainLoopRunner
+    , HandleConsoleInputCb&& consoleInputCb);
+
+  ~ConsoleInputUpdater();
+
+  void update() NO_EXCEPTION;
+
+  MUST_USE_RETURN_VALUE
+  basis::PeriodicTaskExecutor& periodicTaskExecutor() NO_EXCEPTION
+  {
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicTaskExecutor_);
+    return periodicTaskExecutor_;
+  }
+
+  SET_WEAK_SELF(ConsoleInputUpdater)
+
+ private:
+  SET_WEAK_POINTERS(ConsoleInputUpdater);
+
+  // Task sequence used to update text input from console terminal.
+  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
+    SET_STORAGE_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
+
+  // The io_context is required for all I/O
+  boost::asio::io_context& ioc_
+    SET_STORAGE_THREAD_GUARD(guard_ioc_);
+
+  // Same as `base::MessageLoop::current()->task_runner()`
+  // during class construction
+  scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
+    SET_STORAGE_THREAD_GUARD(guard_mainLoopRunner_);
+
+  HandleConsoleInputCb consoleInputCb_
+    SET_STORAGE_THREAD_GUARD(guard_consoleInputCb_);
+
+  /// \note will stop periodic timer on scope exit
+  basis::PeriodicTaskExecutor periodicTaskExecutor_
+    SET_STORAGE_THREAD_GUARD(guard_periodicTaskExecutor_);
+
+  SEQUENCE_CHECKER(sequence_checker_);
+
+  DISALLOW_COPY_AND_ASSIGN(ConsoleInputUpdater);
+};
+
+ConsoleInputUpdater::ConsoleInputUpdater(
+  scoped_refptr<base::SequencedTaskRunner>& periodicConsoleTaskRunner
+  , boost::asio::io_context& ioc
+  , scoped_refptr<base::SingleThreadTaskRunner>& mainLoopRunner
+  , HandleConsoleInputCb&& consoleInputCb)
+  : ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_ptr_factory_(COPIED(this)))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(
+        weak_ptr_factory_.GetWeakPtr()))
+  , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
+  , ioc_(ioc)
+  , mainLoopRunner_(mainLoopRunner)
+  , consoleInputCb_(base::rvalue_cast(consoleInputCb))
+  , periodicTaskExecutor_(
+      base::BindRepeating(
+        &ConsoleInputUpdater::update
+        /// \note callback may be canceled
+        , weakSelf()
+      )
+    )
+{
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+}
+
+ConsoleInputUpdater::~ConsoleInputUpdater()
+{
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
+
+void ConsoleInputUpdater::update() NO_EXCEPTION
+{
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicConsoleTaskRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_consoleInputCb_);
+
+  DCHECK(periodicConsoleTaskRunner_->RunsTasksInCurrentSequence());
+
+  if(ioc_.stopped()) // io_context::stopped is thread-safe
+  {
+    LOG(WARNING)
+      << "skipping update of console terminal"
+         " because of stopped io context";
+
+    return;
+  }
+
+  std::string line;
+
+  /// \todo getline blocks without timeout, so add timeout like in
+  /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
+  /// or stackoverflow.com/a/34994150
+  /// i.e. use STDIN_FILENO and poll in Linux
+  /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
+  /// or need the GetStdHandle function to obtain a handle
+  /// to the console, then you can use WaitForSingleObject
+  /// to wait for an event to happen on that handle, with a timeout
+  /// see stackoverflow.com/a/21749034
+  /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
+  std::getline(std::cin, line);
+
+  DVLOG(99)
+    << "console input: "
+    << line;
+
+  DCHECK(consoleInputCb_);
+  consoleInputCb_.Run(line);
+}
+
+class SequenceBoundConsoleTerminal
+{
+ public:
+  using VoidPromise
+    = base::Promise<void, base::NoReject>;
+
+  SequenceBoundConsoleTerminal(
+    scoped_refptr<base::SequencedTaskRunner>& periodicConsoleTaskRunner)
+    : ALLOW_THIS_IN_INITIALIZER_LIST(
+        weak_ptr_factory_(COPIED(this)))
+    , ALLOW_THIS_IN_INITIALIZER_LIST(
+        weak_this_(
+          weak_ptr_factory_.GetWeakPtr()))
+    , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
+    , scopedSequencedConsoleExecutor_(
+        periodicConsoleTaskRunner
+      )
+  {
+    DETACH_FROM_SEQUENCE(sequence_checker_);
+  }
+
+  /// \note API is asyncronous, so you must check
+  /// if `destructScopedSequenceCtxVar` finished
+  VoidPromise promiseDeletion()
+  {
+    LOG_CALL(DVLOG(99));
+
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_scopedSequencedConsoleExecutor_);
+
+    return scopedSequencedConsoleExecutor_.promiseDeletion();
+  }
+
+  ~SequenceBoundConsoleTerminal()
+  {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  }
+
+  template <class... Args>
+  void wait_emplace(
+    const base::Location& from_here
+    , const std::string& debug_name
+    , Args&&... args) NO_EXCEPTION
+  {
+    LOG_CALL(DVLOG(99));
+
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicConsoleTaskRunner_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_scopedSequencedConsoleExecutor_);
+
+    {
+      VoidPromise emplaceDonePromise
+        = scopedSequencedConsoleExecutor_.emplace_async(from_here
+            , debug_name
+            , std::forward<Args>(args)...
+        )
+      .ThenOn(periodicConsoleTaskRunner_
+        , FROM_HERE
+        , base::BindOnce(
+          []
+          (
+            scoped_refptr<base::SequencedTaskRunner> periodicRunner
+            , ConsoleInputUpdater* consoleUpdater
+          ){
+            LOG_CALL(DVLOG(99));
+
+            if(!base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
+            {
+              DVLOG(99)
+                << "console terminal not enabled";
+              return;
+            }
+
+            /// \todo make period configurable
+            consoleUpdater->periodicTaskExecutor().startPeriodicTimer(
+              base::TimeDelta::FromMilliseconds(100));
+
+            DCHECK(periodicRunner->RunsTasksInCurrentSequence());
+          }
+          , periodicConsoleTaskRunner_
+        )
+      );
+      /// \note Will block current thread for unspecified time.
+      base::waitForPromiseResolve(FROM_HERE, emplaceDonePromise);
+    }
+  }
+
+ private:
+  SET_WEAK_POINTERS(SequenceBoundConsoleTerminal);
+
+  // Task sequence used to update text input from console terminal.
+  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
+    SET_STORAGE_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
+
+  /// \note Will free stored variable on scope exit.
+  // Use UNIQUE type to store in sequence-local-context
+  /// \note initialized, used and destroyed
+  /// on `TaskRunner` sequence-local-context
+  basis::ScopedSequenceCtxVar<ConsoleInputUpdater> scopedSequencedConsoleExecutor_
+    SET_STORAGE_THREAD_GUARD(guard_scopedSequencedConsoleExecutor_);
+
+  SEQUENCE_CHECKER(sequence_checker_);
+
+  DISALLOW_COPY_AND_ASSIGN(SequenceBoundConsoleTerminal);
+};
 
 } // namespace
 
@@ -103,16 +331,17 @@ CREATE_ECS_TAG(ClosingWebsocket)
 namespace backend {
 
 ExampleServer::ExampleServer(
-  const std::string& ip_addr
-  , const unsigned short port_num)
+  ServerStartOptions startOptions)
   : tcpEndpoint_{
-      ::boost::asio::ip::make_address(ip_addr)
-      , port_num}
+      ::boost::asio::ip::make_address(startOptions.ip_addr)
+      , startOptions.port_num}
     , asioRegistry_{REFERENCED(ioc_)}
     , listener_{
         ioc_
         , EndpointType{tcpEndpoint_}
         , REFERENCED(asioRegistry_)
+        // Callback will be called per each connected client
+        // to create ECS entity
         , base::BindRepeating(
             &ExampleServer::allocateTcpEntity
             , base::Unretained(this)
@@ -144,12 +373,13 @@ ExampleServer::ExampleServer(
 
         LOG(INFO)
           << "got stop signal";
+
         {
-          DCHECK_CUSTOM_THREAD_GUARD(guard_mainLoopRunner_);
+          DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
           DCHECK(mainLoopRunner_);
           (mainLoopRunner_)->PostTask(FROM_HERE
             , base::BindRepeating(
-                &ExampleServer::hangleQuitSignal
+                &ExampleServer::doQuit
                 , base::Unretained(this)));
         }
       };
@@ -168,9 +398,9 @@ ECS::Entity ExampleServer::allocateTcpEntity() NO_EXCEPTION
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
 
-  DCHECK(asioRegistry_.running_in_this_thread());
+  DCHECK_RUN_ON_STRAND(&asioRegistry_.strand, ECS::AsioRegistry::ExecutorType);
 
   // Avoid extra allocations
   // with memory pool in ECS style using |ECS::UnusedTag|
@@ -200,8 +430,6 @@ ECS::Entity ExampleServer::allocateTcpEntity() NO_EXCEPTION
       << "allocating new network entity";
     DCHECK(asioRegistry_->valid(tcp_entity_id));
   } else { // if from `cache`
-    usedCache = true;
-
     // reuse any unused entity (if found)
     for(const ECS::Entity& entity_id : registry_group)
     {
@@ -216,7 +444,9 @@ ECS::Entity ExampleServer::allocateTcpEntity() NO_EXCEPTION
 
     /// \note may not find valid entities,
     /// so checks for `ECS::NULL_ENTITY` using `registry.valid`
-    if(asioRegistry_->valid(tcp_entity_id)) {
+    if(asioRegistry_->valid(tcp_entity_id))
+    {
+      usedCache = true;
       asioRegistry_->remove<ECS::UnusedTag>(tcp_entity_id);
       DVLOG(99)
         << "using preallocated network entity with id: "
@@ -431,13 +661,13 @@ ECS::Entity ExampleServer::allocateTcpEntity() NO_EXCEPTION
   return tcp_entity_id;
 }
 
-void ExampleServer::hangleQuitSignal()
+void ExampleServer::doQuit()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_RUN_ON(&sequence_checker_);
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_mainLoopRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
 
   // stop accepting of new connections
   base::PostPromise(FROM_HERE
@@ -474,17 +704,6 @@ void ExampleServer::hangleQuitSignal()
     )
     , /*nestedPromise*/ true
   )
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-      []
-      ()
-      {
-        LOG(INFO)
-          << "stopping io context";
-      }
-    )
-  )
   // stop io context
   /// \note you can not use `::boost::asio::post`
   /// if `ioc_->stopped()`
@@ -496,7 +715,7 @@ void ExampleServer::hangleQuitSignal()
         , base::Unretained(this)
     )
   )
-  /// \todo use |SequenceLocalContext|
+  /// \todo use |SequenceLocalContext| to store ECS::SimulationRegistry
 #if 0
   .ThenOn(mainLoopRunner_
     , FROM_HERE
@@ -529,65 +748,17 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors() NO_EXCEPTION
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   return base::Promises::All(FROM_HERE
-    /// \todo add more acceptors
+    /// \todo add more acceptors, like WebRTC
     , listener_.stopAcceptorAsync());
-}
-
-void ExampleServer::updateConsoleTerminal() NO_EXCEPTION
-{
-  DCHECK_CUSTOM_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
-
-  DCHECK(periodicConsoleTaskRunner_->RunsTasksInCurrentSequence());
-
-  if(ioc_.stopped()) // io_context::stopped is thread-safe
-  {
-    LOG(WARNING)
-      << "skipping update of console terminal"
-         " because of stopped io context";
-
-    return;
-  }
-
-  std::string line;
-
-  /// \todo getline blocks without timeout, so add timeout like in
-  /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
-  /// or stackoverflow.com/a/34994150
-  /// i.e. use STDIN_FILENO and poll in Linux
-  /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
-  /// or need the GetStdHandle function to obtain a handle
-  /// to the console, then you can use WaitForSingleObject
-  /// to wait for an event to happen on that handle, with a timeout
-  /// see stackoverflow.com/a/21749034
-  /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
-  std::getline(std::cin, line);
-
-  DVLOG(99)
-    << "console input: "
-    << line;
-
-  if (line == "stop")
-  {
-    DVLOG(99)
-      << "got `stop` console command";
-
-    DCHECK_CUSTOM_THREAD_GUARD(guard_mainLoopRunner_);
-    DCHECK(mainLoopRunner_);
-    (mainLoopRunner_)->PostTask(FROM_HERE
-      , base::BindRepeating(
-          &ExampleServer::hangleQuitSignal
-          , base::Unretained(this)));
-  }
 }
 
 void ExampleServer::scheduleAsioRegistryUpdate() NO_EXCEPTION
 {
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_periodicAsioTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicAsioTaskRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
 
-  DCHECK_RUN_ON_ANY_THREAD(fn_scheduleAsioRegistryUpdate);
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(fn_scheduleAsioRegistryUpdate);
 
   DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
 
@@ -602,7 +773,7 @@ void ExampleServer::scheduleAsioRegistryUpdate() NO_EXCEPTION
     {
       /// \note (thread-safety) access when ioc->stopped
       /// i.e. assume no running asio threads that use |asioRegistry_|
-      DCHECK_RUN_ON_ANY_THREAD(asioRegistry_.fn_registry);
+      DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_.fn_registry);
       DCHECK(asioRegistry_.registry().empty());
     }
 
@@ -644,9 +815,10 @@ void ExampleServer::runLoop() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_periodicAsioTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicAsioTaskRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicConsoleTaskRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
 
   DCHECK_RUN_ON(&sequence_checker_);
 
@@ -824,57 +996,21 @@ void ExampleServer::runLoop() NO_EXCEPTION
     = VoidPromise::CreateResolved(FROM_HERE);
 
   {
-    // Create UNIQUE type to store in sequence-local-context
-    /// \note initialized, used and destroyed
-    /// on `TaskRunner` sequence-local-context
-    using ConsoleTerminalUpdater
-      = util::StrongAlias<
-          class ConsoleTerminalExecutorTag
-          /// \note will stop periodic timer on scope exit
-          , basis::PeriodicTaskExecutor
-        >;
-    /// \note Will free stored variable on scope exit.
-    basis::ScopedSequenceCtxVar<ConsoleTerminalUpdater> scopedSequencedConsoleExecutor
-      (periodicConsoleTaskRunner_);
+    SequenceBoundConsoleTerminal consoleTerminal(periodicConsoleTaskRunner_);
 
-    {
-      VoidPromise emplaceDonePromise
-        = scopedSequencedConsoleExecutor.emplace_async(FROM_HERE
-              , "PeriodicConsoleExecutor" // debug name
-              , base::BindRepeating(
-                  &ExampleServer::updateConsoleTerminal
-                  , base::Unretained(this))
-        )
-      .ThenOn(periodicConsoleTaskRunner_
-        , FROM_HERE
-        , base::BindOnce(
-          []
-          (
-            scoped_refptr<base::SequencedTaskRunner> periodicRunner
-            , ConsoleTerminalUpdater* consoleUpdater
-          ){
-            LOG_CALL(DVLOG(99));
+    /// \note Will block current thread for unspecified time.
+    consoleTerminal.wait_emplace(FROM_HERE
+      , "PeriodicConsoleExecutor" // debug name
+      , REFERENCED(periodicConsoleTaskRunner_)
+      , REFERENCED(ioc_)
+      , REFERENCED(mainLoopRunner_)
+      , base::BindRepeating(
+         &ExampleServer::handleConsoleInput
+         , base::Unretained(this)
+       )
+     );
 
-            if(!base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
-            {
-              DVLOG(99)
-                << "console terminal not enabled";
-              return;
-            }
-
-            /// \todo make period configurable
-            (*consoleUpdater)->startPeriodicTimer(
-              base::TimeDelta::FromMilliseconds(100));
-
-            DCHECK(periodicRunner->RunsTasksInCurrentSequence());
-          }
-          , periodicConsoleTaskRunner_
-        )
-      );
-      /// \note Will block current thread for unspecified time.
-      base::waitForPromiseResolve(FROM_HERE, emplaceDonePromise);
-    }
-
+    /// \todo SequenceBoundAsioUpdater
     // Create UNIQUE type to store in sequence-local-context
     /// \note initialized, used and destroyed
     /// on `TaskRunner` sequence-local-context
@@ -930,7 +1066,7 @@ void ExampleServer::runLoop() NO_EXCEPTION
         // on task runner associated with it
         // otherwise you can get `use-after-free` error
         // on resources bound to periodic callback.
-        /// \note We can not just call `TaskRunner_.reset()`
+        /// \todo We can not just call `TaskRunner_.reset()`
         /// because `TaskRunner_` is shared type
         /// and because created executor prolongs its lifetime.
         , scopedSequencedAsioExecutor.promiseDeletion()
@@ -942,10 +1078,10 @@ void ExampleServer::runLoop() NO_EXCEPTION
         // on task runner associated with it
         // otherwise you can get `use-after-free` error
         // on resources bound to periodic callback.
-        /// \note We can not just call `TaskRunner_.reset()`
+        /// \todo We can not just call `TaskRunner_.reset()`
         /// because `TaskRunner_` is shared type
         /// and because created executor prolongs its lifetime.
-        , scopedSequencedConsoleExecutor.promiseDeletion()
+        , consoleTerminal.promiseDeletion()
         , /*nestedPromise*/ true
       );
 
@@ -966,6 +1102,12 @@ void ExampleServer::runLoop() NO_EXCEPTION
 
   asio_thread_4.Stop();
   DCHECK(!asio_thread_4.IsRunning());
+
+  if(base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
+  {
+    LOG(INFO)
+      << "Press Enter to terminate application...";
+  }
 
   /// \note Will block current thread for unspecified time.
   base::waitForPromiseResolve(FROM_HERE, promiseRunDone);
@@ -1077,8 +1219,8 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -1188,12 +1330,12 @@ void ExampleServer::validateAndFreeNetworkResources(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
-  LOG(INFO)
+  VLOG(9)
     << "waiting for cleanup of asio registry...";
 
   /// \note you can not use `::boost::asio::post`
@@ -1244,8 +1386,8 @@ ExampleServer::VoidPromise
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -1281,7 +1423,7 @@ ExampleServer::VoidPromise
       []
       ()
       {
-        LOG(INFO)
+        VLOG(9)
           << "finished cleanup of network entities";
       }
     )
@@ -1292,7 +1434,7 @@ ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_mainLoopRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -1303,7 +1445,7 @@ ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor() NO_EXCEPTION
       [
       ](
       ){
-        LOG(INFO)
+        VLOG(9)
           << "websocket listener is running";
       }
   ));
@@ -1313,12 +1455,15 @@ void ExampleServer::stopIOContext() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   {
-    // Stop the io_context. This will cause run()
+    VLOG(1)
+      << "stopping io context";
+
+    // Stop the `io_context`. This will cause `io_context.run()`
     // to return immediately, eventually destroying the
     // io_context and any remaining handlers in it.
     ioc_.stop(); // io_context::stop is thread-safe
@@ -1330,11 +1475,29 @@ ExampleServer::~ExampleServer()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
 
   DCHECK_RUN_ON(&sequence_checker_);
 
   DCHECK(ioc_.stopped()); // io_context::stopped is thread-safe
+}
+
+void ExampleServer::handleConsoleInput(const std::string& line)
+{
+  LOG_CALL(DVLOG(99));
+
+  if (line == "stop")
+  {
+    DVLOG(99)
+      << "got `stop` console command";
+
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
+    DCHECK(mainLoopRunner_);
+    (mainLoopRunner_)->PostTask(FROM_HERE
+      , base::BindRepeating(
+          &backend::ExampleServer::doQuit
+          , base::Unretained(this)));
+  }
 }
 
 } // namespace backend

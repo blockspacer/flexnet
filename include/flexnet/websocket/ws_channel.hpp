@@ -186,7 +186,7 @@ public:
     UpgradeRequestType<Body, Allocator>&& req)
     RUN_ON(&perConnectionStrand_)
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
     DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -226,7 +226,7 @@ public:
     // asking for a WebSocket connection
     UpgradeRequestType<Body, Allocator>&& req)
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
     ::boost::asio::post(
       *perConnectionStrand_
@@ -292,7 +292,7 @@ public:
   MUST_USE_RETURN_VALUE
   bool isStreamValid() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
     return is_stream_valid_.load();
   }
 #endif // 0
@@ -304,7 +304,7 @@ public:
     , CallbackT&& task
     , bool nestedPromise = false)
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
     return base::PostPromiseOnAsioExecutor(
       from_here
@@ -325,21 +325,11 @@ public:
   MUST_USE_RETURN_VALUE
   ECS::Entity entityId() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_entity_id_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_entity_id_);
     return entity_id_;
   }
 
-  MUST_USE_RETURN_VALUE
-  base::WeakPtr<WsChannel> weakSelf() const NO_EXCEPTION
-  {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_weak_this_);
-
-    // It is thread-safe to copy |base::WeakPtr|.
-    // Weak pointers may be passed safely between sequences, but must always be
-    // dereferenced and invalidated on the same SequencedTaskRunner otherwise
-    // checking the pointer would be racey.
-    return weak_this_;
-  }
+  SET_WEAK_SELF(WsChannel)
 
 private:
   void onAccept(ErrorCode ec)
@@ -367,6 +357,7 @@ private:
     RUN_ON(&perConnectionStrand_);
 
 private:
+  SET_WEAK_POINTERS(WsChannel);
 
   /**
    * The websocket::stream class template
@@ -387,42 +378,20 @@ private:
 
   // |stream_| and calls to |async_*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
-    SET_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+    SET_STORAGE_THREAD_GUARD(guard_perConnectionStrand_);
 
   // The dynamic buffer to store recieved data
   MessageBufferType buffer_
     GUARDED_BY(perConnectionStrand_);
 
-  // base::WeakPtr can be used to ensure that any callback bound
-  // to an object is canceled when that object is destroyed
-  // (guarantees that |this| will not be used-after-free).
-  base::WeakPtrFactory<WsChannel> weak_ptr_factory_
-    GUARDED_BY(sequence_checker_);
-
-  // After constructing |weak_ptr_factory_|
-  // we immediately construct a WeakPtr
-  // in order to bind the WeakPtr object to its thread.
-  // When we need a WeakPtr, we copy construct this,
-  // which is safe to do from any
-  // thread according to weak_ptr.h (versus calling
-  // |weak_ptr_factory_.GetWeakPtr() which is not).
-  const base::WeakPtr<WsChannel> weak_this_
-    // It safe to read value from any thread because its storage
-    // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(guard_weak_this_);
-
   // used by |entity_id_|
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    // It safe to read value from any thread because its storage
-    // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
-    // It safe to read value from any thread because its storage
-    // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(guard_entity_id_);
+    SET_STORAGE_THREAD_GUARD(guard_entity_id_);
 
   /// \todo SSL support
   /// ::boost::asio::ssl::context

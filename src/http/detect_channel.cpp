@@ -34,13 +34,13 @@ DetectChannel::DetectChannel(
   AsioTcp::socket&& socket
   , ECS::AsioRegistry& asioRegistry
   , const ECS::Entity entity_id)
-  : stream_(base::rvalue_cast(COPY_ON_MOVE(socket)))
-  , is_stream_valid_(true)
-  , is_buffer_valid_(true)
-  , ALLOW_THIS_IN_INITIALIZER_LIST(
+  : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
+  , stream_(base::rvalue_cast(COPY_ON_MOVE(socket)))
+  , is_stream_valid_(true)
+  , is_buffer_valid_(true)
   , perConnectionStrand_(
       /// \note `get_executor` returns copy
       stream_.value().get_executor())
@@ -55,7 +55,7 @@ DetectChannel::DetectChannel(
 
 DetectChannel::~DetectChannel()
 {
-  DCHECK_RUN_ON_ANY_THREAD(fn_DetectChannelDestructor);
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(fn_DetectChannelDestructor);
 
   LOG_CALL(DVLOG(99));
 }
@@ -65,7 +65,7 @@ void DetectChannel::configureDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_stream_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_stream_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -93,11 +93,11 @@ void DetectChannel::runDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_stream_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_buffer_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_buffer_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_stream_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_buffer_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_buffer_valid_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -216,12 +216,12 @@ void DetectChannel::onDetected(
 
   DCHECK(isDetectingInThisThread());
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_buffer_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_stream_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_buffer_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_atomicDetectDoneFlag_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_buffer_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_stream_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_buffer_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_atomicDetectDoneFlag_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
 
   DCHECK(is_stream_valid_.load());
   DCHECK(is_buffer_valid_.load());
@@ -287,8 +287,8 @@ void DetectChannel::setSSLDetectResult(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_entity_id_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_entity_id_);
 
   DCHECK(asioRegistry_->running_in_this_thread());
 

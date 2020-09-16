@@ -224,8 +224,8 @@ public:
     , CallbackT&& task
     , bool nestedPromise = false)
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_acceptorStrand_);
-    DCHECK_CUSTOM_THREAD_GUARD(guard_ioc_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_acceptorStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
 
     // unable to `::boost::asio::post` on stopped ioc
     DCHECK(!ioc_->stopped());
@@ -258,17 +258,7 @@ public:
   MUST_USE_RETURN_VALUE
     ::util::Status stopAcceptor();
 
-  MUST_USE_RETURN_VALUE
-  base::WeakPtr<Listener> weakSelf() const NO_EXCEPTION
-  {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_weak_this_);
-
-    // It is thread-safe to copy |base::WeakPtr|.
-    // Weak pointers may be passed safely between sequences, but must always be
-    // dereferenced and invalidated on the same SequencedTaskRunner otherwise
-    // checking the pointer would be racey.
-    return weak_this_;
-  }
+  SET_WEAK_SELF(Listener)
 
 private:
   // handles new connections
@@ -369,11 +359,11 @@ private:
   }
 
 private:
+  SET_WEAK_POINTERS(Listener);
+
   // Provides I/O functionality
   const util::UnownedRef<IoContext> ioc_
-    // It safe to read value from any thread because its storage
-    // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(guard_ioc_);
+    SET_STORAGE_THREAD_GUARD(guard_ioc_);
 
   // acceptor will listen that address
   const EndpointType endpoint_
@@ -381,27 +371,7 @@ private:
 
   // used to create `per-connection entity`
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    // It safe to read value from any thread because its storage
-    // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
-
-  // base::WeakPtr can be used to ensure that any callback bound
-  // to an object is canceled when that object is destroyed
-  // (guarantees that |this| will not be used-after-free).
-  base::WeakPtrFactory<Listener> weak_ptr_factory_
-    GUARDED_BY(sequence_checker_);
-
-  // After constructing |weak_ptr_factory_|
-  // we immediately construct a WeakPtr
-  // in order to bind the WeakPtr object to its thread.
-  // When we need a WeakPtr, we copy construct this,
-  // which is safe to do from any
-  // thread according to weak_ptr.h (versus calling
-  // |weak_ptr_factory_.GetWeakPtr() which is not).
-  const base::WeakPtr<Listener> weak_this_
-    // It safe to read value from any thread because its storage
-    // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(guard_weak_this_);
+    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
 
   // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.

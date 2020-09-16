@@ -195,23 +195,13 @@ public:
     const std::chrono::seconds& expire_timeout
     = std::chrono::seconds(30));
 
-  MUST_USE_RETURN_VALUE
-  base::WeakPtr<DetectChannel> weakSelf() const NO_EXCEPTION
-  {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_weak_this_);
-
-    // It is thread-safe to copy |base::WeakPtr|.
-    // Weak pointers may be passed safely between sequences, but must always be
-    // dereferenced and invalidated on the same SequencedTaskRunner otherwise
-    // checking the pointer would be racey.
-    return weak_this_;
-  }
+  SET_WEAK_SELF(DetectChannel)
 
   MUST_USE_RETURN_VALUE
   bool isDetectingInThisThread() const NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
-    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
     /// \note |perConnectionStrand_|
     /// is valid as long as |stream_| valid
@@ -227,8 +217,8 @@ public:
   MUST_USE_RETURN_VALUE
   const StrandType& perConnectionStrand() NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
-    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
     /// \note |perConnectionStrand_|
     /// is valid as long as |stream_| valid
@@ -244,7 +234,7 @@ public:
   /// and thread-safe when you call |executor()|
   boost::asio::executor executor() NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_stream_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_stream_);
 
     DCHECK(stream_.has_value());
     return /// \note `get_executor` returns copy
@@ -258,8 +248,8 @@ public:
     , CallbackT&& task
     , bool nestedPromise = false)
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_stream_);
-    DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_stream_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
     DCHECK(stream_.has_value()
       && stream_.value().socket().is_open());
@@ -277,13 +267,13 @@ public:
   /// `ECS::Entity` is just number, so can be copied freely.
   ECS::Entity entityId() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_entity_id_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_entity_id_);
     return entity_id_;
   }
 
   bool isDetected()
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_atomicDetectDoneFlag_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_atomicDetectDoneFlag_);
     return atomicDetectDoneFlag_.load();
   }
 
@@ -315,6 +305,8 @@ private:
     (const std::chrono::seconds& expire_timeout);
 
 private:
+  SET_WEAK_POINTERS(DetectChannel);
+
   /// \todo make NOT optional
   // can not copy assign `stream`, so use optional
   base::Optional<StreamType> stream_
@@ -337,24 +329,6 @@ private:
   std::atomic<bool> is_buffer_valid_
     // assumed to be thread-safe
     SET_CUSTOM_THREAD_GUARD(guard_is_buffer_valid_);
-
-  // base::WeakPtr can be used to ensure that any callback bound
-  // to an object is canceled when that object is destroyed
-  // (guarantees that |this| will not be used-after-free).
-  base::WeakPtrFactory<DetectChannel> weak_ptr_factory_
-    GUARDED_BY(sequence_checker_);
-
-  // After constructing |weak_ptr_factory_|
-  // we immediately construct a WeakPtr
-  // in order to bind the WeakPtr object to its thread.
-  // When we need a WeakPtr, we copy construct this,
-  // which is safe to do from any
-  // thread according to weak_ptr.h (versus calling
-  // |weak_ptr_factory_.GetWeakPtr() which is not).
-  const base::WeakPtr<DetectChannel> weak_this_
-    // It safe to read value from any thread because its storage
-    // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(guard_weak_this_);
 
   // |stream_| and calls to |async_detect*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
@@ -387,16 +361,12 @@ private:
 
   // used by |entity_id_|
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    // It safe to read value from any thread because its storage
-    // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
-    // It safe to read value from any thread because its storage
-    // expected to be not modified (if properly initialized)
-    SET_CUSTOM_THREAD_GUARD(guard_entity_id_);
+    SET_STORAGE_THREAD_GUARD(guard_entity_id_);
 
   /// \note can destruct on any thread
   CREATE_CUSTOM_THREAD_GUARD(fn_DetectChannelDestructor);

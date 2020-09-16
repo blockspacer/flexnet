@@ -307,16 +307,16 @@ HttpChannel::HttpChannel(
   , MessageBufferType&& buffer
   , ECS::AsioRegistry& asioRegistry
   , const ECS::Entity entity_id)
-  : stream_(base::rvalue_cast(stream))
+  : ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_ptr_factory_(COPIED(this)))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(weak_ptr_factory_.GetWeakPtr()))
+  , stream_(base::rvalue_cast(stream))
   , perConnectionStrand_(
       /// \note `get_executor` returns copy
       stream_.get_executor())
   , is_stream_valid_(true)
   , buffer_(base::rvalue_cast(buffer))
-  , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_ptr_factory_(COPIED(this)))
-  , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_this_(weak_ptr_factory_.GetWeakPtr()))
   , asioRegistry_(REFERENCED(asioRegistry))
   , entity_id_(entity_id)
 {
@@ -345,7 +345,7 @@ HttpChannel::~HttpChannel()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_RUN_ON_ANY_THREAD(fn_HttpChannelDestructor);
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(fn_HttpChannelDestructor);
 
   /// \note do not call `close()` from destructor
   /// i.e. call `close()` manually
@@ -361,8 +361,8 @@ bool HttpChannel::isOpen()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -374,7 +374,7 @@ void HttpChannel::doReadAsync()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
   DCHECK(!perConnectionStrand_->running_in_this_thread())
     << "use HttpChannel::doRead()";
@@ -394,8 +394,8 @@ void HttpChannel::doRead()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -446,9 +446,9 @@ void HttpChannel::doRead()
 
 void HttpChannel::doEof()
 {
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -472,8 +472,8 @@ void HttpChannel::doEof()
   auto closeAndReleaseResources
     = [this, &socket]()
   {
-    DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
-    DCHECK_CUSTOM_THREAD_GUARD(guard_entity_id_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_entity_id_);
 
     DCHECK(asioRegistry_->running_in_this_thread());
 
@@ -503,7 +503,7 @@ void HttpChannel::onFail(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
 
   DCHECK(is_stream_valid_.load());
 
@@ -568,9 +568,9 @@ void HttpChannel::onRead(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -661,8 +661,8 @@ void HttpChannel::onRead(
     std::nullopt, // optional custom response
     [this](auto&& response)
     {
-      DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
-      DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+      DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+      DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
       DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -718,9 +718,9 @@ void HttpChannel::handleWebsocketUpgrade(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_entity_id_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_entity_id_);
 
   DCHECK(asioRegistry_->running_in_this_thread());
 
@@ -766,8 +766,8 @@ void HttpChannel::onWrite(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD(guard_perConnectionStrand_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
