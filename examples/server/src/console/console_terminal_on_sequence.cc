@@ -93,7 +93,7 @@ ConsoleTerminalOnSequence::VoidPromise ConsoleTerminalOnSequence::promiseDeletio
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_consoleInputUpdaterOnSequence_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputUpdaterOnSequence_));
 
   return consoleInputUpdaterOnSequence_.promiseDeletion();
 }

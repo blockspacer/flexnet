@@ -76,8 +76,8 @@ class ConsoleTerminalOnSequence
   {
     LOG_CALL(DVLOG(99));
 
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicConsoleTaskRunner_);
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_consoleInputUpdaterOnSequence_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputUpdaterOnSequence_));
 
     return consoleInputUpdaterOnSequence_
     .emplace_async(from_here
@@ -119,14 +119,14 @@ class ConsoleTerminalOnSequence
 
   // Task sequence used to update text input from console terminal.
   scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
-    SET_STORAGE_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicConsoleTaskRunner_));
 
   /// \note Will free stored variable on scope exit.
   // Use UNIQUE type to store in sequence-local-context
   /// \note initialized, used and destroyed
   /// on `TaskRunner` sequence-local-context
   basis::ScopedSequenceCtxVar<ConsoleInputUpdater> consoleInputUpdaterOnSequence_
-    SET_STORAGE_THREAD_GUARD(guard_consoleInputUpdaterOnSequence_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(consoleInputUpdaterOnSequence_));
 
   SEQUENCE_CHECKER(sequence_checker_);
 

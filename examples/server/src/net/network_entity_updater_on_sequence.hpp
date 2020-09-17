@@ -75,8 +75,8 @@ class NetworkEntityUpdaterOnSequence
   {
     LOG_CALL(DVLOG(99));
 
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicAsioTaskRunner_);
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_networkEntityUpdater_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicAsioTaskRunner_));
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(networkEntityUpdater_));
 
     return networkEntityUpdater_
     .emplace_async(from_here
@@ -111,14 +111,14 @@ class NetworkEntityUpdaterOnSequence
 
   // Task sequence used to update `network-ECS`
   scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner_
-    SET_STORAGE_THREAD_GUARD(guard_periodicAsioTaskRunner_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicAsioTaskRunner_));
 
   /// \note Will free stored variable on scope exit.
   // Use UNIQUE type to store in sequence-local-context
   /// \note initialized, used and destroyed
   /// on `TaskRunner` sequence-local-context
   basis::ScopedSequenceCtxVar<NetworkEntityUpdater> networkEntityUpdater_
-    SET_STORAGE_THREAD_GUARD(guard_networkEntityUpdater_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(networkEntityUpdater_));
 
   SEQUENCE_CHECKER(sequence_checker_);
 

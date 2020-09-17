@@ -176,7 +176,7 @@ public:
 
   /// \note can destruct on any thread
   ~WsChannel()
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_WsChannelDestructor);
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(WsChannelDestructor));
 
   // Start the asynchronous operation
   template<class Body, class Allocator>
@@ -186,7 +186,7 @@ public:
     UpgradeRequestType<Body, Allocator>&& req)
     RUN_ON(&perConnectionStrand_)
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
 
     DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -226,7 +226,7 @@ public:
     // asking for a WebSocket connection
     UpgradeRequestType<Body, Allocator>&& req)
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
 
     ::boost::asio::post(
       *perConnectionStrand_
@@ -292,7 +292,7 @@ public:
   MUST_USE_RETURN_VALUE
   bool isStreamValid() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
     return is_stream_valid_.load();
   }
 #endif // 0
@@ -304,7 +304,7 @@ public:
     , CallbackT&& task
     , bool nestedPromise = false)
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
 
     return base::PostPromiseOnAsioExecutor(
       from_here
@@ -325,7 +325,7 @@ public:
   MUST_USE_RETURN_VALUE
   ECS::Entity entityId() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_entity_id_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
     return entity_id_;
   }
 
@@ -378,7 +378,7 @@ private:
 
   // |stream_| and calls to |async_*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
-    SET_STORAGE_THREAD_GUARD(guard_perConnectionStrand_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(perConnectionStrand_));
 
   // The dynamic buffer to store recieved data
   MessageBufferType buffer_
@@ -386,12 +386,12 @@ private:
 
   // used by |entity_id_|
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
-    SET_STORAGE_THREAD_GUARD(guard_entity_id_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(entity_id_));
 
   /// \todo SSL support
   /// ::boost::asio::ssl::context
@@ -407,7 +407,7 @@ private:
   SEQUENCE_CHECKER(sequence_checker_);
 
   /// \note can destruct on any thread
-  CREATE_CUSTOM_THREAD_GUARD(fn_WsChannelDestructor);
+  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(WsChannelDestructor));
 
   DISALLOW_COPY_AND_ASSIGN(WsChannel);
 };

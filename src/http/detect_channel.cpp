@@ -55,7 +55,7 @@ DetectChannel::DetectChannel(
 
 DetectChannel::~DetectChannel()
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(fn_DetectChannelDestructor);
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(DetectChannelDestructor));
 
   LOG_CALL(DVLOG(99));
 }
@@ -65,7 +65,7 @@ void DetectChannel::configureDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_stream_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(stream_));
 
   DCHECK(isDetectingInThisThread());
 
@@ -93,11 +93,11 @@ void DetectChannel::runDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_stream_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_buffer_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_buffer_valid_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(stream_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(buffer_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_buffer_valid_));
 
   DCHECK(isDetectingInThisThread());
 
@@ -216,12 +216,12 @@ void DetectChannel::onDetected(
 
   DCHECK(isDetectingInThisThread());
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_buffer_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_stream_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_buffer_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_atomicDetectDoneFlag_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_buffer_valid_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(stream_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(buffer_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(atomicDetectDoneFlag_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
 
   DCHECK(is_stream_valid_.load());
   DCHECK(is_buffer_valid_.load());
@@ -290,8 +290,8 @@ void DetectChannel::setSSLDetectResult(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_entity_id_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
 
   DCHECK(asioRegistry_->running_in_this_thread());
 

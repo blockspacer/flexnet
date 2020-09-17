@@ -92,7 +92,7 @@ NetworkEntityUpdaterOnSequence::VoidPromise NetworkEntityUpdaterOnSequence::prom
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_networkEntityUpdater_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(networkEntityUpdater_));
 
   return networkEntityUpdater_.promiseDeletion();
 }

@@ -74,7 +74,7 @@ class TcpEntityAllocator
 
 private:
   ECS::AsioRegistry& asioRegistry_
-    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
 
   SEQUENCE_CHECKER(sequence_checker_);
 

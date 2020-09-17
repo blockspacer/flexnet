@@ -63,7 +63,7 @@ class NetworkEntityUpdater
 
   MUST_USE_RETURN_VALUE
   basis::PeriodicTaskExecutor& periodicTaskExecutor() NO_EXCEPTION
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_periodicTaskExecutor);
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(periodicTaskExecutor));
 
   SET_WEAK_SELF(NetworkEntityUpdater)
 
@@ -71,22 +71,22 @@ class NetworkEntityUpdater
   SET_WEAK_POINTERS(NetworkEntityUpdater);
 
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
 
   // The io_context is required for all I/O
   util::UnownedRef<IoContext> ioc_
-    SET_STORAGE_THREAD_GUARD(guard_ioc_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
 
   // Task sequence used to update `network-ECS`
   scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner_
-    SET_STORAGE_THREAD_GUARD(guard_periodicAsioTaskRunner_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicAsioTaskRunner_));
 
   /// \note will stop periodic timer on scope exit
   basis::PeriodicTaskExecutor periodicTaskExecutor_
-    SET_STORAGE_THREAD_GUARD(guard_periodicTaskExecutor_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicTaskExecutor_));
 
   /// \note can be called from any thread
-  CREATE_CUSTOM_THREAD_GUARD(fn_periodicTaskExecutor);
+  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(periodicTaskExecutor));
 
   SEQUENCE_CHECKER(sequence_checker_);
 

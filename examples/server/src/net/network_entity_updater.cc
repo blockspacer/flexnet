@@ -103,9 +103,9 @@ NetworkEntityUpdater::~NetworkEntityUpdater()
 
 void NetworkEntityUpdater::update() NO_EXCEPTION
 {
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicAsioTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicAsioTaskRunner_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
 
   DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
 
@@ -123,7 +123,7 @@ void NetworkEntityUpdater::update() NO_EXCEPTION
     {
       /// \note (thread-safety) access when ioc->stopped
       /// i.e. assume no running asio threads that use |asioRegistry_|
-      DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_->fn_registry);
+      DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_->FUNC_GUARD(registry));
       DCHECK(asioRegistry_->registry().empty());
     }
 
@@ -162,9 +162,9 @@ MUST_USE_RETURN_VALUE
 basis::PeriodicTaskExecutor&
   NetworkEntityUpdater::periodicTaskExecutor() NO_EXCEPTION
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(fn_periodicTaskExecutor);
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(periodicTaskExecutor));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicTaskExecutor_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicTaskExecutor_));
   return periodicTaskExecutor_;
 }
 

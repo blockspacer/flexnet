@@ -141,7 +141,7 @@ class ExampleServer
  private:
   // The io_context is required for all I/O
   boost::asio::io_context ioc_
-    SET_STORAGE_THREAD_GUARD(guard_ioc_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
 
   const EndpointType tcpEndpoint_
     GUARDED_BY(sequence_checker_);
@@ -149,13 +149,13 @@ class ExampleServer
   /// \todo SSL support
   // ::boost::asio::ssl::context ctx_
   //   {::boost::asio::ssl::context::tlsv12}
-  //   SET_STORAGE_THREAD_GUARD(guard_mainLoopRunner_);
+  //   SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
 
   ECS::AsioRegistry asioRegistry_
-    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
 
   TcpEntityAllocator tcpEntityAllocator_;
-    SET_STORAGE_THREAD_GUARD(guard_tcpEntityAllocator_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(tcpEntityAllocator_));
 
   // Listens for tcp connections.
   ws::Listener listener_
@@ -173,7 +173,7 @@ class ExampleServer
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
-    SET_STORAGE_THREAD_GUARD(guard_mainLoopRunner_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
 
   /// \todo custom thread message pump
   base::Thread asio_thread_1
@@ -193,33 +193,30 @@ class ExampleServer
 
   // Task sequence used to update asio registry.
   scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner_
-    SET_STORAGE_THREAD_GUARD(guard_periodicAsioTaskRunner_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicAsioTaskRunner_));
 
   // Task sequence used to update text input from console terminal.
   scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
-    SET_STORAGE_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicConsoleTaskRunner_));
 
   // On scope exit will schedule destruction (from sequence-local-context),
   // so use `base::Optional` to control scope i.e. control lifetime.
-  base::Optional<ConsoleTerminalOnSequence> consoleTerminal_;
+  base::Optional<ConsoleTerminalOnSequence> consoleTerminal_
+    SET_THREAD_COLLISION_GUARD(MEMBER_GUARD(consoleTerminal_));
 
   // On scope exit will schedule destruction (from sequence-local-context),
   // so use `base::Optional` to control scope i.e. control lifetime.
-  base::Optional<NetworkEntityUpdaterOnSequence> networkEntityUpdater_;
+  base::Optional<NetworkEntityUpdaterOnSequence> networkEntityUpdater_
+    SET_THREAD_COLLISION_GUARD(MEMBER_GUARD(networkEntityUpdater_));
 
   // Used to free network resources.
   basis::PeriodicValidateUntil periodicValidateUntil_
-    // Can be used only by one thread at some moment of time
-    // (but different threads can use it overall)
-    SET_THREAD_COLLISION_GUARD(guard_periodicValidateUntil_);
-
-  /// \todo
-  //TcpEntityAllocator tcpEntityAllocator_;
+    SET_THREAD_COLLISION_GUARD(MEMBER_GUARD(periodicValidateUntil_));
 
   // |stream_| moved in |onDetected|
   std::atomic<bool> is_terminating_
     // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(guard_is_terminating_);
+    SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(is_terminating_));
 
   SEQUENCE_CHECKER(sequence_checker_);
 

@@ -224,8 +224,8 @@ public:
     , CallbackT&& task
     , bool nestedPromise = false)
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_acceptorStrand_);
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(acceptorStrand_));
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
 
     // unable to `::boost::asio::post` on stopped ioc
     DCHECK(!ioc_->stopped());
@@ -296,7 +296,7 @@ private:
   // Report a failure
   /// \note not thread-safe, so keep it for logging purposes only
   void logFailure(const ErrorCode& ec, char const* what)
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_logFailure);
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(logFailure));
 
   MUST_USE_RETURN_VALUE
     ::util::Status configureAcceptor();
@@ -363,7 +363,7 @@ private:
 
   // Provides I/O functionality
   const util::UnownedRef<IoContext> ioc_
-    SET_STORAGE_THREAD_GUARD(guard_ioc_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
 
   // acceptor will listen that address
   const EndpointType endpoint_
@@ -371,7 +371,7 @@ private:
 
   // used to create `per-connection entity`
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
 
   // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
@@ -379,7 +379,7 @@ private:
   /// has scheduled or execting tasks.
   const basis::AnnotatedStrand<ExecutorType> acceptorStrand_
     SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
-      guard_acceptorStrand_
+      MEMBER_GUARD(acceptorStrand_)
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
       // 2. On each access to strand check that ioc not stopped
@@ -387,7 +387,7 @@ private:
       , base::BindRepeating(
           []
           (Listener* self) -> bool {
-            DCHECK_CUSTOM_THREAD_GUARD_SCOPE(self->guard_ioc_);
+            DCHECK_THREAD_GUARD_SCOPE(self->MEMBER_GUARD(ioc_));
             return !self->ioc_->stopped();
           }
           , base::Unretained(this)
@@ -429,7 +429,7 @@ private:
   EntityAllocatorCb entityAllocator_;
 
   /// \note can be called from any thread
-  CREATE_CUSTOM_THREAD_GUARD(fn_logFailure);
+  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(logFailure));
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

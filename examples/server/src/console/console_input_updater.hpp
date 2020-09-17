@@ -60,7 +60,7 @@ class ConsoleInputUpdater
 
   MUST_USE_RETURN_VALUE
   basis::PeriodicTaskExecutor& periodicTaskExecutor() NO_EXCEPTION
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_periodicTaskExecutor);
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(periodicTaskExecutor));
 
   SET_WEAK_SELF(ConsoleInputUpdater)
 
@@ -69,17 +69,17 @@ class ConsoleInputUpdater
 
   // Task sequence used to update text input from console terminal.
   scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
-    SET_STORAGE_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicConsoleTaskRunner_));
 
   HandleConsoleInputCb consoleInputCb_
-    SET_STORAGE_THREAD_GUARD(guard_consoleInputCb_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(consoleInputCb_));
 
   /// \note will stop periodic timer on scope exit
   basis::PeriodicTaskExecutor periodicTaskExecutor_
-    SET_STORAGE_THREAD_GUARD(guard_periodicTaskExecutor_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicTaskExecutor_));
 
   /// \note can be called from any thread
-  CREATE_CUSTOM_THREAD_GUARD(fn_periodicTaskExecutor);
+  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(periodicTaskExecutor));
 
   SEQUENCE_CHECKER(sequence_checker_);
 

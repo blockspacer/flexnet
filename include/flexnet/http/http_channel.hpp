@@ -159,7 +159,7 @@ public:
 
   /// \note can destruct on any thread
   ~HttpChannel()
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_HttpChannelDestructor);
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(HttpChannelDestructor));
 
   /// \todo thread safety
   MUST_USE_RETURN_VALUE
@@ -185,7 +185,7 @@ public:
     , CallbackT&& task
     , bool nestedPromise = false)
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
 
     return base::PostPromiseOnAsioExecutor(
       from_here
@@ -202,7 +202,7 @@ public:
   MUST_USE_RETURN_VALUE
   bool isStreamValid() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
     return is_stream_valid_.load();
   }
 
@@ -213,7 +213,7 @@ public:
   MUST_USE_RETURN_VALUE
   ECS::Entity entityId() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_entity_id_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
     return entity_id_;
   }
 
@@ -243,7 +243,7 @@ private:
   // |stream_| and calls to |async_*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
     SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
-      guard_perConnectionStrand_
+      MEMBER_GUARD(perConnectionStrand_)
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
       // 2. On each access to strand check that stream valid
@@ -251,7 +251,7 @@ private:
       , base::BindRepeating(
           [] \
           (HttpChannel* self) -> bool {
-            DCHECK_CUSTOM_THREAD_GUARD_SCOPE(self->guard_is_stream_valid_);
+            DCHECK_THREAD_GUARD_SCOPE(self->MEMBER_GUARD(is_stream_valid_));
             /// \note |perConnectionStrand_|
             /// is valid as long as |stream_| valid
             /// i.e. valid util |stream_| moved out
@@ -265,7 +265,7 @@ private:
   /// \note `stream_` can be moved to websocket session from http session
   std::atomic<bool> is_stream_valid_
     // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
+    SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(is_stream_valid_));
 
   // The dynamic buffer to store recieved data
   MessageBufferType buffer_
@@ -273,12 +273,12 @@ private:
 
   // used by |entity_id_|
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
-    SET_STORAGE_THREAD_GUARD(guard_entity_id_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(entity_id_));
 
   // The parser is stored in an optional container so we can
   // construct it from scratch at the beginning
@@ -296,7 +296,7 @@ private:
   SEQUENCE_CHECKER(sequence_checker_);
 
   /// \note can destruct on any thread
-  CREATE_CUSTOM_THREAD_GUARD(fn_HttpChannelDestructor);
+  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(HttpChannelDestructor));
 
   DISALLOW_COPY_AND_ASSIGN(HttpChannel);
 };

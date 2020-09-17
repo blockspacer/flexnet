@@ -72,7 +72,7 @@ void Listener::logFailure(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(fn_logFailure);
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(logFailure));
 
   // NOTE: If you got logFailure: accept: Too many open files
   // set ulimit -n 4096, see stackoverflow.com/a/8583083/10904212
@@ -272,7 +272,7 @@ void Listener::doAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
 
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
@@ -303,9 +303,9 @@ void Listener::allocateTcpResourceAndAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_acceptorStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(acceptorStrand_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
 
   DCHECK(asioRegistry_->running_in_this_thread());
 
@@ -542,9 +542,9 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_acceptorStrand_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(acceptorStrand_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(unownedPerConnectionStrand
@@ -610,7 +610,7 @@ void Listener::setAcceptConnectionResult(
   , ErrorCode&& ec
   , SocketType&& socket)
 {
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
 
   DCHECK(asioRegistry_->running_in_this_thread());
   DCHECK((*asioRegistry_)->valid(tcp_entity_id));
@@ -669,7 +669,7 @@ Listener::~Listener()
   {
     /// \note (thread-safety) access from destructor when ioc->stopped
     /// i.e. assume no running asio threads that use |asioRegistry_|
-    DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_->fn_registry);
+    DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_->FUNC_GUARD(registry));
 
     DCHECK(asioRegistry_->registry().empty());
   }
@@ -694,7 +694,7 @@ bool Listener::isAcceptorOpen() const
 
 bool Listener::isAcceptingInThisThread() const NO_EXCEPTION
 {
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_acceptorStrand_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(acceptorStrand_));
 
   /// \note `running_in_this_thread()` assumed to be thread-safe
   return acceptorStrand_->running_in_this_thread();

@@ -102,8 +102,8 @@ ConsoleInputUpdater::~ConsoleInputUpdater()
 
 void ConsoleInputUpdater::update() NO_EXCEPTION
 {
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicConsoleTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_consoleInputCb_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputCb_));
 
   DCHECK(periodicConsoleTaskRunner_->RunsTasksInCurrentSequence());
 
@@ -133,9 +133,9 @@ MUST_USE_RETURN_VALUE
 basis::PeriodicTaskExecutor&
   ConsoleInputUpdater::periodicTaskExecutor() NO_EXCEPTION
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(fn_periodicTaskExecutor);
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(periodicTaskExecutor));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicTaskExecutor_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicTaskExecutor_));
   return periodicTaskExecutor_;
 }
 

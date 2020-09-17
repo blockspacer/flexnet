@@ -146,7 +146,7 @@ ExampleServer::ExampleServer(
         << "got stop signal";
 
       {
-        DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
+        DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
         DCHECK(mainLoopRunner_);
         (mainLoopRunner_)->PostTask(FROM_HERE
           , base::BindRepeating(
@@ -163,8 +163,8 @@ void ExampleServer::doQuit()
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_terminating_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_terminating_));
 
   {
     if(is_terminating_.load())
@@ -278,11 +278,13 @@ void ExampleServer::runLoop() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicAsioTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicConsoleTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicAsioTaskRunner_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(networkEntityUpdater_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleTerminal_));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
@@ -554,9 +556,9 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicValidateUntil_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicValidateUntil_));
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -666,9 +668,9 @@ void ExampleServer::validateAndFreeNetworkResources(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicValidateUntil_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicValidateUntil_));
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -723,9 +725,9 @@ ExampleServer::VoidPromise
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicValidateUntil_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicValidateUntil_));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -768,11 +770,12 @@ ExampleServer::VoidPromise
   );
 }
 
-ExampleServer::VoidPromise ExampleServer::configureAndRunAcceptor() NO_EXCEPTION
+ExampleServer::VoidPromise
+  ExampleServer::configureAndRunAcceptor() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -793,7 +796,7 @@ void ExampleServer::stopIOContext() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -813,7 +816,7 @@ ExampleServer::~ExampleServer()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
@@ -829,7 +832,7 @@ void ExampleServer::handleConsoleInput(const std::string& line)
     DVLOG(9)
       << "got `stop` console command";
 
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
     DCHECK(mainLoopRunner_);
     (mainLoopRunner_)->PostTask(FROM_HERE
       , base::BindRepeating(

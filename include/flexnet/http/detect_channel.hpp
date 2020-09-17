@@ -191,7 +191,7 @@ public:
 
   /// \note can destruct on any thread
   ~DetectChannel()
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_DetectChannelDestructor);
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(DetectChannelDestructor));
 
   // calls |beast::async_detect_*|
   void runDetector(
@@ -204,8 +204,8 @@ public:
   MUST_USE_RETURN_VALUE
   bool isDetectingInThisThread() const NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
 
     /// \note |perConnectionStrand_|
     /// is valid as long as |stream_| valid
@@ -221,8 +221,8 @@ public:
   MUST_USE_RETURN_VALUE
   const StrandType& perConnectionStrand() NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
 
     /// \note |perConnectionStrand_|
     /// is valid as long as |stream_| valid
@@ -238,7 +238,7 @@ public:
   /// and thread-safe when you call |executor()|
   boost::asio::executor executor() NO_EXCEPTION
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_stream_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(stream_));
 
     DCHECK(stream_.has_value());
     return /// \note `get_executor` returns copy
@@ -252,8 +252,8 @@ public:
     , CallbackT&& task
     , bool nestedPromise = false)
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_stream_);
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(stream_));
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
 
     DCHECK(stream_.has_value()
       && stream_.value().socket().is_open());
@@ -271,13 +271,13 @@ public:
   /// `ECS::Entity` is just number, so can be copied freely.
   ECS::Entity entityId() const
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_entity_id_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
     return entity_id_;
   }
 
   bool isDetected()
   {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_atomicDetectDoneFlag_);
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(atomicDetectDoneFlag_));
     return atomicDetectDoneFlag_.load();
   }
 
@@ -317,28 +317,28 @@ private:
   base::Optional<StreamType> stream_
     /// \note moved between threads,
     /// take care of thread-safety!
-    SET_CUSTOM_THREAD_GUARD(guard_stream_);
+    SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(stream_));
 
   // |stream_| moved in |onDetected|
   std::atomic<bool> is_stream_valid_
     // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(guard_is_stream_valid_);
+    SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(is_stream_valid_));
 
   // The dynamic buffer to use during `beast::async_detect_ssl`
   MessageBufferType buffer_
     /// \note moved between threads,
     /// take care of thread-safety!
-    SET_CUSTOM_THREAD_GUARD(guard_buffer_);
+    SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(buffer_));
 
   // |buffer_| moved in |onDetected|
   std::atomic<bool> is_buffer_valid_
     // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(guard_is_buffer_valid_);
+    SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(is_buffer_valid_));
 
   // |stream_| and calls to |async_detect*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
     SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
-      guard_perConnectionStrand_
+      MEMBER_GUARD(perConnectionStrand_)
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
       // 2. On each access to strand check that stream valid
@@ -346,7 +346,7 @@ private:
       , base::BindRepeating(
         [
         ](DetectChannel* self) -> bool {
-          DCHECK_CUSTOM_THREAD_GUARD_SCOPE(self->guard_is_stream_valid_);
+          DCHECK_THREAD_GUARD_SCOPE(self->MEMBER_GUARD(is_stream_valid_));
           /// \note |perConnectionStrand_|
           /// is valid as long as |stream_| valid
           /// i.e. valid util |stream_| moved out
@@ -359,19 +359,19 @@ private:
   // will be set by |onDetected|
   std::atomic<bool> atomicDetectDoneFlag_
     // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(guard_atomicDetectDoneFlag_);
+    SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(atomicDetectDoneFlag_));
 
   // used by |entity_id_|
   util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
-    SET_STORAGE_THREAD_GUARD(guard_entity_id_);
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(entity_id_));
 
   /// \note can destruct on any thread
-  CREATE_CUSTOM_THREAD_GUARD(fn_DetectChannelDestructor);
+  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(DetectChannelDestructor));
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
