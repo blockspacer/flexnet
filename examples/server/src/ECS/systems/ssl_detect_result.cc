@@ -24,6 +24,8 @@ void handleSSLDetectResult(
 
   LOG_CALL(DVLOG(99));
 
+  DCHECK(asio_registry->valid(entity_id));
+
   auto closeAndReleaseResources
     = [&detectResult, &asio_registry, entity_id]()
   {
@@ -46,6 +48,16 @@ void handleSSLDetectResult(
       );
     }
   };
+
+  if(detectResult.need_close)
+  {
+    LOG(ERROR)
+      << "Detector forced shutdown of tcp connection";
+
+    closeAndReleaseResources();
+
+    return;
+  }
 
   // Handle the error, if any
   if (detectResult.ec)

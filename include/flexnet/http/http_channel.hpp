@@ -249,20 +249,18 @@ private:
       // 2. On each access to strand check that stream valid
       // otherwise `::boost::asio::post` may fail.
       , base::BindRepeating(
-        [
-        ](
-          bool is_stream_valid
-          , StreamType& stream
-        ){
-          /// \note |perConnectionStrand_|
-          /// is valid as long as |stream_| valid
-          /// i.e. valid util |stream_| moved out
-          /// (it uses executor from stream).
-          return is_stream_valid;
-        }
-        , is_stream_valid_.load()
-        , REFERENCED(stream_.value())
-      ));
+          [] \
+          (HttpChannel* self) -> bool {
+            DCHECK_CUSTOM_THREAD_GUARD_SCOPE(self->guard_is_stream_valid_);
+            /// \note |perConnectionStrand_|
+            /// is valid as long as |stream_| valid
+            /// i.e. valid util |stream_| moved out
+            /// (it uses executor from stream).
+            return self->is_stream_valid_.load();
+          }
+          , base::Unretained(this)
+        )
+    );
 
   /// \note `stream_` can be moved to websocket session from http session
   std::atomic<bool> is_stream_valid_

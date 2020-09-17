@@ -1,11 +1,6 @@
-#include "init_env.hpp"
-#include "example_server.hpp"
+#pragma once
+
 #include "ECS/tags/closing_websocket.hpp"
-#include "ECS/systems/accept_connection_result.hpp"
-#include "ECS/systems/cleanup.hpp"
-#include "ECS/systems/ssl_detect_result.hpp"
-#include "ECS/systems/unused.hpp"
-#include "ECS/systems/close_socket.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
@@ -24,6 +19,7 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
 
+#include <basis/checked_optional.hpp>
 #include <basis/lock_with_check.hpp>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
@@ -38,6 +34,7 @@
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
+#include <basis/strong_alias.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -45,41 +42,43 @@
 #include <memory>
 #include <chrono>
 
-using namespace flexnet;
-using namespace backend;
+namespace backend {
 
-int main(int argc, char* argv[])
+class TcpEntityAllocator
 {
-  // stores basic requirements, like thread pool, logging, etc.
-  basis::ScopedBaseEnvironment base_env;
+ public:
+  TcpEntityAllocator(
+    ECS::AsioRegistry& asioRegistry);
 
-  // init common application systems,
-  // initialization order matters!
-  {
-    base::Optional<int> exit_code = initEnv(
-      argc
-      , argv
-      , base_env);
-    if(exit_code.has_value()) {
-      LOG(WARNING)
-        << "exited during environment creation";
-      return exit_code.value();
-    }
-  }
+  ~TcpEntityAllocator();
 
-  /// \todo custom config manager
-  /// ConfigManager configManager;
+  /// \note creates ECS entity used as `asio connection`,
+  /// sets common components and performs checks
+  /// (if entity was re-used from cache some components must be reset)
+  //
+  // MOTIVATION
+  //
+  // Each component type must be reset if you want to re-use it
+  // (i.e. if you want to use `cache` to avoid allocations).
+  // If you manually registered component in `allowed` list,
+  // then we can assume that component can be re-used.
+  // We prohibit any `unknown` types of entities that can be re-used.
+  MUST_USE_RETURN_VALUE
+  ECS::Entity allocateTcpEntity() NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(&asioRegistry_.strand);
 
-  /// \todo custom plugin manager
-  /// PluginManager pluginManager;
+  SET_WEAK_SELF(TcpEntityAllocator)
 
-  ExampleServer exampleServer;
+ private:
+  SET_WEAK_POINTERS(TcpEntityAllocator);
 
-  exampleServer.runLoop();
+private:
+  ECS::AsioRegistry& asioRegistry_
+    SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
 
-  LOG(INFO)
-    << "server is quitting";
+  SEQUENCE_CHECKER(sequence_checker_);
 
-  return
-    EXIT_SUCCESS;
-}
+  DISALLOW_COPY_AND_ASSIGN(TcpEntityAllocator);
+};
+
+} // namespace backend

@@ -6,6 +6,7 @@
 
 namespace ECS {
 
+/// \FIXME remove `ECS::CloseSocket`
 // Handle `ECS::CloseSocket`
 //
 // HOT-CODE PATH

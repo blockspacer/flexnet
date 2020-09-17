@@ -119,14 +119,15 @@ public:
   struct SSLDetectResult {
     SSLDetectResult(
       ErrorCode&& ec
-      , const bool&& handshakeResult
+      , const bool handshakeResult
       , StreamType&& stream
-      , MessageBufferType&& buffer)
+      , MessageBufferType&& buffer
+      , const bool _need_close)
       : ec(base::rvalue_cast(ec))
-      , handshakeResult(
-          CAN_COPY_ON_MOVE("moving const") std::move(handshakeResult))
+      , handshakeResult(handshakeResult)
       , stream(base::rvalue_cast(stream))
       , buffer(base::rvalue_cast(buffer))
+      , need_close(_need_close)
       {}
 
     SSLDetectResult(
@@ -135,7 +136,8 @@ public:
           base::rvalue_cast(other.ec)
           , base::rvalue_cast(other.handshakeResult)
           , base::rvalue_cast(other.stream.value())
-          , base::rvalue_cast(other.buffer))
+          , base::rvalue_cast(other.buffer)
+          , base::rvalue_cast(other.need_close))
       {}
 
     // Copy assignment operator
@@ -162,6 +164,7 @@ public:
         DCHECK(rhs.stream.has_value());
         stream.emplace(base::rvalue_cast(rhs.stream.value()));
         buffer = base::rvalue_cast(rhs.buffer);
+        need_close = base::rvalue_cast(rhs.need_close);
       }
 
       return *this;
@@ -173,6 +176,7 @@ public:
     // can not copy assign `stream`, so use optional
     std::optional<StreamType> stream;
     MessageBufferType buffer;
+    bool need_close;
   };
 
 public:
@@ -296,9 +300,10 @@ private:
     // handshake result
     // i.e. `true` if the buffer contains a TLS client handshake
     // and no error occurred, otherwise `false`.
-    , bool&& handshakeResult
+    , bool handshakeResult
     , StreamType&& stream
-    , MessageBufferType&& buffer)
+    , MessageBufferType&& buffer
+    , bool need_close)
     RUN_ON(&asioRegistry_->strand);
 
   void configureDetector
@@ -340,18 +345,15 @@ private:
       // otherwise `::boost::asio::post` may fail.
       , base::BindRepeating(
         [
-        ](
-          bool is_stream_valid
-          , StreamType& stream
-        ){
+        ](DetectChannel* self) -> bool {
+          DCHECK_CUSTOM_THREAD_GUARD_SCOPE(self->guard_is_stream_valid_);
           /// \note |perConnectionStrand_|
           /// is valid as long as |stream_| valid
           /// i.e. valid util |stream_| moved out
           /// (it uses executor from stream).
-          return is_stream_valid;
+          return self->is_stream_valid_.load();
         }
-        , is_stream_valid_.load()
-        , REFERENCED(stream_.value())
+        , base::Unretained(this)
       ));
 
   // will be set by |onDetected|

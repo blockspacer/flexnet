@@ -1,4 +1,9 @@
 #include "example_server.hpp" // IWYU pragma: associated
+#include "console/console_input_updater.hpp"
+#include "console/console_terminal_on_sequence.hpp"
+#include "console/console_feature_list.hpp"
+#include "net/network_entity_updater_on_sequence.hpp"
+#include "util/ECS/execute_and_emplace.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -71,263 +76,6 @@
 #include <memory>
 #include <chrono>
 
-namespace {
-
-// USAGE: ./appexe --enable-features=console_terminal,other1,other2
-constexpr char kFeatureConsoleTerminalName[]
-  = "console_terminal";
-
-const base::Feature kFeatureConsoleTerminal {
-  kFeatureConsoleTerminalName, base::FEATURE_DISABLED_BY_DEFAULT
-};
-
-#if DCHECK_IS_ON()
-// Must match type of `entt::type_info<SomeType>::id()`
-using entt_type_info_id_type
-  = std::uint32_t;
-
-// Used to prohibit unknown types of components.
-struct DebugComponentIdWithName {
-  std::string debugName;
-  entt_type_info_id_type id;
-};
-#endif // DCHECK_IS_ON()
-
-class ConsoleInputUpdater
-{
- public:
-  using HandleConsoleInputCb
-    = base::RepeatingCallback<void(const std::string&)>;
-
-  ConsoleInputUpdater(
-    scoped_refptr<base::SequencedTaskRunner>& periodicConsoleTaskRunner
-    , boost::asio::io_context& ioc
-    , scoped_refptr<base::SingleThreadTaskRunner>& mainLoopRunner
-    , HandleConsoleInputCb&& consoleInputCb);
-
-  ~ConsoleInputUpdater();
-
-  void update() NO_EXCEPTION;
-
-  MUST_USE_RETURN_VALUE
-  basis::PeriodicTaskExecutor& periodicTaskExecutor() NO_EXCEPTION
-  {
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicTaskExecutor_);
-    return periodicTaskExecutor_;
-  }
-
-  SET_WEAK_SELF(ConsoleInputUpdater)
-
- private:
-  SET_WEAK_POINTERS(ConsoleInputUpdater);
-
-  // Task sequence used to update text input from console terminal.
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
-    SET_STORAGE_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
-
-  // The io_context is required for all I/O
-  boost::asio::io_context& ioc_
-    SET_STORAGE_THREAD_GUARD(guard_ioc_);
-
-  // Same as `base::MessageLoop::current()->task_runner()`
-  // during class construction
-  scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
-    SET_STORAGE_THREAD_GUARD(guard_mainLoopRunner_);
-
-  HandleConsoleInputCb consoleInputCb_
-    SET_STORAGE_THREAD_GUARD(guard_consoleInputCb_);
-
-  /// \note will stop periodic timer on scope exit
-  basis::PeriodicTaskExecutor periodicTaskExecutor_
-    SET_STORAGE_THREAD_GUARD(guard_periodicTaskExecutor_);
-
-  SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(ConsoleInputUpdater);
-};
-
-ConsoleInputUpdater::ConsoleInputUpdater(
-  scoped_refptr<base::SequencedTaskRunner>& periodicConsoleTaskRunner
-  , boost::asio::io_context& ioc
-  , scoped_refptr<base::SingleThreadTaskRunner>& mainLoopRunner
-  , HandleConsoleInputCb&& consoleInputCb)
-  : ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_ptr_factory_(COPIED(this)))
-  , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_this_(
-        weak_ptr_factory_.GetWeakPtr()))
-  , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
-  , ioc_(ioc)
-  , mainLoopRunner_(mainLoopRunner)
-  , consoleInputCb_(base::rvalue_cast(consoleInputCb))
-  , periodicTaskExecutor_(
-      base::BindRepeating(
-        &ConsoleInputUpdater::update
-        /// \note callback may be canceled
-        , weakSelf()
-      )
-    )
-{
-  DETACH_FROM_SEQUENCE(sequence_checker_);
-}
-
-ConsoleInputUpdater::~ConsoleInputUpdater()
-{
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-}
-
-void ConsoleInputUpdater::update() NO_EXCEPTION
-{
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicConsoleTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_consoleInputCb_);
-
-  DCHECK(periodicConsoleTaskRunner_->RunsTasksInCurrentSequence());
-
-  if(ioc_.stopped()) // io_context::stopped is thread-safe
-  {
-    LOG(WARNING)
-      << "skipping update of console terminal"
-         " because of stopped io context";
-
-    return;
-  }
-
-  std::string line;
-
-  /// \todo getline blocks without timeout, so add timeout like in
-  /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
-  /// or stackoverflow.com/a/34994150
-  /// i.e. use STDIN_FILENO and poll in Linux
-  /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
-  /// or need the GetStdHandle function to obtain a handle
-  /// to the console, then you can use WaitForSingleObject
-  /// to wait for an event to happen on that handle, with a timeout
-  /// see stackoverflow.com/a/21749034
-  /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
-  std::getline(std::cin, line);
-
-  DVLOG(99)
-    << "console input: "
-    << line;
-
-  DCHECK(consoleInputCb_);
-  consoleInputCb_.Run(line);
-}
-
-class SequenceBoundConsoleTerminal
-{
- public:
-  using VoidPromise
-    = base::Promise<void, base::NoReject>;
-
-  SequenceBoundConsoleTerminal(
-    scoped_refptr<base::SequencedTaskRunner>& periodicConsoleTaskRunner)
-    : ALLOW_THIS_IN_INITIALIZER_LIST(
-        weak_ptr_factory_(COPIED(this)))
-    , ALLOW_THIS_IN_INITIALIZER_LIST(
-        weak_this_(
-          weak_ptr_factory_.GetWeakPtr()))
-    , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
-    , scopedSequencedConsoleExecutor_(
-        periodicConsoleTaskRunner
-      )
-  {
-    DETACH_FROM_SEQUENCE(sequence_checker_);
-  }
-
-  /// \note API is asyncronous, so you must check
-  /// if `destructScopedSequenceCtxVar` finished
-  VoidPromise promiseDeletion()
-  {
-    LOG_CALL(DVLOG(99));
-
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_scopedSequencedConsoleExecutor_);
-
-    return scopedSequencedConsoleExecutor_.promiseDeletion();
-  }
-
-  ~SequenceBoundConsoleTerminal()
-  {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  }
-
-  template <class... Args>
-  void wait_emplace(
-    const base::Location& from_here
-    , const std::string& debug_name
-    , Args&&... args) NO_EXCEPTION
-  {
-    LOG_CALL(DVLOG(99));
-
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicConsoleTaskRunner_);
-    DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_scopedSequencedConsoleExecutor_);
-
-    {
-      VoidPromise emplaceDonePromise
-        = scopedSequencedConsoleExecutor_.emplace_async(from_here
-            , debug_name
-            , std::forward<Args>(args)...
-        )
-      .ThenOn(periodicConsoleTaskRunner_
-        , FROM_HERE
-        , base::BindOnce(
-          []
-          (
-            scoped_refptr<base::SequencedTaskRunner> periodicRunner
-            , ConsoleInputUpdater* consoleUpdater
-          ){
-            LOG_CALL(DVLOG(99));
-
-            if(!base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
-            {
-              DVLOG(99)
-                << "console terminal not enabled";
-              return;
-            }
-
-            /// \todo make period configurable
-            consoleUpdater->periodicTaskExecutor().startPeriodicTimer(
-              base::TimeDelta::FromMilliseconds(100));
-
-            DCHECK(periodicRunner->RunsTasksInCurrentSequence());
-          }
-          , periodicConsoleTaskRunner_
-        )
-      );
-      /// \note Will block current thread for unspecified time.
-      base::waitForPromiseResolve(FROM_HERE, emplaceDonePromise);
-    }
-  }
-
- private:
-  SET_WEAK_POINTERS(SequenceBoundConsoleTerminal);
-
-  // Task sequence used to update text input from console terminal.
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
-    SET_STORAGE_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
-
-  /// \note Will free stored variable on scope exit.
-  // Use UNIQUE type to store in sequence-local-context
-  /// \note initialized, used and destroyed
-  /// on `TaskRunner` sequence-local-context
-  basis::ScopedSequenceCtxVar<ConsoleInputUpdater> scopedSequencedConsoleExecutor_
-    SET_STORAGE_THREAD_GUARD(guard_scopedSequencedConsoleExecutor_);
-
-  SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(SequenceBoundConsoleTerminal);
-};
-
-} // namespace
-
-namespace ECS {
-
-// do not schedule `async_close` twice
-CREATE_ECS_TAG(ClosingWebsocket)
-
-} // namespace ECS
-
 namespace backend {
 
 ExampleServer::ExampleServer(
@@ -336,6 +84,7 @@ ExampleServer::ExampleServer(
       ::boost::asio::ip::make_address(startOptions.ip_addr)
       , startOptions.port_num}
     , asioRegistry_{REFERENCED(ioc_)}
+    , tcpEntityAllocator_(REFERENCED(asioRegistry_))
     , listener_{
         ioc_
         , EndpointType{tcpEndpoint_}
@@ -343,8 +92,8 @@ ExampleServer::ExampleServer(
         // Callback will be called per each connected client
         // to create ECS entity
         , base::BindRepeating(
-            &ExampleServer::allocateTcpEntity
-            , base::Unretained(this)
+            &TcpEntityAllocator::allocateTcpEntity
+            , base::Unretained(&tcpEntityAllocator_)
           )
       }
     , signals_set_(ioc_, SIGINT, SIGTERM)
@@ -354,6 +103,28 @@ ExampleServer::ExampleServer(
     , asio_thread_2("asio_thread_2")
     , asio_thread_3("asio_thread_3")
     , asio_thread_4("asio_thread_4")
+    , periodicAsioTaskRunner_(
+        base::ThreadPool::GetInstance()->
+          CreateSequencedTaskRunnerWithTraits(
+            base::TaskTraits{
+              base::TaskPriority::BEST_EFFORT
+              , base::MayBlock()
+              , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+            }
+          ))
+    , periodicConsoleTaskRunner_(
+        base::ThreadPool::GetInstance()->
+          CreateSequencedTaskRunnerWithTraits(
+            base::TaskTraits{
+              base::TaskPriority::BEST_EFFORT
+              , base::MayBlock()
+              , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+            }
+          ))
+    , consoleTerminal_(base::in_place, periodicConsoleTaskRunner_)
+    , networkEntityUpdater_(base::in_place, periodicAsioTaskRunner_)
+    , periodicValidateUntil_()
+    , is_terminating_(false)
 {
   LOG_CALL(DVLOG(99));
 
@@ -365,300 +136,25 @@ ExampleServer::ExampleServer(
   #error "SIGQUIT not defined"
 #endif // defined(SIGQUIT)
 
-  auto sigQuitCallback
-    = [this]
-      (boost::system::error_code const&, int)
-      {
-        LOG_CALL(DVLOG(99));
-
-        LOG(INFO)
-          << "got stop signal";
-
-        {
-          DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
-          DCHECK(mainLoopRunner_);
-          (mainLoopRunner_)->PostTask(FROM_HERE
-            , base::BindRepeating(
-                &ExampleServer::doQuit
-                , base::Unretained(this)));
-        }
-      };
-
-
-  signals_set_.async_wait(base::rvalue_cast(sigQuitCallback));
-}
-
-ECS::Entity ExampleServer::allocateTcpEntity() NO_EXCEPTION
-{
-  using DetectChannel
-    = ::flexnet::http::DetectChannel;
-
-  using Listener
-    = ::flexnet::ws::Listener;
-
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-
-  DCHECK_RUN_ON_STRAND(&asioRegistry_.strand, ECS::AsioRegistry::ExecutorType);
-
-  // Avoid extra allocations
-  // with memory pool in ECS style using |ECS::UnusedTag|
-  // (objects that are no more in use can return into pool)
-  /// \note do not forget to free some memory in pool periodically
-  auto registry_group
-    /// \todo use `entt::group` instead of `entt::view` here
-    /// if it will speed things up
-    /// i.e. measure perf. and compare results
-    = asioRegistry_->view<ECS::TcpConnection, ECS::UnusedTag>(
-        entt::exclude<
-          // entity in destruction
-          ECS::NeedToDestroyTag
-        >
-      );
-
-  ECS::Entity tcp_entity_id
-    = ECS::NULL_ENTITY;
-
-  bool usedCache = false;
-
-  if(registry_group.empty())
-  {
-    tcp_entity_id = asioRegistry_->create();
-    DCHECK(!usedCache);
-    DVLOG(99)
-      << "allocating new network entity";
-    DCHECK(asioRegistry_->valid(tcp_entity_id));
-  } else { // if from `cache`
-    // reuse any unused entity (if found)
-    for(const ECS::Entity& entity_id : registry_group)
+  signals_set_.async_wait(
+    [this]
+    (boost::system::error_code const&, int)
     {
-      if(!asioRegistry_->valid(entity_id)) {
-        // skip invalid entities
-        continue;
-      }
-      tcp_entity_id = entity_id;
-      // need only first valid entity
-      break;
-    }
+      LOG_CALL(DVLOG(99));
 
-    /// \note may not find valid entities,
-    /// so checks for `ECS::NULL_ENTITY` using `registry.valid`
-    if(asioRegistry_->valid(tcp_entity_id))
-    {
-      usedCache = true;
-      asioRegistry_->remove<ECS::UnusedTag>(tcp_entity_id);
-      DVLOG(99)
-        << "using preallocated network entity with id: "
-        << asioRegistry_->get<ECS::TcpConnection>(tcp_entity_id).debug_id;
+      DVLOG(9)
+        << "got stop signal";
 
-    } else {
-      tcp_entity_id = asioRegistry_->create();
-      DCHECK(!usedCache);
-      DVLOG(99)
-        << "allocating new network entity";
-    }
-  } // else
-
-  DCHECK(asioRegistry_->valid(tcp_entity_id));
-
-  /// \note `tcpComponent.context.empty()` may be false
-  /// if unused `tcpComponent` found using `registry.get`
-  /// i.e. we do not fully reset `tcpComponent`,
-  /// so reset each type stored in context individually.
-  ECS::TcpConnection& tcpComponent
-    = asioRegistry_->get_or_emplace<ECS::TcpConnection>(
-        tcp_entity_id
-        , "TcpConnection_" + base::GenerateGUID() // debug name
-      );
-
-  if(usedCache)
-  {
-    /// \todo move `cached entity usage validator` to separate callback
-    // Clear cached data.
-    // We re-use some old network entity,
-    // so need to reset entity state.
-    DCHECK(asioRegistry_->valid(tcp_entity_id));
-
-    // sanity check
-    CHECK(asioRegistry_->has<
-        ECS::TcpConnection
-      >(tcp_entity_id));
-
-    // sanity check
-    CHECK(!asioRegistry_->has<
-        ECS::UnusedTag
-      >(tcp_entity_id));
-
-    // sanity check
-    CHECK(!asioRegistry_->has<
-        ECS::NeedToDestroyTag
-      >(tcp_entity_id));
-
-    /// \note not cached, affects performance
-    asioRegistry_->remove_if_exists<
-      ECS::ClosingWebsocket
-    >(tcp_entity_id);
-
-    /// \note not cached, affects performance
-    asioRegistry_->remove_if_exists<
-      ECS::CloseSocket
-    >(tcp_entity_id);
-
-    // required to process `SSLDetectResult` once
-    // (i.e. not handle outdated result)
-    asioRegistry_->emplace_or_replace<
-      ECS::UnusedSSLDetectResultTag
-    >(tcp_entity_id);
-
-    // required to process `AcceptResult` once
-    // (i.e. not handle outdated result)
-    asioRegistry_->emplace_or_replace<
-      ECS::UnusedAcceptResultTag
-    >(tcp_entity_id);
-
-#if DCHECK_IS_ON()
-    /// \note place here only types that can be re-used
-    /// i.e. components that can be re-used from cache
-    static std::vector<
-      DebugComponentIdWithName
-    > allowedComponents{
       {
-        "TcpConnection"
-        , entt::type_info<ECS::TcpConnection>::id()
-      }
-      , {
-        "SSLDetectResult"
-        , entt::type_info<base::Optional<DetectChannel::SSLDetectResult>>::id()
-      }
-      , {
-        "UnusedSSLDetectResultTag"
-        , entt::type_info<ECS::UnusedSSLDetectResultTag>::id()
-      }
-      , {
-        "AcceptConnectionResult"
-        , entt::type_info<base::Optional<Listener::AcceptConnectionResult>>::id()
-      }
-      , {
-        "UnusedAcceptResultTag"
-        , entt::type_info<ECS::UnusedAcceptResultTag>::id()
-      }
-    };
-
-    // visit entity and get the types of components it manages
-    asioRegistry_->visit(tcp_entity_id
-      , [this, tcp_entity_id]
-      (const entt_type_info_id_type type_id)
-      {
-        const auto it
-          = std::find_if(allowedComponents.begin()
-            , allowedComponents.end()
-            // custom comparator
-            , [&type_id]
-            (const DebugComponentIdWithName& x)
-            {
-              DVLOG(99)
-                << " x.id = "
-                << x.id
-                << " type_id ="
-                << type_id;
-              /// \note compare only by id, without debug name
-              return x.id == type_id;
-            }
-          );
-
-        if(it == allowedComponents.end())
-        {
-          DLOG(ERROR)
-            << " cached entity with id = "
-            << tcp_entity_id
-            << " is NOT allowed to contain component with id = "
-            << type_id;
-          NOTREACHED();
-        } else {
-          DVLOG(99)
-            << " cached entity with id = "
-            << tcp_entity_id
-            << " re-uses component with name ="
-            << it->debugName
-            << " component with id = "
-            << type_id;
-        }
-      }
-    );
-
-    ECS::UnsafeTypeContext& ctx
-      = tcpComponent.context;
-
-    std::vector<ECS::UnsafeTypeContext::variable_data>& ctxVars
-      = ctx.vars();
-
-    /// \note place here only types that can be re-used
-    /// i.e. context vars that can be re-used from cache
-    static std::vector<
-      DebugComponentIdWithName
-    > allowedCtxVars{
-      {
-        "StrandComponent"
-        , entt::type_info<Listener::StrandComponent>::id()
-      }
-      , {
-        "HttpChannel"
-        , entt::type_info<base::Optional<::flexnet::http::HttpChannel>>::id()
-      }
-      , {
-        "WsChannel"
-        , entt::type_info<base::Optional<::flexnet::ws::WsChannel>>::id()
-      }
-      , {
-        "DetectChannel"
-        , entt::type_info<base::Optional<::flexnet::http::DetectChannel>>::id()
-      }
-    };
-
-    for(auto pos = ctxVars.size(); pos; --pos)
-    {
-      auto type_id = ctxVars[pos-1].type_id;
-
-      const auto it
-        = std::find_if(allowedCtxVars.begin()
-          , allowedCtxVars.end()
-          // custom comparator
-          , [&type_id]
-          (const DebugComponentIdWithName& x)
-          {
-            DVLOG(99)
-              << " x.id = "
-              << x.id
-              << " type_id ="
-              << type_id;
-            /// \note compare only by id, without debug name
-            return x.id == type_id;
-          }
-        );
-
-      if(it == allowedCtxVars.end())
-      {
-        DLOG(ERROR)
-          << " cached context var with id = "
-          << tcp_entity_id
-          << " is NOT allowed to contain context var with id = "
-          << type_id;
-        NOTREACHED();
-      } else {
-        DVLOG(99)
-          << " cached entity with id = "
-          << tcp_entity_id
-          << " re-uses context var with name ="
-          << it->debugName
-          << " context var with id = "
-          << type_id;
+        DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
+        DCHECK(mainLoopRunner_);
+        (mainLoopRunner_)->PostTask(FROM_HERE
+          , base::BindRepeating(
+              &ExampleServer::doQuit
+              , base::Unretained(this)));
       }
     }
-#endif // DCHECK_IS_ON()
-  } // if
-
-  return tcp_entity_id;
+  );
 }
 
 void ExampleServer::doQuit()
@@ -668,6 +164,18 @@ void ExampleServer::doQuit()
   DCHECK_RUN_ON(&sequence_checker_);
 
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_terminating_);
+
+  {
+    if(is_terminating_.load())
+    {
+      LOG(WARNING)
+        << "Unable to terminate application twice";
+      return;
+    }
+
+    is_terminating_.store(true);
+  }
 
   // stop accepting of new connections
   base::PostPromise(FROM_HERE
@@ -715,6 +223,20 @@ void ExampleServer::doQuit()
         , base::Unretained(this)
     )
   )
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
+    , base::BindOnce(
+        &base::Optional<ConsoleTerminalOnSequence>::reset
+        , base::Unretained(&consoleTerminal_)
+    )
+  )
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
+    , base::BindOnce(
+        &base::Optional<NetworkEntityUpdaterOnSequence>::reset
+        , base::Unretained(&networkEntityUpdater_)
+    )
+  )
   /// \todo use |SequenceLocalContext| to store ECS::SimulationRegistry
 #if 0
   .ThenOn(mainLoopRunner_
@@ -752,70 +274,12 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors() NO_EXCEPTION
     , listener_.stopAcceptorAsync());
 }
 
-void ExampleServer::scheduleAsioRegistryUpdate() NO_EXCEPTION
-{
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicAsioTaskRunner_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
-
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(fn_scheduleAsioRegistryUpdate);
-
-  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
-
-  /// \note you can not use `::boost::asio::post`
-  /// if `ioc_->stopped()`
-  if(ioc_.stopped()) // io_context::stopped is thread-safe
-  {
-    LOG(WARNING)
-      << "skipping update of registry"
-         " because of stopped io context";
-
-    {
-      /// \note (thread-safety) access when ioc->stopped
-      /// i.e. assume no running asio threads that use |asioRegistry_|
-      DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_.fn_registry);
-      DCHECK(asioRegistry_.registry().empty());
-    }
-
-    return;
-  }
-
-  ::boost::asio::post(
-    asioRegistry_.asioStrand()
-    /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler([
-      ](
-        ECS::AsioRegistry& asio_registry
-      ){
-        DVLOG(9)
-          << "updating asio registry...";
-
-        DCHECK(
-          asio_registry.running_in_this_thread());
-
-        ECS::updateNewConnections(asio_registry);
-
-        ECS::updateSSLDetection(asio_registry);
-
-        /// \todo cutomizable cleanup period
-        ECS::updateClosingSockets(asio_registry);
-
-        /// \todo cutomizable cleanup period
-        ECS::updateUnusedSystem(asio_registry);
-
-        /// \todo cutomizable cleanup period
-        ECS::updateCleanupSystem(asio_registry);
-      }
-      , REFERENCED(asioRegistry_)
-    )
-  );
-}
-
 void ExampleServer::runLoop() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicAsioTaskRunner_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicConsoleTaskRunner_);
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);
@@ -964,126 +428,59 @@ void ExampleServer::runLoop() NO_EXCEPTION
     DCHECK(asio_thread_4.IsRunning());
   }
 
-  {
-    DCHECK(!periodicAsioTaskRunner_);
-    periodicAsioTaskRunner_
-      = base::ThreadPool::GetInstance()->
-         CreateSequencedTaskRunnerWithTraits(
-           base::TaskTraits{
-             base::TaskPriority::BEST_EFFORT
-             , base::MayBlock()
-             , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
-           }
-         );
-  }
-
-  {
-    DCHECK(!periodicConsoleTaskRunner_);
-    periodicConsoleTaskRunner_
-      = base::ThreadPool::GetInstance()->
-         CreateSequencedTaskRunnerWithTraits(
-           base::TaskTraits{
-             base::TaskPriority::BEST_EFFORT
-             , base::MayBlock()
-             , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
-           }
-         );
-  }
-
   // Must be resolved when all resources required by `run_loop_.Run()`
   // are freed.
   VoidPromise promiseRunDone
     = VoidPromise::CreateResolved(FROM_HERE);
 
   {
-    SequenceBoundConsoleTerminal consoleTerminal(periodicConsoleTaskRunner_);
-
-    /// \note Will block current thread for unspecified time.
-    consoleTerminal.wait_emplace(FROM_HERE
-      , "PeriodicConsoleExecutor" // debug name
-      , REFERENCED(periodicConsoleTaskRunner_)
-      , REFERENCED(ioc_)
-      , REFERENCED(mainLoopRunner_)
-      , base::BindRepeating(
-         &ExampleServer::handleConsoleInput
-         , base::Unretained(this)
-       )
-     );
-
-    /// \todo SequenceBoundAsioUpdater
-    // Create UNIQUE type to store in sequence-local-context
-    /// \note initialized, used and destroyed
-    /// on `TaskRunner` sequence-local-context
-    using AsioUpdater
-      = util::StrongAlias<
-          class PeriodicAsioExecutorTag
-          /// \note will stop periodic timer on scope exit
-          , basis::PeriodicTaskExecutor
-        >;
-
-    /// \note Will free stored variable on scope exit.
-    basis::ScopedSequenceCtxVar<AsioUpdater> scopedSequencedAsioExecutor
-      (periodicAsioTaskRunner_);
-
+    // blocking construction of object in sequence-local-storage
     {
-      VoidPromise emplaceDonePromise
-        = scopedSequencedAsioExecutor.emplace_async(FROM_HERE
-              , "PeriodicAsioExecutor" // debug name
-              , base::BindRepeating(
-                  /// \note scheduleAsioRegistryUpdate is not thread-safe
-                  &ExampleServer::scheduleAsioRegistryUpdate
-                  , base::Unretained(this))
-        )
-      .ThenOn(periodicAsioTaskRunner_
-        , FROM_HERE
-        , base::BindOnce(
-          []
-          (
-            scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner
-            , AsioUpdater* periodicAsioExecutor
-          ){
-            LOG_CALL(DVLOG(99));
+      // Append promise to chain as nested promise.
+      promiseRunDone =
+        promiseRunDone
+        .ThenOn(periodicConsoleTaskRunner_
+          , FROM_HERE
+          , consoleTerminal_->promiseDeletion()
+          , /*nestedPromise*/ true
+        );
 
-            /// \todo make period configurable
-            (*periodicAsioExecutor)->startPeriodicTimer(
-              base::TimeDelta::FromMilliseconds(100));
+      ConsoleTerminalOnSequence::VoidPromise emplaceDonePromise
+        = consoleTerminal_->promiseEmplaceAndStart(FROM_HERE
+            , "PeriodicConsoleExecutor" // debug name
+            , REFERENCED(periodicConsoleTaskRunner_)
+            , base::BindRepeating(
+               &ExampleServer::handleConsoleInput
+               , base::Unretained(this)
+             )
+          );
 
-            DCHECK(periodicAsioTaskRunner->RunsTasksInCurrentSequence());
-          }
-          , periodicAsioTaskRunner_
-        )
-      );
       /// \note Will block current thread for unspecified time.
       base::waitForPromiseResolve(FROM_HERE, emplaceDonePromise);
     }
 
-    // Append promise to chain as nested promise.
-    promiseRunDone =
-      promiseRunDone
-      .ThenOn(periodicAsioTaskRunner_
-        , FROM_HERE
-        // Wait for deletion
-        // on task runner associated with it
-        // otherwise you can get `use-after-free` error
-        // on resources bound to periodic callback.
-        /// \todo We can not just call `TaskRunner_.reset()`
-        /// because `TaskRunner_` is shared type
-        /// and because created executor prolongs its lifetime.
-        , scopedSequencedAsioExecutor.promiseDeletion()
-        , /*nestedPromise*/ true
-      )
-      .ThenOn(periodicConsoleTaskRunner_
-        , FROM_HERE
-        // Wait for deletion
-        // on task runner associated with it
-        // otherwise you can get `use-after-free` error
-        // on resources bound to periodic callback.
-        /// \todo We can not just call `TaskRunner_.reset()`
-        /// because `TaskRunner_` is shared type
-        /// and because created executor prolongs its lifetime.
-        , consoleTerminal.promiseDeletion()
-        , /*nestedPromise*/ true
-      );
+    // blocking construction of object in sequence-local-storage
+    {
+      // Append promise to chain as nested promise.
+      promiseRunDone =
+        promiseRunDone
+        .ThenOn(periodicAsioTaskRunner_
+          , FROM_HERE
+          , networkEntityUpdater_->promiseDeletion()
+          , /*nestedPromise*/ true
+        );
+
+      NetworkEntityUpdaterOnSequence::VoidPromise emplaceDonePromise
+        = networkEntityUpdater_->promiseEmplaceAndStart(FROM_HERE
+            , "PeriodicConsoleExecutor" // debug name
+            , REFERENCED(periodicAsioTaskRunner_)
+            , REFERENCED(asioRegistry_)
+            , REFERENCED(ioc_)
+          );
+
+      /// \note Will block current thread for unspecified time.
+      base::waitForPromiseResolve(FROM_HERE, emplaceDonePromise);
+    }
 
     run_loop_.Run();
   }
@@ -1103,11 +500,11 @@ void ExampleServer::runLoop() NO_EXCEPTION
   asio_thread_4.Stop();
   DCHECK(!asio_thread_4.IsRunning());
 
-  if(base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
-  {
-    LOG(INFO)
-      << "Press Enter to terminate application...";
-  }
+  // must be reset before `run_loop_.QuitClosure()`
+  DCHECK(!consoleTerminal_);
+
+  // must be reset before `run_loop_.QuitClosure()`
+  DCHECK(!networkEntityUpdater_);
 
   /// \note Will block current thread for unspecified time.
   base::waitForPromiseResolve(FROM_HERE, promiseRunDone);
@@ -1153,74 +550,13 @@ void ExampleServer::prepareBeforeRunLoop() NO_EXCEPTION
   ));
 }
 
-template<typename ComponentType>
-using IterateRegistryCb
-  = base::RepeatingCallback<
-      void(ECS::Entity, ECS::Registry& registry)>;
-
-// Use it if you want to perform some task with entity and then mark entity
-// as `already processed` (to avoid processing twice).
-//
-// ALGORITHM
-//
-// 1 step:
-// Executes provided callback (per each entity in `entities view`).
-// 2 step:
-// Adds component into each entity in `entities view`
-// using provided ECS registry.
-template<
-  // component to emplace (if not exists)
-  typename ComponentType
-  // filtered `entities view`
-  , typename EntitiesViewType
-  // arguments for component construction
-  , class... Args
->
-static void executeAndEmplace(
-  IterateRegistryCb<ComponentType> taskCb
-  , ECS::AsioRegistry& asioRegistry
-  , EntitiesViewType& ecsView
-  , Args&&... args)
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK(asioRegistry.running_in_this_thread());
-
-  ecsView
-    .each(
-      [&taskCb, &asioRegistry, ... args = std::forward<Args>(args)]
-      (const auto& entity
-       , const auto& component)
-    {
-      taskCb.Run(entity, (*asioRegistry));
-    });
-
-  asioRegistry->insert<ComponentType>(
-    ecsView.begin()
-    , ecsView.end()
-    , std::forward<Args>(args)...);
-
-#if DCHECK_IS_ON()
-  // sanity check due to bug in old entt versions
-  // checks `registry.insert(begin, end)`
-  ecsView
-    .each(
-      [&asioRegistry, ... args = std::forward<Args>(args)]
-      (const auto& entity
-       , const auto& component)
-    {
-      // inserted component must exist
-      DCHECK(asioRegistry->has<ComponentType>(entity));
-    });
-#endif // DCHECK_IS_ON()
-}
-
 void ExampleServer::closeNetworkResources() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicValidateUntil_);
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -1332,6 +668,7 @@ void ExampleServer::validateAndFreeNetworkResources(
 
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicValidateUntil_);
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -1388,6 +725,7 @@ ExampleServer::VoidPromise
 
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_ioc_);
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_periodicValidateUntil_);
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -1488,7 +826,7 @@ void ExampleServer::handleConsoleInput(const std::string& line)
 
   if (line == "stop")
   {
-    DVLOG(99)
+    DVLOG(9)
       << "got `stop` console command";
 
     DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_mainLoopRunner_);

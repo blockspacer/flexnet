@@ -22,6 +22,8 @@ void handleClosingSocket(
 
   DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
 
+  DCHECK(asio_registry->valid(entity_id));
+
   ECS::TcpConnection& tcpComponent
     = asio_registry->get<ECS::TcpConnection>(entity_id);
 
@@ -38,7 +40,7 @@ void handleClosingSocket(
   /// any existing strand (or create new strand)
   /// when `component.strand` is `nullptr`.
   ECS::CloseSocket::StrandType* strandComponent
-    = component.strand;
+    = component.strandPtr;
 
   // default strand used as fallback if `component.strand` is `nullptr`
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
@@ -60,6 +62,19 @@ void handleClosingSocket(
         {
           DCHECK(asio_registry.running_in_this_thread());
 
+          // Before marking entity as unused we closed stream,
+          // but `per-connection-class`-es may also mark entity as unused
+          // or free its memory (because of errors related to closed stream),
+          // so need to ensure that entity is valid
+          // (because we use asyncronous task system).
+          if(!asio_registry->valid(entity_id))
+          {
+            LOG(WARNING)
+              << "unable to mark as unused entity with id = "
+              << entity_id;
+            return;
+          }
+
           ECS::TcpConnection& tcpComponent
             = asio_registry->get<ECS::TcpConnection>(entity_id);
 
@@ -79,51 +94,50 @@ void handleClosingSocket(
   base::OnceClosure doSocketClose
     = base::BindOnce(
         []
-        (ECS::CloseSocket::SocketType* socket
+        (ECS::CloseSocket::SocketType* socketPtr
          , ECS::AsioRegistry& asio_registry
          , base::OnceClosure&& task)
         {
-          if(!socket->is_open())
+          if(socketPtr && socketPtr->is_open())
           {
             DVLOG(99)
-              << "skipping shutdown of already closed"
-                 " asio socket...";
-          }
+              << "shutdown of asio socket...";
 
-          DVLOG(99)
-            << "shutdown of asio socket...";
+            boost::beast::error_code ec;
 
-          boost::beast::error_code ec;
+            // `shutdown_both` disables sends and receives
+            // on the socket.
+            /// \note Call before `socket.close()` to ensure
+            /// that any pending operations on the socket
+            /// are properly cancelled and any buffers are flushed
+            socketPtr->shutdown(
+              boost::asio::ip::tcp::socket::shutdown_both, ec);
 
-          // `shutdown_both` disables sends and receives
-          // on the socket.
-          /// \note Call before `socket.close()` to ensure
-          /// that any pending operations on the socket
-          /// are properly cancelled and any buffers are flushed
-          socket->shutdown(
-            boost::asio::ip::tcp::socket::shutdown_both, ec);
+            if (ec) {
+              LOG(WARNING)
+                << "error during shutdown of asio socket: "
+                << ec.message();
+            }
 
-          if (ec) {
-            LOG(WARNING)
-              << "error during shutdown of asio socket: "
-              << ec.message();
-          }
+            // Close the socket.
+            // Any asynchronous send, receive
+            // or connect operations will be cancelled
+            // immediately, and will complete with the
+            // boost::asio::error::operation_aborted error.
+            /// \note even if the function indicates an error,
+            /// the underlying descriptor is closed.
+            /// \note For portable behaviour with respect to graceful closure of a
+            /// connected socket, call shutdown() before closing the socket.
+            socketPtr->close(ec);
 
-          // Close the socket.
-          // Any asynchronous send, receive
-          // or connect operations will be cancelled
-          // immediately, and will complete with the
-          // boost::asio::error::operation_aborted error.
-          /// \note even if the function indicates an error,
-          /// the underlying descriptor is closed.
-          /// \note For portable behaviour with respect to graceful closure of a
-          /// connected socket, call shutdown() before closing the socket.
-          socket->close(ec);
-
-          if (ec) {
-            LOG(WARNING)
-              << "error during close of asio socket: "
-              << ec.message();
+            if (ec) {
+              LOG(WARNING)
+                << "error during close of asio socket: "
+                << ec.message();
+            }
+          } else {
+            DVLOG(99)
+              << "unable to shutdown already closed asio socket...";
           }
 
           // Schedule change on registry thread
@@ -141,7 +155,7 @@ void handleClosingSocket(
             )
           );
         }
-        , COPIED() component.socket
+        , COPIED() component.socketPtr // copy only pointer to socket
         , REFERENCED(asio_registry)
         , base::rvalue_cast(doMarkUnused)
       );

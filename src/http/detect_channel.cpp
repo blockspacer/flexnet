@@ -263,9 +263,11 @@ void DetectChannel::onDetected(
           /// \note do not forget to free allocated resources
           /// in case of error code
           , CAN_COPY_ON_MOVE("moving const") std::move(ec)
-          , CAN_COPY_ON_MOVE("moving const") std::move(handshakeResult)
+          , handshakeResult
           , MAKES_INVALID(stream_) base::rvalue_cast(stream_.value())
           , MAKES_INVALID(buffer_) base::rvalue_cast(buffer_)
+          /// \todo make use of it
+          , /* force closing */ false
         )
     )
   );
@@ -281,9 +283,10 @@ void DetectChannel::setSSLDetectResult(
   // handshake result
   // i.e. `true` if the buffer contains a TLS client handshake
   // and no error occurred, otherwise `false`.
-  , bool&& handshakeResult
+  , bool handshakeResult
   , StreamType&& stream
-  , MessageBufferType&& buffer)
+  , MessageBufferType&& buffer
+  , bool need_close)
 {
   LOG_CALL(DVLOG(99));
 
@@ -310,9 +313,10 @@ void DetectChannel::setSSLDetectResult(
             "UniqueSSLDetectComponent_" + base::GenerateGUID() // debug name
             , entity_id_
             , base::rvalue_cast(ec)
-            , base::rvalue_cast(handshakeResult)
+            , handshakeResult
             , base::rvalue_cast(stream)
-            , base::rvalue_cast(buffer));
+            , base::rvalue_cast(buffer)
+            , need_close);
   }
 }
 

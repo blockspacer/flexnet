@@ -41,12 +41,12 @@ struct CloseSocket
     = ::boost::asio::strand<ExecutorType>;
 
   /// \todo use UnownedRef
-  SocketType* socket;
+  SocketType* socketPtr;
 
   /// \todo use UnownedPtr
   /// \note We fallback to default strand
   /// if `CloseSocket::strand` is `nullptr`.
-  StrandType* strand;
+  StrandType* strandPtr;
 };
 
 } // namespace ECS

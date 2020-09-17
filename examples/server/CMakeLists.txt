@@ -2,19 +2,45 @@
 
 add_executable(example_server
   ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/boost_throw_exception.cc
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/init_env.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/init_env.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/tcp_entity_allocator.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/tcp_entity_allocator.hpp
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/example_server.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/example_server.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/boost_throw_exception.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_updater_on_sequence.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_updater_on_sequence.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_updater.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_updater.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_feature_list.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_feature_list.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_input_updater.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_input_updater.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_terminal_on_sequence.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_terminal_on_sequence.hpp
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.hpp
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/unused.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/unused.hpp
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/ssl_detect_result.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/ssl_detect_result.hpp
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/accept_connection_result.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/accept_connection_result.hpp
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/close_socket.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/close_socket.hpp
 )

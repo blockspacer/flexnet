@@ -1,5 +1,9 @@
 #pragma once
 
+#include "console/console_terminal_on_sequence.hpp"
+#include "net/network_entity_updater_on_sequence.hpp"
+#include "tcp_entity_allocator.hpp"
+
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/ECS/tags.hpp>
@@ -8,6 +12,7 @@
 #include <base/path_service.h>
 #include <base/optional.h>
 #include <base/bind.h>
+#include <base/optional.h>
 #include <base/run_loop.h>
 #include <base/macros.h>
 #include <base/logging.h>
@@ -16,6 +21,7 @@
 #include <base/threading/thread.h>
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
+#include <base/threading/thread_collision_warner.h>
 
 #include <basis/checked_optional.hpp>
 #include <basis/lock_with_check.hpp>
@@ -43,7 +49,8 @@
 namespace backend {
 
 using namespace flexnet;
-using namespace backend;
+
+class ConsoleTerminalOnSequence;
 
 struct ServerStartOptions
 {
@@ -88,26 +95,6 @@ class ExampleServer
   // Periodically reads line from console terminal
   void updateConsoleTerminal() NO_EXCEPTION
     RUN_ON(periodicConsoleTaskRunner_.get());
-
-  /// \note creates ECS entity used as `asio connection`,
-  /// sets common components and performs checks
-  /// (if entity was re-used from cache some components must be reset)
-  //
-  // MOTIVATION
-  //
-  // Each component type must be reset if you want to re-use it
-  // (i.e. if you want to use `cache` to avoid allocations).
-  // If you manually registered component in `allowed` list,
-  // then we can assume that component can be re-used.
-  // We prohibit any `unknown` types of entities that can be re-used.
-  MUST_USE_RETURN_VALUE
-  ECS::Entity allocateTcpEntity() NO_EXCEPTION
-    RUN_ON_LOCKS_EXCLUDED(&asioRegistry_.strand);
-
-  // Posts task to strand associated with registry
-  // that will update ECS systems
-  void scheduleAsioRegistryUpdate() NO_EXCEPTION
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(fn_scheduleAsioRegistryUpdate);
 
   // Stops creation of new connections.
   /// \note Existing connections may be in `constructing` state
@@ -167,6 +154,9 @@ class ExampleServer
   ECS::AsioRegistry asioRegistry_
     SET_STORAGE_THREAD_GUARD(guard_asioRegistry_);
 
+  TcpEntityAllocator tcpEntityAllocator_;
+    SET_STORAGE_THREAD_GUARD(guard_tcpEntityAllocator_);
+
   // Listens for tcp connections.
   ws::Listener listener_
     GUARDED_BY(sequence_checker_);
@@ -209,11 +199,27 @@ class ExampleServer
   scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
     SET_STORAGE_THREAD_GUARD(guard_periodicConsoleTaskRunner_);
 
-  // Used to free network resources.
-  basis::PeriodicValidateUntil periodicValidateUntil_{};
+  // On scope exit will schedule destruction (from sequence-local-context),
+  // so use `base::Optional` to control scope i.e. control lifetime.
+  base::Optional<ConsoleTerminalOnSequence> consoleTerminal_;
 
-  /// \note `scheduleAsioRegistryUpdate()` is not thread-safe
-  CREATE_CUSTOM_THREAD_GUARD(fn_scheduleAsioRegistryUpdate);
+  // On scope exit will schedule destruction (from sequence-local-context),
+  // so use `base::Optional` to control scope i.e. control lifetime.
+  base::Optional<NetworkEntityUpdaterOnSequence> networkEntityUpdater_;
+
+  // Used to free network resources.
+  basis::PeriodicValidateUntil periodicValidateUntil_
+    // Can be used only by one thread at some moment of time
+    // (but different threads can use it overall)
+    SET_THREAD_COLLISION_GUARD(guard_periodicValidateUntil_);
+
+  /// \todo
+  //TcpEntityAllocator tcpEntityAllocator_;
+
+  // |stream_| moved in |onDetected|
+  std::atomic<bool> is_terminating_
+    // assumed to be thread-safe
+    SET_CUSTOM_THREAD_GUARD(guard_is_terminating_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

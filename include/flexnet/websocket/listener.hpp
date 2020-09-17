@@ -385,11 +385,14 @@ private:
       // 2. On each access to strand check that ioc not stopped
       // otherwise `::boost::asio::post` may fail.
       , base::BindRepeating(
-        [](const util::UnownedRef<IoContext>& ioc) {
-          return !ioc->stopped();
-        }
-        , CONST_REFERENCED(ioc_)
-      ));
+          []
+          (Listener* self) -> bool {
+            DCHECK_CUSTOM_THREAD_GUARD_SCOPE(self->guard_ioc_);
+            return !self->ioc_->stopped();
+          }
+          , base::Unretained(this)
+        )
+    );
 
   // The acceptor used to listen for incoming connections.
   AcceptorType acceptor_
@@ -425,6 +428,7 @@ private:
 
   EntityAllocatorCb entityAllocator_;
 
+  /// \note can be called from any thread
   CREATE_CUSTOM_THREAD_GUARD(fn_logFailure);
 
   // check sequence on which class was constructed/destructed/configured

@@ -569,9 +569,9 @@ void HttpChannel::onRead(
   LOG_CALL(DVLOG(99));
 
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_is_stream_valid_);
-  DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_perConnectionStrand_);
   DCHECK_CUSTOM_THREAD_GUARD_SCOPE(guard_asioRegistry_);
-
+  /// \note `is_stream_valid_` may become invalid on scope exit
+  DCHECK_CUSTOM_THREAD_GUARD_SCOPE_ENTER(guard_perConnectionStrand_);
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
   // This means they closed the connection

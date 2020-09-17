@@ -23,6 +23,8 @@ void handleAcceptNewConnectionResult(
 
   DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
 
+  DCHECK(asio_registry->valid(entity_id));
+
   // each entity representing tcp connection
   // must have that component
   ECS::TcpConnection& tcpComponent
@@ -67,7 +69,7 @@ void handleAcceptNewConnectionResult(
   if(acceptResult.need_close)
   {
     DVLOG(99)
-      << "Listener forced shutdown of created connection";
+      << "Listener forced shutdown of tcp connection";
 
     closeAndReleaseResources();
 
