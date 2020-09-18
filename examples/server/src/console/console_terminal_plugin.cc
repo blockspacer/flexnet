@@ -1,5 +1,4 @@
-#include "console/console_input_updater.hpp" // IWYU pragma: associated
-#include "console/console_feature_list.hpp"
+#include "console/console_terminal_plugin.hpp" // IWYU pragma: associated
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -74,75 +73,92 @@
 
 namespace backend {
 
-ConsoleInputUpdater::ConsoleInputUpdater(
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
-  , HandleConsoleInputCb consoleInputCb)
+ConsoleTerminalPlugin::ConsoleTerminalPlugin()
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
-  , consoleInputCb_(consoleInputCb)
-  , periodicTaskExecutor_(
-      base::BindRepeating(
-        &ConsoleInputUpdater::update
-        /// \note callback may be skipped if `WeakPtr` becomes invalid
-        , weakSelf()
-      )
-    )
+  , periodicConsoleTaskRunner_(
+      base::ThreadPool::GetInstance()->
+        CreateSequencedTaskRunnerWithTraits(
+          base::TaskTraits{
+            base::TaskPriority::BEST_EFFORT
+            , base::MayBlock()
+            , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+          }
+        ))
+  , consoleTerminal_(base::in_place, periodicConsoleTaskRunner_)
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-ConsoleInputUpdater::~ConsoleInputUpdater()
+ConsoleTerminalPlugin::~ConsoleTerminalPlugin()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  // Do not forget to call `unload()`.
+  DCHECK(!consoleTerminal_);
 }
 
-void ConsoleInputUpdater::update() NO_EXCEPTION
+ConsoleTerminalPlugin::VoidPromise ConsoleTerminalPlugin::load(
+  ConsoleInputUpdater::HandleConsoleInputCb consoleInputCb)
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputCb_));
 
-  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicConsoleTaskRunner_.get());
+  DCHECK_RUN_ON(&sequence_checker_);
 
-  std::string line;
+  DCHECK(consoleInputCb);
 
-  /// \todo std::getline blocks without timeout, so add timeout like in
-  /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
-  /// or stackoverflow.com/a/34994150
-  /// i.e. use STDIN_FILENO and poll in Linux
-  /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
-  /// or need the GetStdHandle function to obtain a handle
-  /// to the console, then you can use WaitForSingleObject
-  /// to wait for an event to happen on that handle, with a timeout
-  /// see stackoverflow.com/a/21749034
-  /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
-  std::getline(std::cin, line);
+  scoped_refptr<base::SequencedTaskRunner> runnerCopy
+    = periodicConsoleTaskRunner_;
 
-  DVLOG(99)
-    << "console input: "
-    << line;
+  ConsoleInputUpdater::HandleConsoleInputCb cbCopy
+    = consoleInputCb;
 
-  DCHECK(consoleInputCb_);
-  consoleInputCb_.Run(line);
+  return consoleTerminal_->promiseEmplaceAndStart
+      <
+        scoped_refptr<base::SequencedTaskRunner>
+        , ConsoleInputUpdater::HandleConsoleInputCb
+      >
+      (FROM_HERE
+        , "PeriodicConsoleExecutor" // debug name
+        , base::rvalue_cast(runnerCopy)
+        , base::rvalue_cast(cbCopy)
+      )
+  .ThenHere(FROM_HERE
+    , base::BindOnce(
+        &ConsoleTerminalPlugin::onLoaded
+        , base::Unretained(this)
+    )
+  );
 }
 
-MUST_USE_RETURN_VALUE
-basis::PeriodicTaskExecutor&
-  ConsoleInputUpdater::periodicTaskExecutor() NO_EXCEPTION
+ConsoleTerminalPlugin::VoidPromise ConsoleTerminalPlugin::unload()
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(periodicTaskExecutor));
+  LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicTaskExecutor_));
-  return periodicTaskExecutor_;
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  // prolong lifetime of shared object because we free `consoleTerminal_` below
+  auto sharedPromise = consoleTerminal_->promiseDeletion();
+
+  /// \note posts async-task that will delete object in sequence-local-context
+  consoleTerminal_.reset();
+
+  return sharedPromise
+  .ThenHere(FROM_HERE
+    , base::BindOnce(
+        &ConsoleTerminalPlugin::onUnloaded
+        , base::Unretained(this)
+    )
+  );
 }
 
 } // namespace backend

@@ -93,11 +93,15 @@ NetworkEntityUpdater::NetworkEntityUpdater(
       )
     )
 {
+  LOG_CALL(DVLOG(99));
+
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
 NetworkEntityUpdater::~NetworkEntityUpdater()
 {
+  LOG_CALL(DVLOG(99));
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 

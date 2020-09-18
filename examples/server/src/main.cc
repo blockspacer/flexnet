@@ -67,12 +67,6 @@ int main(int argc, char* argv[])
     }
   }
 
-  /// \todo custom config manager
-  /// ConfigManager configManager;
-
-  /// \todo custom plugin manager
-  /// PluginManager pluginManager;
-
   ExampleServer exampleServer;
 
   exampleServer.runLoop();

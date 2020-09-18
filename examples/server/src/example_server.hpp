@@ -1,5 +1,7 @@
 #pragma once
 
+#include "console/console_terminal_plugin.hpp"
+#include "net/network_entity_plugin.hpp"
 #include "console/console_terminal_on_sequence.hpp"
 #include "net/network_entity_updater_on_sequence.hpp"
 #include "tcp_entity_allocator.hpp"
@@ -86,15 +88,55 @@ class ExampleServer
 
   void handleConsoleInput(const std::string& line);
 
+  // Append promise to chain as nested promise.
+  void setPromiseBeforeStop(
+    /*shared lifetime*/ VoidPromise promise) NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+  {
+    DCHECK_RUN_ON(&sequence_checker_);
+
+    promiseBeforeStop_ = promise;
+  }
+
+  MUST_USE_RESULT
+  VoidPromise promiseBeforeStop() NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+  {
+    DCHECK_RUN_ON(&sequence_checker_);
+
+    return promiseBeforeStop_;
+  }
+
+  // Append promise to chain as nested promise.
+  void setPromiseBeforeStart(
+    /*shared lifetime*/ VoidPromise promise) NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+  {
+    DCHECK_RUN_ON(&sequence_checker_);
+
+    promiseBeforeStart_ = promise;
+  }
+
+  MUST_USE_RESULT
+  VoidPromise promiseBeforeStart() NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+  {
+    DCHECK_RUN_ON(&sequence_checker_);
+
+    return promiseBeforeStart_;
+  }
+
+  SET_WEAK_SELF(ExampleServer)
+
  private:
+  /// \todo refactor/remove
+  void startRunLoop() NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+
   // Loads configurations,
   // required before first run.
   void prepareBeforeRunLoop() NO_EXCEPTION
     RUN_ON(&sequence_checker_);
-
-  // Periodically reads line from console terminal
-  void updateConsoleTerminal() NO_EXCEPTION
-    RUN_ON(periodicConsoleTaskRunner_.get());
 
   // Stops creation of new connections.
   /// \note Existing connections may be in `constructing` state
@@ -139,6 +181,28 @@ class ExampleServer
     RUN_ON(&sequence_checker_);
 
  private:
+  SET_WEAK_POINTERS(ExampleServer);
+
+  /// \todo replace with AppStatePromise
+  // Must be resolved before `RunLoop.Run` called.
+  base::ManualPromiseResolver<void, base::NoReject>
+    beforeStartResolver_
+    GUARDED_BY(sequence_checker_);
+
+  /// \todo replace with AppStatePromise
+  VoidPromise promiseBeforeStart_
+    GUARDED_BY(sequence_checker_);
+
+  /// \todo replace with AppStatePromise
+  // Must be resolved before `RunLoop.QuitClosure` called.
+  base::ManualPromiseResolver<void, base::NoReject>
+    beforeStopResolver_
+    GUARDED_BY(sequence_checker_);
+
+  /// \todo replace with AppStatePromise
+  VoidPromise promiseBeforeStop_
+    GUARDED_BY(sequence_checker_);
+
   // The io_context is required for all I/O
   boost::asio::io_context ioc_
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
@@ -191,24 +255,6 @@ class ExampleServer
   base::Thread asio_thread_4
     GUARDED_BY(sequence_checker_);
 
-  // Task sequence used to update asio registry.
-  scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicAsioTaskRunner_));
-
-  // Task sequence used to update text input from console terminal.
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicConsoleTaskRunner_));
-
-  // On scope exit will schedule destruction (from sequence-local-context),
-  // so use `base::Optional` to control scope i.e. control lifetime.
-  base::Optional<ConsoleTerminalOnSequence> consoleTerminal_
-    SET_THREAD_COLLISION_GUARD(MEMBER_GUARD(consoleTerminal_));
-
-  // On scope exit will schedule destruction (from sequence-local-context),
-  // so use `base::Optional` to control scope i.e. control lifetime.
-  base::Optional<NetworkEntityUpdaterOnSequence> networkEntityUpdater_
-    SET_THREAD_COLLISION_GUARD(MEMBER_GUARD(networkEntityUpdater_));
-
   // Used to free network resources.
   basis::PeriodicValidateUntil periodicValidateUntil_
     SET_THREAD_COLLISION_GUARD(MEMBER_GUARD(periodicValidateUntil_));
@@ -217,6 +263,18 @@ class ExampleServer
   std::atomic<bool> is_terminating_
     // assumed to be thread-safe
     SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(is_terminating_));
+
+  /// \todo custom config manager
+  /// ConfigManager configManager;
+
+  /// \todo custom plugin manager
+  /// PluginManager pluginManager;
+
+  /// \todo use plugin loader
+  ConsoleTerminalPlugin consoleTerminalPlugin;
+
+  /// \todo use plugin loader
+  NetworkEntityPlugin networkEntityPlugin;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

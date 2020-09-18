@@ -52,11 +52,13 @@ class ConsoleInputUpdater
 
   ConsoleInputUpdater(
     scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
-    , HandleConsoleInputCb&& consoleInputCb);
+    , HandleConsoleInputCb consoleInputCb);
 
   ~ConsoleInputUpdater();
 
-  void update() NO_EXCEPTION;
+  // Periodically reads line from console terminal
+  void update() NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(periodicConsoleTaskRunner_.get());
 
   MUST_USE_RETURN_VALUE
   basis::PeriodicTaskExecutor& periodicTaskExecutor() NO_EXCEPTION

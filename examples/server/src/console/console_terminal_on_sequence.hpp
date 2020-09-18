@@ -80,7 +80,7 @@ class ConsoleTerminalOnSequence
     DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputUpdaterOnSequence_));
 
     return consoleInputUpdaterOnSequence_
-    .emplace_async(from_here
+    .emplace_async<Args...>(from_here
         , debug_name
         , std::forward<Args>(args)...
     )

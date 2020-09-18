@@ -20,6 +20,9 @@ add_executable(example_server
   ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_updater.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_updater.hpp
   #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_plugin.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_plugin.hpp
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_feature_list.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_feature_list.hpp
   #
@@ -28,6 +31,9 @@ add_executable(example_server
   #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_terminal_on_sequence.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_terminal_on_sequence.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_terminal_plugin.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/console/console_terminal_plugin.hpp
   #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.hpp

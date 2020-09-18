@@ -1,5 +1,4 @@
-#include "console/console_input_updater.hpp" // IWYU pragma: associated
-#include "console/console_feature_list.hpp"
+#include "net/network_entity_plugin.hpp" // IWYU pragma: associated
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -56,6 +55,7 @@
 #include <basis/ECS/asio_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
+#include <basis/ECS/sequence_local_context.hpp>
 #include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
@@ -63,7 +63,6 @@
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
-#include <basis/ECS/sequence_local_context.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -74,75 +73,90 @@
 
 namespace backend {
 
-ConsoleInputUpdater::ConsoleInputUpdater(
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
-  , HandleConsoleInputCb consoleInputCb)
+NetworkEntityPlugin::NetworkEntityPlugin()
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
-  , consoleInputCb_(consoleInputCb)
-  , periodicTaskExecutor_(
-      base::BindRepeating(
-        &ConsoleInputUpdater::update
-        /// \note callback may be skipped if `WeakPtr` becomes invalid
-        , weakSelf()
-      )
-    )
+  , periodicAsioTaskRunner_(
+      base::ThreadPool::GetInstance()->
+        CreateSequencedTaskRunnerWithTraits(
+          base::TaskTraits{
+            base::TaskPriority::BEST_EFFORT
+            , base::MayBlock()
+            , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+          }
+        ))
+  , networkEntityUpdater_(base::in_place, periodicAsioTaskRunner_)
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-ConsoleInputUpdater::~ConsoleInputUpdater()
+NetworkEntityPlugin::~NetworkEntityPlugin()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  // Do not forget to call `unload()`.
+  DCHECK(!networkEntityUpdater_);
 }
 
-void ConsoleInputUpdater::update() NO_EXCEPTION
+NetworkEntityPlugin::VoidPromise NetworkEntityPlugin::load(
+  ECS::AsioRegistry& asioRegistry
+  , boost::asio::io_context& ioc)
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputCb_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicAsioTaskRunner_));
 
-  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicConsoleTaskRunner_.get());
+  DCHECK_RUN_ON(&sequence_checker_);
 
-  std::string line;
+  scoped_refptr<base::SequencedTaskRunner> runnerCopy
+    = periodicAsioTaskRunner_;
 
-  /// \todo std::getline blocks without timeout, so add timeout like in
-  /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
-  /// or stackoverflow.com/a/34994150
-  /// i.e. use STDIN_FILENO and poll in Linux
-  /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
-  /// or need the GetStdHandle function to obtain a handle
-  /// to the console, then you can use WaitForSingleObject
-  /// to wait for an event to happen on that handle, with a timeout
-  /// see stackoverflow.com/a/21749034
-  /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
-  std::getline(std::cin, line);
-
-  DVLOG(99)
-    << "console input: "
-    << line;
-
-  DCHECK(consoleInputCb_);
-  consoleInputCb_.Run(line);
+  return networkEntityUpdater_->promiseEmplaceAndStart
+      <
+        scoped_refptr<base::SequencedTaskRunner>
+        , std::reference_wrapper<ECS::AsioRegistry>
+        , std::reference_wrapper<boost::asio::io_context>
+      >
+      (FROM_HERE
+        , "NetworkEntityUpdater" // debug name
+        , base::rvalue_cast(runnerCopy)
+        , REFERENCED(asioRegistry)
+        , REFERENCED(ioc)
+      )
+  .ThenHere(FROM_HERE
+    , base::BindOnce(
+        &NetworkEntityPlugin::onLoaded
+        , base::Unretained(this)
+    )
+  );
 }
 
-MUST_USE_RETURN_VALUE
-basis::PeriodicTaskExecutor&
-  ConsoleInputUpdater::periodicTaskExecutor() NO_EXCEPTION
+NetworkEntityPlugin::VoidPromise NetworkEntityPlugin::unload()
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(periodicTaskExecutor));
+  LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicTaskExecutor_));
-  return periodicTaskExecutor_;
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  // prolong lifetime of shared object because we free `networkEntityUpdater_` below
+  auto sharedPromise = networkEntityUpdater_->promiseDeletion();
+
+  /// \note posts async-task that will delete object in sequence-local-context
+  networkEntityUpdater_.reset();
+
+  return sharedPromise
+  .ThenHere(FROM_HERE
+    , base::BindOnce(
+        &NetworkEntityPlugin::onUnloaded
+        , base::Unretained(this)
+    )
+  );
 }
 
 } // namespace backend

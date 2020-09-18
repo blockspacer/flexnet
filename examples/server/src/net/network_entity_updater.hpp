@@ -59,7 +59,8 @@ class NetworkEntityUpdater
 
   // Posts task to strand associated with registry
   // that will update ECS systems
-  void update() NO_EXCEPTION;
+  void update() NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(periodicAsioTaskRunner_.get());
 
   MUST_USE_RETURN_VALUE
   basis::PeriodicTaskExecutor& periodicTaskExecutor() NO_EXCEPTION

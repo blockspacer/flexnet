@@ -80,7 +80,16 @@ namespace backend {
 
 ExampleServer::ExampleServer(
   ServerStartOptions startOptions)
-  : tcpEndpoint_{
+  : ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_ptr_factory_(COPIED(this)))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(
+        weak_ptr_factory_.GetWeakPtr()))
+    , beforeStartResolver_(FROM_HERE)
+    , promiseBeforeStart_(beforeStartResolver_.promise())
+    , beforeStopResolver_(FROM_HERE)
+    , promiseBeforeStop_(beforeStopResolver_.promise())
+    , tcpEndpoint_{
       ::boost::asio::ip::make_address(startOptions.ip_addr)
       , startOptions.port_num}
     , asioRegistry_{REFERENCED(ioc_)}
@@ -103,26 +112,6 @@ ExampleServer::ExampleServer(
     , asio_thread_2("asio_thread_2")
     , asio_thread_3("asio_thread_3")
     , asio_thread_4("asio_thread_4")
-    , periodicAsioTaskRunner_(
-        base::ThreadPool::GetInstance()->
-          CreateSequencedTaskRunnerWithTraits(
-            base::TaskTraits{
-              base::TaskPriority::BEST_EFFORT
-              , base::MayBlock()
-              , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
-            }
-          ))
-    , periodicConsoleTaskRunner_(
-        base::ThreadPool::GetInstance()->
-          CreateSequencedTaskRunnerWithTraits(
-            base::TaskTraits{
-              base::TaskPriority::BEST_EFFORT
-              , base::MayBlock()
-              , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
-            }
-          ))
-    , consoleTerminal_(base::in_place, periodicConsoleTaskRunner_)
-    , networkEntityUpdater_(base::in_place, periodicAsioTaskRunner_)
     , periodicValidateUntil_()
     , is_terminating_(false)
 {
@@ -135,6 +124,60 @@ ExampleServer::ExampleServer(
 #else
   #error "SIGQUIT not defined"
 #endif // defined(SIGQUIT)
+
+  setPromiseBeforeStart(
+    // Append promise to chain as nested promise.
+    promiseBeforeStart()
+    .ThenHere(FROM_HERE
+      , base::BindOnce(
+          &ConsoleTerminalPlugin::load
+          , base::Unretained(&consoleTerminalPlugin)
+          , base::BindRepeating(
+              &ExampleServer::handleConsoleInput
+              , base::Unretained(this)
+            )
+      )
+      , /*nestedPromise*/ true
+    )
+  );
+
+  setPromiseBeforeStop(
+    // Append promise to chain as nested promise.
+    promiseBeforeStop()
+    .ThenHere(FROM_HERE
+      , base::BindOnce(
+          &ConsoleTerminalPlugin::unload
+          , base::Unretained(&consoleTerminalPlugin)
+      )
+      , /*nestedPromise*/ true
+    )
+  );
+
+  setPromiseBeforeStart(
+    // Append promise to chain as nested promise.
+    promiseBeforeStart()
+    .ThenHere(FROM_HERE
+      , base::BindOnce(
+          &NetworkEntityPlugin::load
+          , base::Unretained(&networkEntityPlugin)
+          , REFERENCED(asioRegistry_)
+          , REFERENCED(ioc_)
+      )
+      , /*nestedPromise*/ true
+    )
+  );
+
+  setPromiseBeforeStop(
+    // Append promise to chain as nested promise.
+    promiseBeforeStop()
+    .ThenHere(FROM_HERE
+      , base::BindOnce(
+          &NetworkEntityPlugin::unload
+          , base::Unretained(&networkEntityPlugin)
+      )
+      , /*nestedPromise*/ true
+    )
+  );
 
   signals_set_.async_wait(
     [this]
@@ -177,15 +220,24 @@ void ExampleServer::doQuit()
     is_terminating_.store(true);
   }
 
-  // stop accepting of new connections
   base::PostPromise(FROM_HERE
     , UNOWNED_LIFETIME(mainLoopRunner_.get())
     , base::BindOnce(
+      [
+      ](
+      ){
+         LOG_CALL(DVLOG(99))
+          << "application terminating...";
+      })
+  )
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
+    , base::BindOnce(
+        // stop accepting of new connections
         &ExampleServer::stopAcceptors
         , base::Unretained(this)
       )
-    , /*nestedPromise*/ true
-  )
+    , /*nestedPromise*/ true)
   .ThenOn(mainLoopRunner_
     , FROM_HERE
     , base::BindOnce(
@@ -223,20 +275,6 @@ void ExampleServer::doQuit()
         , base::Unretained(this)
     )
   )
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        &base::Optional<ConsoleTerminalOnSequence>::reset
-        , base::Unretained(&consoleTerminal_)
-    )
-  )
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        &base::Optional<NetworkEntityUpdaterOnSequence>::reset
-        , base::Unretained(&networkEntityUpdater_)
-    )
-  )
   /// \todo use |SequenceLocalContext| to store ECS::SimulationRegistry
 #if 0
   .ThenOn(mainLoopRunner_
@@ -258,9 +296,14 @@ void ExampleServer::doQuit()
       )
   )
 #endif // 0
+  .ThenNestedPromiseOn(mainLoopRunner_
+    , FROM_HERE
+    , promiseBeforeStop_)
   .ThenOn(mainLoopRunner_
     , FROM_HERE
     , run_loop_.QuitClosure());
+
+  beforeStopResolver_.GetRepeatingResolveCallback().Run();
 }
 
 ExampleServer::StatusPromise ExampleServer::stopAcceptors() NO_EXCEPTION
@@ -278,13 +321,47 @@ void ExampleServer::runLoop() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicAsioTaskRunner_));
+  DCHECK_RUN_ON(&sequence_checker_);
+
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(networkEntityUpdater_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleTerminal_));
+
+  promiseBeforeStart_.ThenOn(mainLoopRunner_
+    , FROM_HERE
+    , base::BindOnce(
+        &ExampleServer::startRunLoop
+        , base::Unretained(this)
+    )
+  );
+
+  beforeStartResolver_.GetRepeatingResolveCallback().Run();
+
+  run_loop_.Run();
+
+  DVLOG(9)
+    << "Main run loop finished";
+
+  asio_thread_1.Stop();
+  DCHECK(!asio_thread_1.IsRunning());
+
+  asio_thread_2.Stop();
+  DCHECK(!asio_thread_2.IsRunning());
+
+  asio_thread_3.Stop();
+  DCHECK(!asio_thread_3.IsRunning());
+
+  asio_thread_4.Stop();
+  DCHECK(!asio_thread_4.IsRunning());
+}
+
+void ExampleServer::startRunLoop() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
@@ -429,87 +506,6 @@ void ExampleServer::runLoop() NO_EXCEPTION
     asio_thread_4.WaitUntilThreadStarted();
     DCHECK(asio_thread_4.IsRunning());
   }
-
-  // Must be resolved when all resources required by `run_loop_.Run()`
-  // are freed.
-  VoidPromise promiseRunDone
-    = VoidPromise::CreateResolved(FROM_HERE);
-
-  {
-    // blocking construction of object in sequence-local-storage
-    {
-      // Append promise to chain as nested promise.
-      promiseRunDone =
-        promiseRunDone
-        .ThenOn(periodicConsoleTaskRunner_
-          , FROM_HERE
-          , consoleTerminal_->promiseDeletion()
-          , /*nestedPromise*/ true
-        );
-
-      ConsoleTerminalOnSequence::VoidPromise emplaceDonePromise
-        = consoleTerminal_->promiseEmplaceAndStart(FROM_HERE
-            , "PeriodicConsoleExecutor" // debug name
-            , REFERENCED(periodicConsoleTaskRunner_)
-            , base::BindRepeating(
-               &ExampleServer::handleConsoleInput
-               , base::Unretained(this)
-             )
-          );
-
-      /// \note Will block current thread for unspecified time.
-      base::waitForPromiseResolve(FROM_HERE, emplaceDonePromise);
-    }
-
-    // blocking construction of object in sequence-local-storage
-    {
-      // Append promise to chain as nested promise.
-      promiseRunDone =
-        promiseRunDone
-        .ThenOn(periodicAsioTaskRunner_
-          , FROM_HERE
-          , networkEntityUpdater_->promiseDeletion()
-          , /*nestedPromise*/ true
-        );
-
-      NetworkEntityUpdaterOnSequence::VoidPromise emplaceDonePromise
-        = networkEntityUpdater_->promiseEmplaceAndStart(FROM_HERE
-            , "PeriodicConsoleExecutor" // debug name
-            , REFERENCED(periodicAsioTaskRunner_)
-            , REFERENCED(asioRegistry_)
-            , REFERENCED(ioc_)
-          );
-
-      /// \note Will block current thread for unspecified time.
-      base::waitForPromiseResolve(FROM_HERE, emplaceDonePromise);
-    }
-
-    run_loop_.Run();
-  }
-
-  DVLOG(9)
-    << "Main run loop finished";
-
-  asio_thread_1.Stop();
-  DCHECK(!asio_thread_1.IsRunning());
-
-  asio_thread_2.Stop();
-  DCHECK(!asio_thread_2.IsRunning());
-
-  asio_thread_3.Stop();
-  DCHECK(!asio_thread_3.IsRunning());
-
-  asio_thread_4.Stop();
-  DCHECK(!asio_thread_4.IsRunning());
-
-  // must be reset before `run_loop_.QuitClosure()`
-  DCHECK(!consoleTerminal_);
-
-  // must be reset before `run_loop_.QuitClosure()`
-  DCHECK(!networkEntityUpdater_);
-
-  /// \note Will block current thread for unspecified time.
-  base::waitForPromiseResolve(FROM_HERE, promiseRunDone);
 }
 
 void ExampleServer::prepareBeforeRunLoop() NO_EXCEPTION
