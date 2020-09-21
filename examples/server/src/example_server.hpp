@@ -1,9 +1,11 @@
 #pragma once
 
+#include "signal_handler/signal_handler.hpp"
 #include "console/console_terminal_plugin.hpp"
 #include "net/network_entity_plugin.hpp"
 #include "console/console_terminal_on_sequence.hpp"
 #include "net/network_entity_updater_on_sequence.hpp"
+#include "net/asio_threads_manager.hpp"
 #include "tcp_entity_allocator.hpp"
 
 #include <flexnet/websocket/listener.hpp>
@@ -59,67 +61,6 @@ struct ServerStartOptions
 {
   const std::string ip_addr = "127.0.0.1";
   const unsigned short port_num = 8085;
-};
-
-class AsioThreadsManager
-{
-public:
-  using AsioThreadType
-    = base::Thread;
-
-public:
-  SET_WEAK_SELF(AsioThreadsManager)
-
-  AsioThreadsManager()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
-
-  ~AsioThreadsManager()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
-
-  // creates |threadsNum| threads that will
-  // invoke |run| method from |ioc|
-  void startThreads(
-    const size_t threadsNum
-    , boost::asio::io_context& ioc)
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
-
-  void stopThreads()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
-
-  const std::vector<
-    std::unique_ptr<AsioThreadType>
-  >& threads() const
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
-  {
-    return asio_threads_;
-  }
-
-private:
-  void runIoc(boost::asio::io_context& ioc)
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(runIoc));
-
-private:
-  SET_WEAK_POINTERS(AsioThreadsManager);
-
-  /// \note usually you do not want to post tasks
-  /// on that task runner
-  /// i.e. use asio based task runners and sequences!
-  std::vector<
-    scoped_refptr<base::SequencedTaskRunner>
-  > asio_task_runners_
-    GUARDED_BY(sequence_checker_);
-
-  std::vector<
-    std::unique_ptr<AsioThreadType>
-  > asio_threads_
-    GUARDED_BY(sequence_checker_);
-
-  /// \note can be called from any thread
-  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(runIoc));
-
-  SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(AsioThreadsManager);
 };
 
 class ExampleServer
@@ -290,7 +231,7 @@ class ExampleServer
 
   // Captures SIGINT and SIGTERM to perform a clean shutdown
   /// \note `boost::asio::signal_set` will not handle signals if ioc stopped
-  boost::asio::signal_set signals_set_
+  SignalHandler signalHandler_
     GUARDED_BY(sequence_checker_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
@@ -301,11 +242,6 @@ class ExampleServer
   // Used to free network resources.
   basis::PeriodicValidateUntil periodicValidateUntil_
     SET_THREAD_COLLISION_GUARD(MEMBER_GUARD(periodicValidateUntil_));
-
-  // |stream_| moved in |onDetected|
-  std::atomic<bool> is_terminating_
-    // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(is_terminating_));
 
   /// \todo custom plugin manager
   /// PluginManager pluginManager;

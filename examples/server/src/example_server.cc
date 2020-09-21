@@ -17,6 +17,15 @@
 #include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
 
+#include <base/metrics/histogram.h>
+#include <base/metrics/histogram_macros.h>
+#include <base/metrics/statistics_recorder.h>
+#include <base/metrics/user_metrics.h>
+#include <base/metrics/user_metrics_action.h>
+#include <base/metrics/histogram_functions.h>
+#include <base/trace_event/trace_event.h>
+#include <base/trace_event/trace_buffer.h>
+#include <base/trace_event/trace_log.h>
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -75,125 +84,6 @@
 
 namespace backend {
 
-AsioThreadsManager::AsioThreadsManager()
-  : ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_ptr_factory_(COPIED(this)))
-  , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_this_(
-        weak_ptr_factory_.GetWeakPtr()))
-{
-  LOG_CALL(DVLOG(99));
-
-  DETACH_FROM_SEQUENCE(sequence_checker_);
-}
-
-AsioThreadsManager::~AsioThreadsManager()
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_RUN_ON(&sequence_checker_);
-
-  for(size_t i = 0; i < asio_threads_.size(); i++) {
-    std::unique_ptr<AsioThreadType>& asio_thread
-      = asio_threads_[i];
-    DCHECK(asio_thread);
-    DCHECK(!asio_thread->IsRunning());
-  }
-}
-
-void AsioThreadsManager::stopThreads()
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_RUN_ON(&sequence_checker_);
-
-  for(size_t i = 0; i < asio_threads_.size(); i++) {
-    std::unique_ptr<AsioThreadType>& asio_thread
-      = asio_threads_[i];
-    DCHECK(asio_thread);
-    DCHECK(asio_thread->IsRunning());
-    DVLOG(99)
-      << "stopping asio_thread...";
-    /// \note Start/Stop not thread-safe
-    asio_thread->Stop();
-    // wait loop stopped
-    DCHECK(!asio_thread->IsRunning());
-    DVLOG(99)
-      << "stopped asio_thread...";
-  }
-}
-
-void AsioThreadsManager::startThreads(
-  const size_t threadsNum
-  , boost::asio::io_context& ioc)
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_RUN_ON(&sequence_checker_);
-
-  asio_threads_.reserve(threadsNum);
-
-  for(size_t i = 0; i < threadsNum; i++)
-  {
-    std::unique_ptr<AsioThreadType> asio_thread
-      = std::make_unique<AsioThreadType>(
-          "AsioThread_" + std::to_string(i));
-
-    DCHECK(asio_thread);
-    base::Thread::Options options;
-    asio_thread->StartWithOptions(options);
-    asio_thread->WaitUntilThreadStarted();
-
-    asio_task_runners_.push_back(
-      asio_thread->task_runner());
-
-    DVLOG(99)
-      << "created asio thread...";
-
-    /// \note whole thread is dedicated for asio ioc
-    /// we create one |SequencedTaskRunner| per one |base::Thread|
-    DCHECK(asio_task_runners_[i]);
-
-    asio_threads_.push_back(
-      base::rvalue_cast(asio_thread));
-
-    asio_task_runners_[i]->PostTask(
-      FROM_HERE
-      , base::BindRepeating(
-          &AsioThreadsManager::runIoc
-          , base::Unretained(this)
-          , REFERENCED(ioc)
-        )
-    );
-  }
-}
-
-void AsioThreadsManager::runIoc(boost::asio::io_context& ioc)
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(runIoc));
-
-  if(ioc.stopped()) // io_context::stopped is thread-safe
-  {
-    LOG(INFO)
-      << "skipping update of stopped io context";
-    return;
-  }
-
-  // we want to loop |ioc| forever
-  // i.e. until manual termination
-  boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
-    = boost::asio::make_work_guard(ioc);
-
-  /// \note loops forever (if has work) and
-  /// blocks |task_runner->PostTask| for that thread!
-  ioc.run();
-
-  LOG(INFO)
-    << "stopped io context thread";
-}
-
 ExampleServer::ExampleServer(
   ServerStartOptions startOptions)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -221,21 +111,17 @@ ExampleServer::ExampleServer(
             , base::Unretained(&tcpEntityAllocator_)
           )
       }
-    , signals_set_(ioc_, SIGINT, SIGTERM)
+    , signalHandler_(REFERENCED(ioc_)
+        , base::BindRepeating(
+            &ExampleServer::doQuit
+            , base::Unretained(this)))
     , mainLoopRunner_{
         base::MessageLoop::current()->task_runner()}
     , periodicValidateUntil_()
-    , is_terminating_(false)
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
-
-#if defined(SIGQUIT)
-  signals_set_.add(SIGQUIT);
-#else
-  #error "SIGQUIT not defined"
-#endif // defined(SIGQUIT)
 
   if(base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
   {
@@ -392,47 +278,25 @@ ExampleServer::ExampleServer(
       , /*nestedPromise*/ true
     )
   );
-
-  signals_set_.async_wait(
-    [this]
-    (boost::system::error_code const&, int)
-    {
-      LOG_CALL(DVLOG(99));
-
-      DVLOG(9)
-        << "got stop signal";
-
-      {
-        DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
-        DCHECK(mainLoopRunner_);
-        (mainLoopRunner_)->PostTask(FROM_HERE
-          , base::BindRepeating(
-              &ExampleServer::doQuit
-              , base::Unretained(this)));
-      }
-    }
-  );
 }
 
 void ExampleServer::doQuit()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_RUN_ON(&sequence_checker_);
-
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_terminating_));
 
+  if (!mainLoopRunner_->RunsTasksInCurrentSequence())
   {
-    if(is_terminating_.load())
-    {
-      LOG(WARNING)
-        << "Unable to terminate application twice";
-      return;
-    }
-
-    is_terminating_.store(true);
+    DCHECK(mainLoopRunner_);
+    (mainLoopRunner_)->PostTask(FROM_HERE
+      , base::BindRepeating(
+          &ExampleServer::doQuit
+          , base::Unretained(this)));
+    return;
   }
+
+  DCHECK_RUN_ON(&sequence_checker_);
 
   base::PostPromise(FROM_HERE
     , UNOWNED_LIFETIME(mainLoopRunner_.get())

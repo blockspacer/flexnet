@@ -1,5 +1,8 @@
-#include "console/console_input_updater.hpp" // IWYU pragma: associated
+#include "net/asio_threads_manager.hpp" // IWYU pragma: associated
+#include "console/console_input_updater.hpp"
+#include "console/console_terminal_on_sequence.hpp"
 #include "console/console_feature_list.hpp"
+#include "net/network_entity_updater_on_sequence.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -72,85 +75,123 @@
 
 namespace backend {
 
-ConsoleInputUpdater::ConsoleInputUpdater(
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
-  , HandleConsoleInputCb consoleInputCb)
+AsioThreadsManager::AsioThreadsManager()
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
-  , consoleInputCb_(consoleInputCb)
-  , periodicTaskExecutor_(
-      base::BindRepeating(
-        &ConsoleInputUpdater::update
-        /// \note callback may be skipped if `WeakPtr` becomes invalid
-        , weakSelf()
-      )
-    )
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
-
-  DCHECK(base::FeatureList::IsEnabled(kFeatureConsoleTerminal));
 }
 
-ConsoleInputUpdater::~ConsoleInputUpdater()
+AsioThreadsManager::~AsioThreadsManager()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-}
+  DCHECK_RUN_ON(&sequence_checker_);
 
-void ConsoleInputUpdater::update() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputCb_));
-
-  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicConsoleTaskRunner_.get());
-
-  std::string line;
-
-  // use cin.peek to check if there is anything to read,
-  // to exit if no input
-  if(!std::cin.eof())
-  {
-    /// \todo std::getline blocks without timeout, so add timeout like in
-    /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
-    /// or stackoverflow.com/a/34994150
-    /// i.e. use STDIN_FILENO and poll in Linux
-    /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
-    /// or need the GetStdHandle function to obtain a handle
-    /// to the console, then you can use WaitForSingleObject
-    /// to wait for an event to happen on that handle, with a timeout
-    /// see stackoverflow.com/a/21749034
-    /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
-    std::getline(std::cin, line);
-
-    DVLOG(99)
-      << "console input: "
-      << line;
-
-    DCHECK(consoleInputCb_);
-    consoleInputCb_.Run(line);
-  } else {
-    DVLOG(99)
-      << "no console input";
+  for(size_t i = 0; i < asio_threads_.size(); i++) {
+    std::unique_ptr<AsioThreadType>& asio_thread
+      = asio_threads_[i];
+    DCHECK(asio_thread);
+    DCHECK(!asio_thread->IsRunning());
   }
 }
 
-MUST_USE_RETURN_VALUE
-basis::PeriodicTaskExecutor&
-  ConsoleInputUpdater::periodicTaskExecutor() NO_EXCEPTION
+void AsioThreadsManager::stopThreads()
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(periodicTaskExecutor));
+  LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicTaskExecutor_));
-  return periodicTaskExecutor_;
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  for(size_t i = 0; i < asio_threads_.size(); i++) {
+    std::unique_ptr<AsioThreadType>& asio_thread
+      = asio_threads_[i];
+    DCHECK(asio_thread);
+    DCHECK(asio_thread->IsRunning());
+    DVLOG(99)
+      << "stopping asio_thread...";
+    /// \note Start/Stop not thread-safe
+    asio_thread->Stop();
+    // wait loop stopped
+    DCHECK(!asio_thread->IsRunning());
+    DVLOG(99)
+      << "stopped asio_thread...";
+  }
+}
+
+void AsioThreadsManager::startThreads(
+  const size_t threadsNum
+  , boost::asio::io_context& ioc)
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  asio_threads_.reserve(threadsNum);
+
+  for(size_t i = 0; i < threadsNum; i++)
+  {
+    std::unique_ptr<AsioThreadType> asio_thread
+      = std::make_unique<AsioThreadType>(
+          "AsioThread_" + std::to_string(i));
+
+    DCHECK(asio_thread);
+    base::Thread::Options options;
+    asio_thread->StartWithOptions(options);
+    asio_thread->WaitUntilThreadStarted();
+
+    asio_task_runners_.push_back(
+      asio_thread->task_runner());
+
+    DVLOG(99)
+      << "created asio thread...";
+
+    /// \note whole thread is dedicated for asio ioc
+    /// we create one |SequencedTaskRunner| per one |base::Thread|
+    DCHECK(asio_task_runners_[i]);
+
+    asio_threads_.push_back(
+      base::rvalue_cast(asio_thread));
+
+    asio_task_runners_[i]->PostTask(
+      FROM_HERE
+      , base::BindRepeating(
+          &AsioThreadsManager::runIoc
+          , base::Unretained(this)
+          , REFERENCED(ioc)
+        )
+    );
+  }
+}
+
+void AsioThreadsManager::runIoc(boost::asio::io_context& ioc)
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(runIoc));
+
+  if(ioc.stopped()) // io_context::stopped is thread-safe
+  {
+    LOG(INFO)
+      << "skipping update of stopped io context";
+    return;
+  }
+
+  // we want to loop |ioc| forever
+  // i.e. until manual termination
+  boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
+    = boost::asio::make_work_guard(ioc);
+
+  /// \note loops forever (if has work) and
+  /// blocks |task_runner->PostTask| for that thread!
+  ioc.run();
+
+  LOG(INFO)
+    << "stopped io context thread";
 }
 
 } // namespace backend

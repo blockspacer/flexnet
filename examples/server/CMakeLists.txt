@@ -14,11 +14,17 @@ add_executable(example_server
   ${CMAKE_CURRENT_SOURCE_DIR}/src/example_server.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/example_server.hpp
   #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/signal_handler/signal_handler.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/signal_handler/signal_handler.cc
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_updater_on_sequence.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_updater_on_sequence.hpp
   #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_updater.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_updater.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/net/asio_threads_manager.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/net/asio_threads_manager.hpp
   #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_plugin.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/net/network_entity_plugin.hpp

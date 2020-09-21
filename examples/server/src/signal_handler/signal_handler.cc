@@ -1,5 +1,8 @@
-#include "console/console_input_updater.hpp" // IWYU pragma: associated
+#include "example_server.hpp" // IWYU pragma: associated
+#include "console/console_input_updater.hpp"
+#include "console/console_terminal_on_sequence.hpp"
 #include "console/console_feature_list.hpp"
+#include "net/network_entity_updater_on_sequence.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -14,6 +17,15 @@
 #include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
 
+#include <base/metrics/histogram.h>
+#include <base/metrics/histogram_macros.h>
+#include <base/metrics/statistics_recorder.h>
+#include <base/metrics/user_metrics.h>
+#include <base/metrics/user_metrics_action.h>
+#include <base/metrics/histogram_functions.h>
+#include <base/trace_event/trace_event.h>
+#include <base/trace_event/trace_buffer.h>
+#include <base/trace_event/trace_log.h>
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -72,85 +84,76 @@
 
 namespace backend {
 
-ConsoleInputUpdater::ConsoleInputUpdater(
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
-  , HandleConsoleInputCb consoleInputCb)
-  : ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_ptr_factory_(COPIED(this)))
-  , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_this_(
-        weak_ptr_factory_.GetWeakPtr()))
-  , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
-  , consoleInputCb_(consoleInputCb)
-  , periodicTaskExecutor_(
-      base::BindRepeating(
-        &ConsoleInputUpdater::update
-        /// \note callback may be skipped if `WeakPtr` becomes invalid
-        , weakSelf()
-      )
-    )
+SignalHandler::SignalHandler(
+  ::boost::asio::io_context& ioc
+  , base::OnceClosure&& quitCb)
+  : signals_set_(
+      /// \note will not handle signals if ioc stopped
+      ioc, SIGINT, SIGTERM)
+    , quitCb_(base::rvalue_cast(quitCb))
+    , signalsRecievedCount_(0)
 {
-  LOG_CALL(DVLOG(99));
-
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  DCHECK(base::FeatureList::IsEnabled(kFeatureConsoleTerminal));
+#if defined(SIGQUIT)
+  signals_set_.add(SIGQUIT);
+#else
+  #error "SIGQUIT not defined"
+#endif // defined(SIGQUIT)
+
+  signals_set_.async_wait(
+    ::std::bind(
+      &SignalHandler::handleQuitSignal
+      , this
+      , std::placeholders::_1
+      , std::placeholders::_2)
+  );
 }
 
-ConsoleInputUpdater::~ConsoleInputUpdater()
+void SignalHandler::handleQuitSignal(
+  ::boost::system::error_code const&
+  , int)
 {
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(handleQuitSignal));
+
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-}
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(quitCb_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(signalsRecievedCount_));
 
-void ConsoleInputUpdater::update() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
+  DVLOG(9)
+    << "got stop signal";
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputCb_));
+  signalsRecievedCount_.store(
+    signalsRecievedCount_.load() + 1);
 
-  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicConsoleTaskRunner_.get());
+  UMA_HISTOGRAM_COUNTS_1000("App.Signals.RecievedCount"
+    , signalsRecievedCount_.load());
 
-  std::string line;
-
-  // use cin.peek to check if there is anything to read,
-  // to exit if no input
-  if(!std::cin.eof())
-  {
-    /// \todo std::getline blocks without timeout, so add timeout like in
-    /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
-    /// or stackoverflow.com/a/34994150
-    /// i.e. use STDIN_FILENO and poll in Linux
-    /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
-    /// or need the GetStdHandle function to obtain a handle
-    /// to the console, then you can use WaitForSingleObject
-    /// to wait for an event to happen on that handle, with a timeout
-    /// see stackoverflow.com/a/21749034
-    /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
-    std::getline(std::cin, line);
-
-    DVLOG(99)
-      << "console input: "
-      << line;
-
-    DCHECK(consoleInputCb_);
-    consoleInputCb_.Run(line);
-  } else {
-    DVLOG(99)
-      << "no console input";
+  // User pressed `stop` many times (possibly due to hang).
+  // Assume he really wants to terminate application,
+  // so call `std::exit` to exit immediately.
+  if(signalsRecievedCount_.load() > 3) {
+    LOG(ERROR)
+      << "unable to send stop signal gracefully,"
+         " forcing application termination";
+    std::exit(EXIT_SUCCESS);
+    NOTREACHED();
   }
+  // Unable to terminate application twice.
+  else if(signalsRecievedCount_.load() > 1) {
+    LOG(WARNING)
+      << "application already recieved stop signal, "
+         "ignoring";
+    return;
+  }
+
+  base::rvalue_cast(quitCb_).Run();
 }
 
-MUST_USE_RETURN_VALUE
-basis::PeriodicTaskExecutor&
-  ConsoleInputUpdater::periodicTaskExecutor() NO_EXCEPTION
+SignalHandler::~SignalHandler()
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(periodicTaskExecutor));
-
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicTaskExecutor_));
-  return periodicTaskExecutor_;
+  DCHECK_RUN_ON(&sequence_checker_);
 }
 
 } // namespace backend
