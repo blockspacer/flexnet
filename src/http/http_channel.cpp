@@ -2,8 +2,8 @@
 #include "flexnet/util/mime_type.hpp"
 #include "flexnet/websocket/ws_channel.hpp"
 #include "flexnet/ECS/tags.hpp"
-#include "flexnet/ECS/components/close_socket.hpp"
 #include "flexnet/ECS/components/tcp_connection.hpp"
+#include "flexnet/util/close_socket_unsafe.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/optional.h>
@@ -469,7 +469,7 @@ void HttpChannel::doEof()
       .expires_after(std::chrono::seconds(kCloseTimeoutSec));
   }
 
-  auto closeAndReleaseResources
+  auto markUnused
     = [this, &socket]()
   {
     DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
@@ -477,22 +477,22 @@ void HttpChannel::doEof()
 
     DCHECK(asioRegistry_->running_in_this_thread());
 
-    // Schedule shutdown on asio thread
-    if(!(*asioRegistry_)->has<ECS::CloseSocket>(entity_id_)) {
-      (*asioRegistry_)->emplace<ECS::CloseSocket>(entity_id_
-        /// \note lifetime of `acceptResult` must be prolonged
-        , UNOWNED_LIFETIME() &socket
-        , UNOWNED_LIFETIME() &perConnectionStrand_.data
-      );
+    DCHECK((*asioRegistry_)->valid(entity_id_));
+
+    if(!(*asioRegistry_)->has<ECS::UnusedTag>(entity_id_)) {
+      (*asioRegistry_)->emplace<ECS::UnusedTag>(entity_id_);
     }
   };
+
+  util::closeSocketUnsafe(
+    REFERENCED(socket));
 
   // mark SSL detection completed
   ::boost::asio::post(
     asioRegistry_->asioStrand()
     /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler(
-        base::rvalue_cast(closeAndReleaseResources)
+        base::rvalue_cast(markUnused)
       )
   );
 }

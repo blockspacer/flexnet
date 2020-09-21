@@ -30,11 +30,11 @@ void updateUnusedSystem(
   registry_group
     .each(
       [&asio_registry]
-      (const auto& entity)
+      (const auto& entity_id)
     {
-      DCHECK(asio_registry->valid(entity)
-        && !asio_registry->has<ECS::NeedToDestroyTag>(entity));
-      asio_registry->emplace<ECS::NeedToDestroyTag>(entity);
+      DCHECK(asio_registry->valid(entity_id));
+      DCHECK(!asio_registry->has<ECS::NeedToDestroyTag>(entity_id));
+      asio_registry->emplace<ECS::NeedToDestroyTag>(entity_id);
     });
 }
 

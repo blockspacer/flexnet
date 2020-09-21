@@ -1,7 +1,5 @@
 #pragma once
 
-#include "ECS/tags/closing_websocket.hpp"
-
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/ECS/tags.hpp>

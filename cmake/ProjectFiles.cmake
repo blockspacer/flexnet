@@ -20,4 +20,7 @@ list(APPEND flexnet_SOURCES
   ${flexnet_src_DIR}/util/mime_type.cpp
   #
   ${flexnet_include_DIR}/util/limited_tcp_stream.hpp
+  #
+  ${flexnet_src_DIR}/util/close_socket_unsafe.cc
+  ${flexnet_include_DIR}/util/close_socket_unsafe.hpp
 )

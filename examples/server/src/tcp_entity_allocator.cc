@@ -4,7 +4,6 @@
 #include "ECS/systems/cleanup.hpp"
 #include "ECS/systems/ssl_detect_result.hpp"
 #include "ECS/systems/unused.hpp"
-#include "ECS/systems/close_socket.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/websocket/ws_channel.hpp>
@@ -13,7 +12,6 @@
 #include <flexnet/websocket/ws_channel.hpp>
 #include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
-#include <flexnet/ECS/components/close_socket.hpp>
 
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
@@ -212,16 +210,6 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
     CHECK(!asioRegistry_->has<
         ECS::NeedToDestroyTag
       >(tcp_entity_id));
-
-    /// \note not cached, affects performance
-    asioRegistry_->remove_if_exists<
-      ECS::ClosingWebsocket
-    >(tcp_entity_id);
-
-    /// \note not cached, affects performance
-    asioRegistry_->remove_if_exists<
-      ECS::CloseSocket
-    >(tcp_entity_id);
 
     // required to process `SSLDetectResult` once
     // (i.e. not handle outdated result)

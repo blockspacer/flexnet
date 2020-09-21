@@ -1,8 +1,9 @@
 #include "ECS/systems/accept_connection_result.hpp" // IWYU pragma: associated
 
+#include <flexnet/util/close_socket_unsafe.hpp>
 #include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
-#include <flexnet/ECS/components/close_socket.hpp>
+#include <flexnet/util/close_socket_unsafe.hpp>
 
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>
@@ -42,12 +43,13 @@ void handleAcceptNewConnectionResult(
   {
     DCHECK(asio_registry.running_in_this_thread());
 
-    // Schedule shutdown on asio thread
-    if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
-      asio_registry->emplace<ECS::CloseSocket>(entity_id
-        /// \note lifetime of `acceptResult` must be prolonged
-        , UNOWNED_LIFETIME() &acceptResult.socket
-        , /* strand */ nullptr);
+    util::closeSocketUnsafe(
+      REFERENCED(acceptResult.socket));
+
+    DCHECK(asio_registry->valid(entity_id));
+
+    if(!asio_registry->has<ECS::UnusedTag>(entity_id)) {
+      asio_registry->emplace<ECS::UnusedTag>(entity_id);
     }
   };
 
@@ -69,7 +71,7 @@ void handleAcceptNewConnectionResult(
   if(acceptResult.need_close)
   {
     DVLOG(99)
-      << "Listener forced shutdown of tcp connection";
+      << "forced shutdown of tcp connection";
 
     closeAndReleaseResources();
 

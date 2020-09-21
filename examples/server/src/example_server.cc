@@ -3,13 +3,11 @@
 #include "console/console_terminal_on_sequence.hpp"
 #include "console/console_feature_list.hpp"
 #include "net/network_entity_updater_on_sequence.hpp"
-#include "util/ECS/execute_and_emplace.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
 #include "ECS/systems/ssl_detect_result.hpp"
 #include "ECS/systems/unused.hpp"
-#include "ECS/systems/close_socket.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/websocket/ws_channel.hpp>
@@ -18,7 +16,6 @@
 #include <flexnet/websocket/ws_channel.hpp>
 #include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
-#include <flexnet/ECS/components/close_socket.hpp>
 
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
@@ -582,16 +579,14 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
         auto ecsView
           = asioRegistry->view<ECS::TcpConnection>(
               entt::exclude<
-                // do not process twice
-                ECS::ClosingWebsocket
                 // entity in destruction
-                , ECS::NeedToDestroyTag
+                ECS::NeedToDestroyTag
                 // entity is unused
                 , ECS::UnusedTag
               >
             );
 
-        IterateRegistryCb<ECS::ClosingWebsocket> doEofWebsocket
+        base::RepeatingCallback<void(ECS::Entity, ECS::Registry&)> doEofWebsocket
           = base::BindRepeating(
               []
               (ECS::AsioRegistry& asioRegistry
@@ -603,6 +598,8 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
           using namespace ::flexnet::ws;
 
           LOG_CALL(DVLOG(99));
+
+          DCHECK(asioRegistry.running_in_this_thread());
 
           DCHECK(asioRegistry->valid(entity));
 
@@ -629,7 +626,8 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
             wsChannel->value().postTaskOnConnectionStrand(FROM_HERE,
               base::BindOnce(
                 &::flexnet::ws::WsChannel::doEof
-                , base::Unretained(&wsChannel->value())
+                //, base::Unretained(&wsChannel->value())
+                , wsChannel->value().weakSelf()
               )
             );
           } else {
@@ -647,11 +645,14 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
                " nothing to close";
         } else {
           // execute callback `doEofWebsocket` per each entity,
-          // then mark each entity with `ECS::ClosingWebsocket`
-          executeAndEmplace<ECS::ClosingWebsocket>(
-            doEofWebsocket
-            , asioRegistry
-            , ecsView);
+          ecsView
+          .each(
+            [&doEofWebsocket, &asioRegistry]
+            (const auto& entity
+             , const auto& component)
+          {
+            doEofWebsocket.Run(entity, (*asioRegistry));
+          });
         }
       }
       , REFERENCED(asioRegistry_)

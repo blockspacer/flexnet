@@ -1,8 +1,8 @@
 #include "flexnet/websocket/ws_channel.hpp" // IWYU pragma: associated
 #include "flexnet/util/mime_type.hpp"
 #include "flexnet/ECS/tags.hpp"
-#include "flexnet/ECS/components/close_socket.hpp"
 #include "flexnet/ECS/components/tcp_connection.hpp"
+#include "flexnet/util/close_socket_unsafe.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/optional.h>
@@ -305,6 +305,7 @@ void WsChannel::doEof()
 
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -332,40 +333,52 @@ void WsChannel::doEof()
               this)
             , std::placeholders::_1
           )
-      )
-      /*beast::bind_front_handler(
-          &WsChannel::onClose,
-          this)*/);
+      ));
   }
 
-  auto closeAndReleaseResources
-    = [this, &socket]()
+  ECS::Registry* registryPtr = nullptr;
   {
-    LOG_CALL(DVLOG(99));
-
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
-
-    DCHECK(asioRegistry_->running_in_this_thread());
-
-    // Schedule shutdown on asio thread
-    if(!(*asioRegistry_)->has<ECS::CloseSocket>(entity_id_)) {
-      (*asioRegistry_)->emplace<ECS::CloseSocket>(entity_id_
-        /// \note lifetime of `acceptResult` must be prolonged
-        , UNOWNED_LIFETIME() &socket
-        , UNOWNED_LIFETIME() &perConnectionStrand_.data
-      );
-    }
-  };
+    DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_->FUNC_GUARD(registry));
+    registryPtr = &(asioRegistry_->registry());
+  }
 
   // mark SSL detection completed
   ::boost::asio::post(
     asioRegistry_->asioStrand()
     /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler(
-        base::rvalue_cast(closeAndReleaseResources)
-      )
+    , ::boost::beast::bind_front_handler([
+      ](
+        base::OnceClosure&& task
+      ){
+        DCHECK(task);
+        base::rvalue_cast(task).Run();
+      }
+      , base::BindOnce(
+          [
+          ](
+            /// \note copy because `this`
+            /// i.e. `entity_id_` may be freed
+            ECS::EntityId entity_id
+            /// \note copy pointer because `this`
+            /// i.e. `asioRegistry_` may be freed
+            /// \note must control lifetime
+            , ECS::Registry* registryPtr
+          )
+          {
+            LOG_CALL(DVLOG(99));
+
+            if(!registryPtr->valid(entity_id)) {
+              return;
+            }
+
+            if(!registryPtr->has<ECS::UnusedTag>(entity_id)) {
+              registryPtr->emplace<ECS::UnusedTag>(entity_id);
+            }
+          }
+          , entity_id_
+          , registryPtr
+        )
+    )
   );
 }
 

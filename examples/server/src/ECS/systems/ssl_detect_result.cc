@@ -1,9 +1,9 @@
 #include "ECS/systems/ssl_detect_result.hpp" // IWYU pragma: associated
 
 #include <flexnet/ECS/tags.hpp>
-#include <flexnet/ECS/components/close_socket.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
 #include <flexnet/http/http_channel.hpp>
+#include <flexnet/util/close_socket_unsafe.hpp>
 
 #include <base/logging.h>
 #include <base/guid.h>
@@ -26,11 +26,12 @@ void handleSSLDetectResult(
 
   DCHECK(asio_registry->valid(entity_id));
 
-  auto closeAndReleaseResources
+  /// \note Take care of thread-safety.
+  /// We assume that is is safe to change unused asio `stream`
+  /// on any thread.
+  auto doCloseStream
     = [&detectResult, &asio_registry, entity_id]()
   {
-    DCHECK(asio_registry.running_in_this_thread());
-
     /// \note we are closing unused stream, so it must be thread-safe here
     if(detectResult.stream.value().socket().is_open()) {
       // Set the timeout.
@@ -39,13 +40,21 @@ void handleSSLDetectResult(
             kShutdownExpireTimeoutSec));
     }
 
-    // Schedule shutdown on asio thread
-    if(!asio_registry->has<ECS::CloseSocket>(entity_id)) {
-      asio_registry->emplace<ECS::CloseSocket>(entity_id
-        /// \note lifetime of `detectResult` must be prolonged
-        , UNOWNED_LIFETIME() &detectResult.stream.value().socket()
-        , /* strand */ nullptr
-      );
+    detectResult.stream.value().close();
+  };
+
+  auto doMarkUnused
+    = [&detectResult, &asio_registry, entity_id]()
+  {
+    DCHECK(asio_registry.running_in_this_thread());
+
+    util::closeSocketUnsafe(
+      REFERENCED(detectResult.stream.value().socket()));
+
+    DCHECK(asio_registry->valid(entity_id));
+
+    if(!asio_registry->has<ECS::UnusedTag>(entity_id)) {
+      asio_registry->emplace<ECS::UnusedTag>(entity_id);
     }
   };
 
@@ -54,7 +63,8 @@ void handleSSLDetectResult(
     LOG(ERROR)
       << "Detector forced shutdown of tcp connection";
 
-    closeAndReleaseResources();
+    doCloseStream();
+    doMarkUnused();
 
     return;
   }
@@ -66,7 +76,8 @@ void handleSSLDetectResult(
       << "Handshake failed for new connection with error: "
       << detectResult.ec.message();
 
-    closeAndReleaseResources();
+    doCloseStream();
+    doMarkUnused();
 
     return;
   }

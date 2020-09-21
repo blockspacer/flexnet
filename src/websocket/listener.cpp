@@ -1,7 +1,6 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 #include "flexnet/ECS/tags.hpp"
 #include "flexnet/ECS/components/tcp_connection.hpp"
-#include "flexnet/ECS/components/close_socket.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/bind.h>

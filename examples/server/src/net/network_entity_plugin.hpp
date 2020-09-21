@@ -1,13 +1,11 @@
 #pragma once
 
 #include "net/network_entity_updater_on_sequence.hpp"
-#include "util/ECS/execute_and_emplace.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
 #include "ECS/systems/ssl_detect_result.hpp"
 #include "ECS/systems/unused.hpp"
-#include "ECS/systems/close_socket.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/websocket/ws_channel.hpp>
@@ -16,7 +14,6 @@
 #include <flexnet/websocket/ws_channel.hpp>
 #include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
-#include <flexnet/ECS/components/close_socket.hpp>
 
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
