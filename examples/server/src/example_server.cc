@@ -74,6 +74,7 @@
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
+#include <basis/task/task_util.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -111,12 +112,17 @@ ExampleServer::ExampleServer(
             , base::Unretained(&tcpEntityAllocator_)
           )
       }
-    , signalHandler_(REFERENCED(ioc_)
-        , base::BindRepeating(
-            &ExampleServer::doQuit
-            , base::Unretained(this)))
     , mainLoopRunner_{
         base::MessageLoop::current()->task_runner()}
+    , signalHandler_(
+        REFERENCED(ioc_)
+        , basis::bindToTaskRunner(
+            FROM_HERE,
+            base::BindOnce(
+                &ExampleServer::doQuit
+                , base::Unretained(this)),
+            base::MessageLoop::current()->task_runner())
+      )
     , periodicValidateUntil_()
 {
   LOG_CALL(DVLOG(99));
@@ -285,16 +291,6 @@ void ExampleServer::doQuit()
   LOG_CALL(DVLOG(99));
 
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
-
-  if (!mainLoopRunner_->RunsTasksInCurrentSequence())
-  {
-    DCHECK(mainLoopRunner_);
-    (mainLoopRunner_)->PostTask(FROM_HERE
-      , base::BindRepeating(
-          &ExampleServer::doQuit
-          , base::Unretained(this)));
-    return;
-  }
 
   DCHECK_RUN_ON(&sequence_checker_);
 

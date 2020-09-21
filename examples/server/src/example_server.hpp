@@ -229,15 +229,15 @@ class ExampleServer
   base::RunLoop run_loop_
     GUARDED_BY(sequence_checker_);
 
-  // Captures SIGINT and SIGTERM to perform a clean shutdown
-  /// \note `boost::asio::signal_set` will not handle signals if ioc stopped
-  SignalHandler signalHandler_
-    GUARDED_BY(sequence_checker_);
-
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
+
+  // Captures SIGINT and SIGTERM to perform a clean shutdown
+  /// \note `boost::asio::signal_set` will not handle signals if ioc stopped
+  SignalHandler signalHandler_
+    GUARDED_BY(sequence_checker_);
 
   // Used to free network resources.
   basis::PeriodicValidateUntil periodicValidateUntil_
