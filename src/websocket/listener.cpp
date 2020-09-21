@@ -57,7 +57,7 @@ Listener::Listener(
       ioc.get_executor())
   , acceptor_(ioc)
 #if DCHECK_IS_ON()
-  , sm_(UNINITIALIZED, FillStateTransitionTable())
+  , sm_(UNINITIALIZED, fillStateTransitionTable())
 #endif // DCHECK_IS_ON()
   , entityAllocator_(entityAllocator)
 {
@@ -139,8 +139,10 @@ void Listener::logFailure(
   ErrorCode ec;
 
   DCHECK(
-    sm_.CurrentState() == Listener::UNINITIALIZED
-    || sm_.CurrentState() == Listener::PAUSED);
+    sm_.currentState() == Listener::UNINITIALIZED
+    || sm_.currentState() == Listener::PAUSED)
+    << " current state:"
+    << sm_.currentState();
 
   VLOG(9)
     << "opening acceptor for "
@@ -169,8 +171,10 @@ void Listener::logFailure(
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
   DCHECK(
-    sm_.CurrentState() == Listener::UNINITIALIZED
-    || sm_.CurrentState() == Listener::PAUSED);
+    sm_.currentState() == Listener::UNINITIALIZED
+    || sm_.currentState() == Listener::PAUSED)
+    << " current state:"
+    << sm_.currentState();
 
   ErrorCode ec;
 
@@ -241,8 +245,10 @@ Listener::StatusPromise Listener::configureAndRun()
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
   DCHECK(
-    sm_.CurrentState() == Listener::UNINITIALIZED
-    || sm_.CurrentState() == Listener::PAUSED);
+    sm_.currentState() == Listener::UNINITIALIZED
+    || sm_.currentState() == Listener::PAUSED)
+    << " current state:"
+    << sm_.currentState();
 
   RETURN_IF_ERROR(
     openAcceptor());
@@ -285,7 +291,9 @@ void Listener::doAccept()
   }
 
   DCHECK(
-    sm_.CurrentState() == Listener::STARTED);
+    sm_.currentState() == Listener::STARTED)
+    << " current state:"
+    << sm_.currentState();
 
   /// \note resources will be preallocated
   /// BEFORE anyone connected
@@ -384,7 +392,9 @@ void Listener::asyncAccept(
   }
 
   DCHECK(
-    sm_.CurrentState() == Listener::STARTED);
+    sm_.currentState() == Listener::STARTED)
+    << " current state:"
+    << sm_.currentState();
 
   DCHECK(unownedPerConnectionStrand);
 
@@ -494,7 +504,9 @@ void Listener::asyncAccept(
   return ::util::OkStatus();
 }
 
-util::Status Listener::processStateChange(const base::Location &from_here, const Listener::Event &processEvent)
+util::Status Listener::processStateChange(
+  const base::Location &from_here
+  , const Listener::Event &processEvent)
 {
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
@@ -502,14 +514,18 @@ util::Status Listener::processStateChange(const base::Location &from_here, const
       = sm_.ProcessEvent(processEvent
                          , FROM_HERE.ToString()
                          , nullptr);
-  CHECK(stateProcessed.ok())
+  if(!stateProcessed.ok())
+  {
+    LOG(WARNING)
       << "Failed to change state"
       << " using event "
       << processEvent
       << " in code "
       << from_here.ToString()
       << ". Current state: "
-      << sm_.CurrentState();
+      << sm_.currentState();
+    DCHECK(false);
+  }
   return stateProcessed;
 }
 
@@ -659,8 +675,10 @@ Listener::~Listener()
   /// \note we expect that API user will call
   /// `close` for acceptor before acceptor destructon
   DCHECK(
-    sm_.CurrentState() == Listener::UNINITIALIZED
-    || sm_.CurrentState() == Listener::TERMINATED);
+    sm_.currentState() == Listener::UNINITIALIZED
+    || sm_.currentState() == Listener::TERMINATED)
+    << " current state:"
+    << sm_.currentState();
 
   // make sure that all allocated
   // `per-connection resources` are freed

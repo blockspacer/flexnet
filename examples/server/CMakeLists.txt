@@ -14,6 +14,9 @@ add_executable(example_server
   ${CMAKE_CURRENT_SOURCE_DIR}/src/example_server.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/example_server.hpp
   #
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/state/app_state.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/state/app_state.hpp
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/signal_handler/signal_handler.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/signal_handler/signal_handler.cc
   #

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "state/app_state.hpp"
 #include "signal_handler/signal_handler.hpp"
 #include "console/console_terminal_plugin.hpp"
 #include "net/network_entity_plugin.hpp"
@@ -267,6 +268,12 @@ class ExampleServer
   AsioThreadsManager asioThreadsManager_;
     /// \todo
     //GUARDED_BY(sequence_checker_);
+
+  base::WeakPtr<ECS::SequenceLocalContext> mainLoopContext_;
+    GUARDED_BY(sequence_checker_);
+
+  const util::UnownedRef<AppState> appState_
+    GUARDED_BY(sequence_checker_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

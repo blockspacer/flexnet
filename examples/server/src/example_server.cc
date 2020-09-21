@@ -124,6 +124,15 @@ ExampleServer::ExampleServer(
             base::MessageLoop::current()->task_runner())
       )
     , periodicValidateUntil_()
+    , mainLoopContext_{
+        ECS::SequenceLocalContext::getSequenceLocalInstance(
+          FROM_HERE, base::MessageLoop::current()->task_runner())}
+    , appState_{REFERENCED(
+        mainLoopContext_->set_once<AppState>(
+          FROM_HERE
+          , "AppState" + FROM_HERE.ToString()
+          , AppState::UNINITIALIZED
+        ))}
 {
   LOG_CALL(DVLOG(99));
 
@@ -309,6 +318,19 @@ void ExampleServer::doQuit()
     , promiseBeforeStop_)
   .ThenOn(mainLoopRunner_
     , FROM_HERE
+    , base::BindOnce(
+      [
+      ](
+        AppState& appState
+      ){
+         ::util::Status result
+           = appState.processStateChange(FROM_HERE
+               , AppState::TERMINATE);
+         DCHECK(result.ok());
+      }
+      , REFERENCED(*appState_)))
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
     , run_loop_.QuitClosure());
 
   beforeStopResolver_.GetRepeatingResolveCallback().Run();
@@ -362,6 +384,19 @@ void ExampleServer::runLoop() NO_EXCEPTION
       )
   )
 #endif // 0
+  .ThenOn(base::MessageLoop::current()->task_runner()
+    , FROM_HERE
+    , base::BindOnce(
+      [
+      ](
+        AppState& appState
+      ){
+         ::util::Status result
+           = appState.processStateChange(FROM_HERE
+               , AppState::START);
+         DCHECK(result.ok());
+      }
+      , REFERENCED(*appState_)))
   .ThenOn(base::MessageLoop::current()->task_runner()
     , FROM_HERE
     , base::BindOnce(
@@ -690,6 +725,13 @@ ExampleServer::~ExampleServer()
   DCHECK_RUN_ON(&sequence_checker_);
 
   DCHECK(ioc_.stopped()); // io_context::stopped is thread-safe
+
+  {
+    DCHECK(appState_->currentState() == AppState::FAILED
+      || appState_->currentState() == AppState::TERMINATED)
+      << " current app state:"
+      << appState_->currentState();
+  }
 }
 
 void ExampleServer::handleConsoleInput(const std::string& line)

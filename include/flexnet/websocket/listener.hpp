@@ -125,18 +125,36 @@ public:
 
 #if DCHECK_IS_ON()
   enum State {
+    // A possible initial state where the application can be running,
+    // loading data, and so on, but is not visible to the user.
     UNINITIALIZED = 0,
+    // The state where the application is running in the foreground,
+    // fully visible, with all necessary resources available.
+    // A possible initial state, where loading happens
+    // while in the foreground.
     STARTED = 1,
+    // The application is expected to be able to move back into
+    // the Started state very quickly
     PAUSED = 2,
-    TERMINATED = 2,
-    FAILED = 3,
+    // The application was running at some point,
+    // but has been backgrounded to the
+    // point where resources are invalid
+    // and execution should be halted
+    // until resumption.
+    SUSPENDED = 3, /// \todo use it
+    // Representation of a idle/terminal/shutdown state
+    // with no resources.
+    TERMINATED = 4,
+    // Resources are invalid.
+    FAILED = 5,
   };
 
   enum Event {
     START = 0,
     PAUSE = 1,
-    TERMINATE = 2,
-    FAULT = 3,
+    SUSPEND = 2,
+    TERMINATE = 3,
+    FAULT = 4,
   };
 
   using StateMachineType =
@@ -334,7 +352,7 @@ private:
                                   TERMINATE
   **/
   MUST_USE_RETURN_VALUE
-  StateMachineType::TransitionTable FillStateTransitionTable()
+  StateMachineType::TransitionTable fillStateTransitionTable()
   {
     StateMachineType::TransitionTable sm_table_;
 
@@ -403,25 +421,6 @@ private:
   //
   // Prohibit invalid state transitions
   // (like pausing from uninitialized state)
-  //
-  // USAGE
-  //
-  // // Warning: all callbacks must be used
-  // // within the lifetime of the state machine.
-  // StateMachineType::CallbackType okStateCallback =
-  //   base::BindRepeating(
-  //   []
-  //   (Event event
-  //    , State next_state
-  //    , Event* recovery_event)
-  //   {
-  //     ignore_result(event);
-  //     ignore_result(next_state);
-  //     ignore_result(recovery_event);
-  //     return ::util::OkStatus();
-  //   });
-  // sm_->AddExitAction(UNINITIALIZED, okStateCallback);
-  // sm_->AddEntryAction(FAILED, okStateCallback);
   StateMachineType sm_
     GUARDED_BY(acceptorStrand_);
 #endif // DCHECK_IS_ON()
