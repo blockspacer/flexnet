@@ -86,11 +86,15 @@ ConsoleTerminalPlugin::ConsoleTerminalPlugin()
             , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
           }
         ))
-  , consoleTerminal_(base::in_place, periodicConsoleTaskRunner_)
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
+
+  if(base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
+  {
+    consoleTerminal_.emplace(periodicConsoleTaskRunner_);
+  }
 }
 
 ConsoleTerminalPlugin::~ConsoleTerminalPlugin()
@@ -107,6 +111,8 @@ ConsoleTerminalPlugin::VoidPromise ConsoleTerminalPlugin::load(
   ConsoleInputUpdater::HandleConsoleInputCb consoleInputCb)
 {
   LOG_CALL(DVLOG(99));
+
+  DCHECK(base::FeatureList::IsEnabled(kFeatureConsoleTerminal));
 
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
 
@@ -143,6 +149,8 @@ ConsoleTerminalPlugin::VoidPromise ConsoleTerminalPlugin::unload()
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
+
+  DCHECK(base::FeatureList::IsEnabled(kFeatureConsoleTerminal));
 
   // prolong lifetime of shared object because we free `consoleTerminal_` below
   auto sharedPromise = consoleTerminal_->promiseDeletion();

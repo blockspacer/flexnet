@@ -85,6 +85,8 @@ ConsoleTerminalOnSequence::ConsoleTerminalOnSequence(
       )
 {
   DETACH_FROM_SEQUENCE(sequence_checker_);
+
+  DCHECK(base::FeatureList::IsEnabled(kFeatureConsoleTerminal));
 }
 
 ConsoleTerminalOnSequence::VoidPromise ConsoleTerminalOnSequence::promiseDeletion()
@@ -103,11 +105,8 @@ ConsoleTerminalOnSequence::~ConsoleTerminalOnSequence()
   /// \todo std::getline blocks without timeout, so add timeout like in
   /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
   /// or stackoverflow.com/a/34994150
-  if(base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
-  {
-    LOG(INFO)
-        << "Press Enter to terminate application...";
-  }
+  LOG(INFO)
+      << "Press Enter to terminate application...";
 }
 
 } // namespace backend

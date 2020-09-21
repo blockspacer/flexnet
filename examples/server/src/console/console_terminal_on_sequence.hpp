@@ -96,13 +96,6 @@ class ConsoleTerminalOnSequence
         ){
           LOG_CALL(DVLOG(99));
 
-          if(!base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
-          {
-            DVLOG(99)
-              << "console terminal not enabled";
-            return;
-          }
-
           /// \todo make period configurable
           consoleUpdater->periodicTaskExecutor().startPeriodicTimer(
             base::TimeDelta::FromMilliseconds(100));

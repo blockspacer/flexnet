@@ -25,6 +25,7 @@
 #include <base/stl_util.h>
 #include <base/threading/thread_collision_warner.h>
 
+#include <basis/task/task_util.hpp>
 #include <basis/checked_optional.hpp>
 #include <basis/lock_with_check.hpp>
 #include <basis/task/periodic_validate_until.hpp>
@@ -58,6 +59,67 @@ struct ServerStartOptions
 {
   const std::string ip_addr = "127.0.0.1";
   const unsigned short port_num = 8085;
+};
+
+class AsioThreadsManager
+{
+public:
+  using AsioThreadType
+    = base::Thread;
+
+public:
+  SET_WEAK_SELF(AsioThreadsManager)
+
+  AsioThreadsManager()
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+
+  ~AsioThreadsManager()
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+
+  // creates |threadsNum| threads that will
+  // invoke |run| method from |ioc|
+  void startThreads(
+    const size_t threadsNum
+    , boost::asio::io_context& ioc)
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+
+  void stopThreads()
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+
+  const std::vector<
+    std::unique_ptr<AsioThreadType>
+  >& threads() const
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+  {
+    return asio_threads_;
+  }
+
+private:
+  void runIoc(boost::asio::io_context& ioc)
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(runIoc));
+
+private:
+  SET_WEAK_POINTERS(AsioThreadsManager);
+
+  /// \note usually you do not want to post tasks
+  /// on that task runner
+  /// i.e. use asio based task runners and sequences!
+  std::vector<
+    scoped_refptr<base::SequencedTaskRunner>
+  > asio_task_runners_
+    GUARDED_BY(sequence_checker_);
+
+  std::vector<
+    std::unique_ptr<AsioThreadType>
+  > asio_threads_
+    GUARDED_BY(sequence_checker_);
+
+  /// \note can be called from any thread
+  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(runIoc));
+
+  SEQUENCE_CHECKER(sequence_checker_);
+
+  DISALLOW_COPY_AND_ASSIGN(AsioThreadsManager);
 };
 
 class ExampleServer
@@ -129,13 +191,10 @@ class ExampleServer
   SET_WEAK_SELF(ExampleServer)
 
  private:
-  /// \todo refactor/remove
-  void startRunLoop() NO_EXCEPTION
+  void startThreadsManager() NO_EXCEPTION
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
-  // Loads configurations,
-  // required before first run.
-  void prepareBeforeRunLoop() NO_EXCEPTION
+  void startAcceptors() NO_EXCEPTION
     RUN_ON(&sequence_checker_);
 
   // Stops creation of new connections.
@@ -239,22 +298,6 @@ class ExampleServer
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
 
-  /// \todo custom thread message pump
-  base::Thread asio_thread_1
-    GUARDED_BY(sequence_checker_);
-
-  /// \todo custom thread message pump
-  base::Thread asio_thread_2
-    GUARDED_BY(sequence_checker_);
-
-  /// \todo custom thread message pump
-  base::Thread asio_thread_3
-    GUARDED_BY(sequence_checker_);
-
-  /// \todo custom thread message pump
-  base::Thread asio_thread_4
-    GUARDED_BY(sequence_checker_);
-
   // Used to free network resources.
   basis::PeriodicValidateUntil periodicValidateUntil_
     SET_THREAD_COLLISION_GUARD(MEMBER_GUARD(periodicValidateUntil_));
@@ -264,17 +307,30 @@ class ExampleServer
     // assumed to be thread-safe
     SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(is_terminating_));
 
-  /// \todo custom config manager
-  /// ConfigManager configManager;
-
   /// \todo custom plugin manager
   /// PluginManager pluginManager;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
+  /// \todo use plugin loader
+  /// ConfigManager configManager;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
 
   /// \todo use plugin loader
   ConsoleTerminalPlugin consoleTerminalPlugin;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
 
   /// \todo use plugin loader
   NetworkEntityPlugin networkEntityPlugin;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
+  /// \todo use plugin loader
+  AsioThreadsManager asioThreadsManager_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

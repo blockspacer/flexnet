@@ -75,6 +75,125 @@
 
 namespace backend {
 
+AsioThreadsManager::AsioThreadsManager()
+  : ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_ptr_factory_(COPIED(this)))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(
+        weak_ptr_factory_.GetWeakPtr()))
+{
+  LOG_CALL(DVLOG(99));
+
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+}
+
+AsioThreadsManager::~AsioThreadsManager()
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  for(size_t i = 0; i < asio_threads_.size(); i++) {
+    std::unique_ptr<AsioThreadType>& asio_thread
+      = asio_threads_[i];
+    DCHECK(asio_thread);
+    DCHECK(!asio_thread->IsRunning());
+  }
+}
+
+void AsioThreadsManager::stopThreads()
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  for(size_t i = 0; i < asio_threads_.size(); i++) {
+    std::unique_ptr<AsioThreadType>& asio_thread
+      = asio_threads_[i];
+    DCHECK(asio_thread);
+    DCHECK(asio_thread->IsRunning());
+    DVLOG(99)
+      << "stopping asio_thread...";
+    /// \note Start/Stop not thread-safe
+    asio_thread->Stop();
+    // wait loop stopped
+    DCHECK(!asio_thread->IsRunning());
+    DVLOG(99)
+      << "stopped asio_thread...";
+  }
+}
+
+void AsioThreadsManager::startThreads(
+  const size_t threadsNum
+  , boost::asio::io_context& ioc)
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  asio_threads_.reserve(threadsNum);
+
+  for(size_t i = 0; i < threadsNum; i++)
+  {
+    std::unique_ptr<AsioThreadType> asio_thread
+      = std::make_unique<AsioThreadType>(
+          "AsioThread_" + std::to_string(i));
+
+    DCHECK(asio_thread);
+    base::Thread::Options options;
+    asio_thread->StartWithOptions(options);
+    asio_thread->WaitUntilThreadStarted();
+
+    asio_task_runners_.push_back(
+      asio_thread->task_runner());
+
+    DVLOG(99)
+      << "created asio thread...";
+
+    /// \note whole thread is dedicated for asio ioc
+    /// we create one |SequencedTaskRunner| per one |base::Thread|
+    DCHECK(asio_task_runners_[i]);
+
+    asio_threads_.push_back(
+      base::rvalue_cast(asio_thread));
+
+    asio_task_runners_[i]->PostTask(
+      FROM_HERE
+      , base::BindRepeating(
+          &AsioThreadsManager::runIoc
+          , base::Unretained(this)
+          , REFERENCED(ioc)
+        )
+    );
+  }
+}
+
+void AsioThreadsManager::runIoc(boost::asio::io_context& ioc)
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(runIoc));
+
+  if(ioc.stopped()) // io_context::stopped is thread-safe
+  {
+    LOG(INFO)
+      << "skipping update of stopped io context";
+    return;
+  }
+
+  // we want to loop |ioc| forever
+  // i.e. until manual termination
+  boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
+    = boost::asio::make_work_guard(ioc);
+
+  /// \note loops forever (if has work) and
+  /// blocks |task_runner->PostTask| for that thread!
+  ioc.run();
+
+  LOG(INFO)
+    << "stopped io context thread";
+}
+
 ExampleServer::ExampleServer(
   ServerStartOptions startOptions)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -105,10 +224,6 @@ ExampleServer::ExampleServer(
     , signals_set_(ioc_, SIGINT, SIGTERM)
     , mainLoopRunner_{
         base::MessageLoop::current()->task_runner()}
-    , asio_thread_1("asio_thread_1")
-    , asio_thread_2("asio_thread_2")
-    , asio_thread_3("asio_thread_3")
-    , asio_thread_4("asio_thread_4")
     , periodicValidateUntil_()
     , is_terminating_(false)
 {
@@ -122,33 +237,39 @@ ExampleServer::ExampleServer(
   #error "SIGQUIT not defined"
 #endif // defined(SIGQUIT)
 
-  setPromiseBeforeStart(
-    // Append promise to chain as nested promise.
-    promiseBeforeStart()
-    .ThenHere(FROM_HERE
-      , base::BindOnce(
-          &ConsoleTerminalPlugin::load
-          , base::Unretained(&consoleTerminalPlugin)
-          , base::BindRepeating(
-              &ExampleServer::handleConsoleInput
-              , base::Unretained(this)
-            )
+  if(base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
+  {
+    setPromiseBeforeStart(
+      // Append promise to chain as nested promise.
+      promiseBeforeStart()
+      .ThenHere(FROM_HERE
+        , base::BindOnce(
+            &ConsoleTerminalPlugin::load
+            , base::Unretained(&consoleTerminalPlugin)
+            , base::BindRepeating(
+                &ExampleServer::handleConsoleInput
+                , base::Unretained(this)
+              )
+        )
+        , /*nestedPromise*/ true
       )
-      , /*nestedPromise*/ true
-    )
-  );
+    );
 
-  setPromiseBeforeStop(
-    // Append promise to chain as nested promise.
-    promiseBeforeStop()
-    .ThenHere(FROM_HERE
-      , base::BindOnce(
-          &ConsoleTerminalPlugin::unload
-          , base::Unretained(&consoleTerminalPlugin)
+    setPromiseBeforeStop(
+      // Append promise to chain as nested promise.
+      promiseBeforeStop()
+      .ThenHere(FROM_HERE
+        , base::BindOnce(
+            &ConsoleTerminalPlugin::unload
+            , base::Unretained(&consoleTerminalPlugin)
+        )
+        , /*nestedPromise*/ true
       )
-      , /*nestedPromise*/ true
-    )
-  );
+    );
+  } else {
+    DVLOG(99)
+      << "console terminal not enabled";
+  }
 
   setPromiseBeforeStart(
     // Append promise to chain as nested promise.
@@ -167,7 +288,103 @@ ExampleServer::ExampleServer(
   setPromiseBeforeStop(
     // Append promise to chain as nested promise.
     promiseBeforeStop()
-    .ThenHere(FROM_HERE
+    .ThenOn(mainLoopRunner_
+      , FROM_HERE
+      , base::BindOnce(
+        // stop accepting of new connections
+        &ExampleServer::stopAcceptors
+        , base::Unretained(this)
+      )
+      , /*nestedPromise*/ true
+    )
+    .ThenOn(mainLoopRunner_
+      , FROM_HERE
+      , base::BindOnce(
+          [
+          ](
+            const ::util::Status& stopAcceptorResult
+          ){
+             LOG_CALL(DVLOG(99));
+
+             if(!stopAcceptorResult.ok()) {
+               LOG(ERROR)
+                 << "failed to stop acceptor with status: "
+                 << stopAcceptorResult.ToString();
+               NOTREACHED();
+             }
+          })
+    )
+  );
+
+  setPromiseBeforeStop(
+    // Append promise to chain as nested promise.
+    promiseBeforeStop()
+    .ThenOn(mainLoopRunner_
+      , FROM_HERE
+      , base::BindOnce(
+        // async-wait for destruction of existing connections
+        &ExampleServer::promiseNetworkResourcesFreed
+        , base::Unretained(this)
+      )
+      , /*nestedPromise*/ true
+    )
+  );
+
+  setPromiseBeforeStop(
+    // Append promise to chain as nested promise.
+    promiseBeforeStop()
+    .ThenOn(mainLoopRunner_
+      , FROM_HERE
+      , base::BindOnce(
+        // stop io context
+        /// \note you can not use `::boost::asio::post`
+        /// if `ioc_->stopped()`
+        /// i.e. can not use strand of registry e.t.c.
+        &ExampleServer::stopIOContext
+        , base::Unretained(this)
+      )
+    )
+  );
+
+  /// \todo use |SequenceLocalContext| to store ECS::SimulationRegistry
+#if 0
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
+    , base::BindOnce(
+        // |GlobalContext| is not thread-safe,
+        // so modify it only from one sequence
+        &ECS::GlobalContext::unlockModification
+        , base::Unretained(ECS::GlobalContext::GetInstance())
+      )
+  )
+  /// \todo use |SequenceLocalContext| to store |ECS::SimulationRegistry|
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
+    , base::BindOnce(
+        &ECS::GlobalContext::unset<ECS::SimulationRegistry>
+        , base::Unretained(ECS::GlobalContext::GetInstance())
+        , FROM_HERE
+      )
+  )
+#endif // 0
+
+  setPromiseBeforeStop(
+    // Append promise to chain as nested promise.
+    promiseBeforeStop()
+    .ThenOn(mainLoopRunner_
+      , FROM_HERE
+      , base::BindOnce(
+        &AsioThreadsManager::stopThreads
+        , base::Unretained(&asioThreadsManager_)
+      )
+    )
+  );
+
+  setPromiseBeforeStop(
+    // Append promise to chain as nested promise.
+    promiseBeforeStop()
+    .ThenOn(mainLoopRunner_
+      , FROM_HERE
       , base::BindOnce(
           &NetworkEntityPlugin::unload
           , base::Unretained(&networkEntityPlugin)
@@ -227,72 +444,6 @@ void ExampleServer::doQuit()
           << "application terminating...";
       })
   )
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        // stop accepting of new connections
-        &ExampleServer::stopAcceptors
-        , base::Unretained(this)
-      )
-    , /*nestedPromise*/ true)
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-      [
-      ](
-        const ::util::Status& stopAcceptorResult
-      ){
-         LOG_CALL(DVLOG(99));
-
-         if(!stopAcceptorResult.ok()) {
-           LOG(ERROR)
-             << "failed to stop acceptor with status: "
-             << stopAcceptorResult.ToString();
-           NOTREACHED();
-         }
-      })
-  )
-  // async-wait for destruction of existing connections
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        &ExampleServer::promiseNetworkResourcesFreed
-        , base::Unretained(this)
-    )
-    , /*nestedPromise*/ true
-  )
-  // stop io context
-  /// \note you can not use `::boost::asio::post`
-  /// if `ioc_->stopped()`
-  /// i.e. can not use strand of registry e.t.c.
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        &ExampleServer::stopIOContext
-        , base::Unretained(this)
-    )
-  )
-  /// \todo use |SequenceLocalContext| to store ECS::SimulationRegistry
-#if 0
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        // |GlobalContext| is not thread-safe,
-        // so modify it only from one sequence
-        &ECS::GlobalContext::unlockModification
-        , base::Unretained(ECS::GlobalContext::GetInstance())
-      )
-  )
-  /// \todo use |SequenceLocalContext| to store |ECS::SimulationRegistry|
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        &ECS::GlobalContext::unset<ECS::SimulationRegistry>
-        , base::Unretained(ECS::GlobalContext::GetInstance())
-        , FROM_HERE
-      )
-  )
-#endif // 0
   .ThenNestedPromiseOn(mainLoopRunner_
     , FROM_HERE
     , promiseBeforeStop_)
@@ -324,202 +475,20 @@ void ExampleServer::runLoop() NO_EXCEPTION
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
 
-  promiseBeforeStart_.ThenOn(mainLoopRunner_
+  promiseBeforeStart_
+  .ThenOn(mainLoopRunner_
     , FROM_HERE
     , base::BindOnce(
-        &ExampleServer::startRunLoop
+        &ExampleServer::startAcceptors
         , base::Unretained(this)
     )
-  );
-
-  beforeStartResolver_.GetRepeatingResolveCallback().Run();
-
-  run_loop_.Run();
-
-  DVLOG(9)
-    << "Main run loop finished";
-
-  asio_thread_1.Stop();
-  DCHECK(!asio_thread_1.IsRunning());
-
-  asio_thread_2.Stop();
-  DCHECK(!asio_thread_2.IsRunning());
-
-  asio_thread_3.Stop();
-  DCHECK(!asio_thread_3.IsRunning());
-
-  asio_thread_4.Stop();
-  DCHECK(!asio_thread_4.IsRunning());
-}
-
-void ExampleServer::startRunLoop() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
-
-  DCHECK_RUN_ON(&sequence_checker_);
-
-  prepareBeforeRunLoop();
-
-  {
-    base::Thread::Options options;
-    asio_thread_1.StartWithOptions(options);
-    asio_thread_1.task_runner()->PostTask(FROM_HERE
-      , base::BindRepeating(
-          [
-          ](
-            boost::asio::io_context& ioc
-          ){
-            if(ioc.stopped()) // io_context::stopped is thread-safe
-            {
-              LOG(INFO)
-                << "skipping update of stopped io context";
-              return;
-            }
-
-            // we want to loop |ioc| forever
-            // i.e. until manual termination
-            boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
-              = boost::asio::make_work_guard(ioc);
-
-            /// \note loops forever (if has work) and
-            /// blocks |task_runner->PostTask| for that thread!
-            ioc.run();
-
-            LOG(INFO)
-              << "stopped io context thread";
-          }
-          , REFERENCED(ioc_)
-      )
-    );
-    asio_thread_1.WaitUntilThreadStarted();
-    DCHECK(asio_thread_1.IsRunning());
-  }
-
-  {
-    base::Thread::Options options;
-    asio_thread_2.StartWithOptions(options);
-    asio_thread_2.task_runner()->PostTask(FROM_HERE
-      , base::BindRepeating(
-          [
-          ](
-            boost::asio::io_context& ioc
-          ){
-            if(ioc.stopped()) // io_context::stopped is thread-safe
-            {
-              LOG(INFO)
-                << "skipping update of stopped io context";
-              return;
-            }
-
-            // we want to loop |ioc| forever
-            // i.e. until manual termination
-            boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
-              = boost::asio::make_work_guard(ioc);
-
-            /// \note loops forever (if has work) and
-            /// blocks |task_runner->PostTask| for that thread!
-            ioc.run();
-
-            LOG(INFO)
-              << "stopped io context thread";
-          }
-          , REFERENCED(ioc_)
-      )
-    );
-    asio_thread_2.WaitUntilThreadStarted();
-    DCHECK(asio_thread_2.IsRunning());
-  }
-
-  {
-    base::Thread::Options options;
-    asio_thread_3.StartWithOptions(options);
-    asio_thread_3.task_runner()->PostTask(FROM_HERE
-      , base::BindRepeating(
-          [
-          ](
-            boost::asio::io_context& ioc
-          ){
-            if(ioc.stopped()) // io_context::stopped is thread-safe
-            {
-              LOG(INFO)
-                << "skipping update of stopped io context";
-              return;
-            }
-
-            // we want to loop |ioc| forever
-            // i.e. until manual termination
-            boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
-              = boost::asio::make_work_guard(ioc);
-
-            /// \note loops forever (if has work) and
-            /// blocks |task_runner->PostTask| for that thread!
-            ioc.run();
-
-            LOG(INFO)
-              << "stopped io context thread";
-          }
-          , REFERENCED(ioc_)
-      )
-    );
-    asio_thread_3.WaitUntilThreadStarted();
-    DCHECK(asio_thread_3.IsRunning());
-  }
-
-  {
-    base::Thread::Options options;
-    asio_thread_4.StartWithOptions(options);
-    asio_thread_4.task_runner()->PostTask(FROM_HERE
-      , base::BindRepeating(
-          [
-          ](
-            boost::asio::io_context& ioc
-          ){
-            if(ioc.stopped()) // io_context::stopped is thread-safe
-            {
-              LOG(INFO)
-                << "skipping update of stopped io context";
-              return;
-            }
-
-            // we want to loop |ioc| forever
-            // i.e. until manual termination
-            boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work_guard
-              = boost::asio::make_work_guard(ioc);
-
-            /// \note loops forever (if has work) and
-            /// blocks |task_runner->PostTask| for that thread!
-            ioc.run();
-
-            LOG(INFO)
-              << "stopped io context thread";
-          }
-          , REFERENCED(ioc_)
-      )
-    );
-    asio_thread_4.WaitUntilThreadStarted();
-    DCHECK(asio_thread_4.IsRunning());
-  }
-}
-
-void ExampleServer::prepareBeforeRunLoop() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  base::PostPromise(FROM_HERE
-    /// \note delayed execution:
-    /// will be executed only when |run_loop| is running
-    , base::MessageLoop::current()->task_runner().get()
+  )
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
     , base::BindOnce(
-        &ExampleServer::configureAndRunAcceptor
+        &ExampleServer::startThreadsManager
         , base::Unretained(this)
     )
-    , /*nestedPromise*/ true
   )
   /// \todo use |SequenceLocalContext|
 #if 0
@@ -542,7 +511,50 @@ void ExampleServer::prepareBeforeRunLoop() NO_EXCEPTION
         LOG(INFO)
           << "server is running";
       }
-  ));
+  ))
+  ;
+
+  beforeStartResolver_.GetRepeatingResolveCallback().Run();
+
+  run_loop_.Run();
+
+  DVLOG(9)
+    << "Main run loop finished";
+}
+
+void ExampleServer::startThreadsManager() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
+
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  asioThreadsManager_.startThreads(
+    /// \todo make configurable
+    5
+    , REFERENCED(ioc_)
+  );
+}
+
+void ExampleServer::startAcceptors() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  base::PostPromise(FROM_HERE
+    /// \note delayed execution:
+    /// will be executed only when |run_loop| is running
+    , base::MessageLoop::current()->task_runner().get()
+    , base::BindOnce(
+        &ExampleServer::configureAndRunAcceptor
+        , base::Unretained(this)
+    )
+    , /*nestedPromise*/ true
+  );
 }
 
 void ExampleServer::closeNetworkResources() NO_EXCEPTION

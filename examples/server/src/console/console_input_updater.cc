@@ -93,6 +93,8 @@ ConsoleInputUpdater::ConsoleInputUpdater(
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
+
+  DCHECK(base::FeatureList::IsEnabled(kFeatureConsoleTerminal));
 }
 
 ConsoleInputUpdater::~ConsoleInputUpdater()
