@@ -1,8 +1,7 @@
 #include "example_server.hpp" // IWYU pragma: associated
-#include "console/console_input_updater.hpp"
-#include "console/console_terminal_on_sequence.hpp"
-#include "console/console_feature_list.hpp"
-#include "net/network_entity_updater_on_sequence.hpp"
+#include "console_terminal/console_input_updater.hpp"
+#include "console_terminal/console_terminal_on_sequence.hpp"
+#include "console_terminal/console_feature_list.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -85,8 +84,13 @@
 
 namespace backend {
 
-ExampleServer::ExampleServer(
-  ServerStartOptions startOptions)
+static const char kPluginsConfigFilesDir[]
+  = "resources/configuration_files";
+
+static const char kPluginsDirName[]
+  = "plugins";
+
+ServerRunLoopContext::ServerRunLoopContext()
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -96,6 +100,7 @@ ExampleServer::ExampleServer(
     , promiseBeforeStart_(beforeStartResolver_.promise())
     , beforeStopResolver_(FROM_HERE)
     , promiseBeforeStop_(beforeStopResolver_.promise())
+#if 0
     , tcpEndpoint_{
       ::boost::asio::ip::make_address(startOptions.ip_addr)
       , startOptions.port_num}
@@ -112,31 +117,49 @@ ExampleServer::ExampleServer(
             , base::Unretained(&tcpEntityAllocator_)
           )
       }
+#endif // 0
     , mainLoopRunner_{
         base::MessageLoop::current()->task_runner()}
+#if 0
     , signalHandler_(
         REFERENCED(ioc_)
         , basis::bindToTaskRunner(
             FROM_HERE,
             base::BindOnce(
-                &ExampleServer::doQuit
+                &ServerRunLoopContext::doQuit
                 , base::Unretained(this)),
             base::MessageLoop::current()->task_runner())
       )
     , periodicValidateUntil_()
-    , mainLoopContext_{
-        ECS::SequenceLocalContext::getSequenceLocalInstance(
-          FROM_HERE, base::MessageLoop::current()->task_runner())}
-    , appState_{REFERENCED(
-        mainLoopContext_->set_once<AppState>(
-          FROM_HERE
-          , "AppState" + FROM_HERE.ToString()
-          , AppState::UNINITIALIZED
-        ))}
+#endif // 0
+    //, mainLoopContext_{
+    //    ECS::SequenceLocalContext::getSequenceLocalInstance(
+    //      FROM_HERE, base::MessageLoop::current()->task_runner())}
+    , pluginManager_(
+        base::in_place
+        , base::BindRepeating(
+          &ServerRunLoopContext::onPluginLoaded
+          , base::Unretained(this)
+        )
+        , base::BindRepeating(
+            &ServerRunLoopContext::onPluginUnloaded
+            , base::Unretained(this)
+          )
+      )
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
+
+  appState_.emplace(
+    FROM_HERE
+    , "AppState" + FROM_HERE.ToString()
+    , AppState::UNINITIALIZED
+  );
+
+  if (!base::PathService::Get(base::DIR_EXE, &dir_exe_)) {
+    NOTREACHED();
+  }
 
   if(base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
   {
@@ -148,7 +171,7 @@ ExampleServer::ExampleServer(
             &ConsoleTerminalPlugin::load
             , base::Unretained(&consoleTerminalPlugin)
             , base::BindRepeating(
-                &ExampleServer::handleConsoleInput
+                &ServerRunLoopContext::handleConsoleInput
                 , base::Unretained(this)
               )
         )
@@ -172,20 +195,7 @@ ExampleServer::ExampleServer(
       << "console terminal not enabled";
   }
 
-  setPromiseBeforeStart(
-    // Append promise to chain as nested promise.
-    promiseBeforeStart()
-    .ThenHere(FROM_HERE
-      , base::BindOnce(
-          &NetworkEntityPlugin::load
-          , base::Unretained(&networkEntityPlugin)
-          , REFERENCED(asioRegistry_)
-          , REFERENCED(ioc_)
-      )
-      , /*nestedPromise*/ true
-    )
-  );
-
+#if 0
   setPromiseBeforeStop(
     // Append promise to chain as nested promise.
     promiseBeforeStop()
@@ -193,7 +203,7 @@ ExampleServer::ExampleServer(
       , FROM_HERE
       , base::BindOnce(
         // stop accepting of new connections
-        &ExampleServer::stopAcceptors
+        &ServerRunLoopContext::stopAcceptors
         , base::Unretained(this)
       )
       , /*nestedPromise*/ true
@@ -224,7 +234,7 @@ ExampleServer::ExampleServer(
       , FROM_HERE
       , base::BindOnce(
         // async-wait for destruction of existing connections
-        &ExampleServer::promiseNetworkResourcesFreed
+        &ServerRunLoopContext::promiseNetworkResourcesFreed
         , base::Unretained(this)
       )
       , /*nestedPromise*/ true
@@ -241,33 +251,11 @@ ExampleServer::ExampleServer(
         /// \note you can not use `::boost::asio::post`
         /// if `ioc_->stopped()`
         /// i.e. can not use strand of registry e.t.c.
-        &ExampleServer::stopIOContext
+        &ServerRunLoopContext::stopIOContext
         , base::Unretained(this)
       )
     )
   );
-
-  /// \todo use |SequenceLocalContext| to store ECS::SimulationRegistry
-#if 0
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        // |GlobalContext| is not thread-safe,
-        // so modify it only from one sequence
-        &ECS::GlobalContext::unlockModification
-        , base::Unretained(ECS::GlobalContext::GetInstance())
-      )
-  )
-  /// \todo use |SequenceLocalContext| to store |ECS::SimulationRegistry|
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        &ECS::GlobalContext::unset<ECS::SimulationRegistry>
-        , base::Unretained(ECS::GlobalContext::GetInstance())
-        , FROM_HERE
-      )
-  )
-#endif // 0
 
   setPromiseBeforeStop(
     // Append promise to chain as nested promise.
@@ -281,27 +269,38 @@ ExampleServer::ExampleServer(
     )
   );
 
-  setPromiseBeforeStop(
-    // Append promise to chain as nested promise.
-    promiseBeforeStop()
-    .ThenOn(mainLoopRunner_
-      , FROM_HERE
-      , base::BindOnce(
-          &NetworkEntityPlugin::unload
-          , base::Unretained(&networkEntityPlugin)
-      )
-      , /*nestedPromise*/ true
-    )
+  /// \todo use it
+  appState_->AddEntryAction(AppState::TERMINATED,
+    base::BindRepeating(
+    []
+    (AppState::Event event
+     , AppState::State next_state
+     , AppState::Event* recovery_event)
+    {
+      ignore_result(event);
+      ignore_result(next_state);
+      ignore_result(recovery_event);
+
+      return ::util::OkStatus();
+    })
   );
+#endif // 0
 }
 
-void ExampleServer::doQuit()
+void ServerRunLoopContext::doQuit()
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
 
   DCHECK_RUN_ON(&sequence_checker_);
+
+  {
+     ::util::Status result
+       = appState_->processStateChange(FROM_HERE
+           , AppState::TERMINATE);
+     DCHECK(result.ok());
+  }
 
   base::PostPromise(FROM_HERE
     , UNOWNED_LIFETIME(mainLoopRunner_.get())
@@ -313,22 +312,38 @@ void ExampleServer::doQuit()
           << "application terminating...";
       })
   )
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
+    // stop plugin manager
+    , base::BindOnce(
+      [
+      ](
+        base::Optional<
+          plugin::PluginManager<::plugin::PluginInterface>
+        >& pluginManager
+      ){
+        // calls `unload()` for each loaded plugin
+        pluginManager->shutdown();
+      }
+      , REFERENCED(pluginManager_)))
+  // async-waits untill `unload()` finished
+  // for each loaded plugin etc.
   .ThenNestedPromiseOn(mainLoopRunner_
     , FROM_HERE
     , promiseBeforeStop_)
   .ThenOn(mainLoopRunner_
     , FROM_HERE
+    // stop plugin manager
     , base::BindOnce(
       [
       ](
-        AppState& appState
+        base::Optional<
+          plugin::PluginManager<::plugin::PluginInterface>
+        >& pluginManager
       ){
-         ::util::Status result
-           = appState.processStateChange(FROM_HERE
-               , AppState::TERMINATE);
-         DCHECK(result.ok());
+        pluginManager.reset();
       }
-      , REFERENCED(*appState_)))
+      , REFERENCED(pluginManager_)))
   .ThenOn(mainLoopRunner_
     , FROM_HERE
     , run_loop_.QuitClosure());
@@ -336,7 +351,8 @@ void ExampleServer::doQuit()
   beforeStopResolver_.GetRepeatingResolveCallback().Run();
 }
 
-ExampleServer::StatusPromise ExampleServer::stopAcceptors() NO_EXCEPTION
+#if 0
+ServerRunLoopContext::StatusPromise ServerRunLoopContext::stopAcceptors() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -346,42 +362,53 @@ ExampleServer::StatusPromise ExampleServer::stopAcceptors() NO_EXCEPTION
     /// \todo add more acceptors, like WebRTC
     , listener_.stopAcceptorAsync());
 }
+#endif // 0
 
-void ExampleServer::runLoop() NO_EXCEPTION
+void ServerRunLoopContext::runLoop() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
+#if 0
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+#endif // 0
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
 
   promiseBeforeStart_
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        &ExampleServer::startAcceptors
-        , base::Unretained(this)
-    )
-  )
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    , base::BindOnce(
-        &ExampleServer::startThreadsManager
-        , base::Unretained(this)
-    )
-  )
-  /// \todo use |SequenceLocalContext|
 #if 0
+  // set globals
   .ThenOn(base::MessageLoop::current()->task_runner()
     , FROM_HERE
     , base::BindOnce(
-        // |GlobalContext| is not thread-safe,
-        // so modify it only from one sequence
-        &ECS::GlobalContext::lockModification
-        , base::Unretained(ECS::GlobalContext::GetInstance())
-      )
+      [
+      ](
+      ){
+         ECS::UnsafeGlobalContext* globals
+            = ECS::UnsafeGlobalContext::GetInstance();
+          DCHECK(globals);
+
+        {
+          // The io_context is required for all I/O
+          boost::asio::io_context& result
+            = globals->context().set<
+                boost::asio::io_context>(FROM_HERE, "boost::asio::io_context");
+          ignore_result(result);
+        }
+      }))
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
+    , base::BindOnce(
+        &ServerRunLoopContext::startAcceptors
+        , base::Unretained(this)
+    )
+  )
+  .ThenOn(mainLoopRunner_
+    , FROM_HERE
+    , base::BindOnce(
+        &ServerRunLoopContext::startThreadsManager
+        , base::Unretained(this)
+    )
   )
 #endif // 0
   .ThenOn(base::MessageLoop::current()->task_runner()
@@ -389,14 +416,46 @@ void ExampleServer::runLoop() NO_EXCEPTION
     , base::BindOnce(
       [
       ](
-        AppState& appState
+        basis::ScopedSequenceCtxVar<AppState>& appState
       ){
          ::util::Status result
-           = appState.processStateChange(FROM_HERE
+           = appState->processStateChange(FROM_HERE
                , AppState::START);
          DCHECK(result.ok());
       }
-      , REFERENCED(*appState_)))
+      , REFERENCED(appState_)))
+  .ThenOn(base::MessageLoop::current()->task_runner()
+    , FROM_HERE
+    , base::BindOnce(
+      [
+      ](
+        base::Optional<
+          plugin::PluginManager<::plugin::PluginInterface>
+        >& pluginManager
+        , base::FilePath& dir_exe
+      ){
+        // start plugin manager
+        {
+          base::FilePath pathToDirWithPlugins
+          = dir_exe
+              .AppendASCII(kPluginsDirName);
+
+          base::FilePath pathToPluginsConfFile
+          = dir_exe
+              .AppendASCII(kPluginsConfigFilesDir)
+              .AppendASCII(::plugin::kPluginsConfigFileName);
+
+          std::vector<base::FilePath> pathsToExtraPluginFiles{};
+
+          pluginManager->startup(
+            base::rvalue_cast(pathToDirWithPlugins)
+            , base::rvalue_cast(pathToPluginsConfFile)
+            , base::rvalue_cast(pathsToExtraPluginFiles)
+          );
+        }
+      }
+      , REFERENCED(pluginManager_)
+      , REFERENCED(dir_exe_)))
   .ThenOn(base::MessageLoop::current()->task_runner()
     , FROM_HERE
     , base::BindOnce(
@@ -417,7 +476,8 @@ void ExampleServer::runLoop() NO_EXCEPTION
     << "Main run loop finished";
 }
 
-void ExampleServer::startThreadsManager() NO_EXCEPTION
+#if 0
+void ServerRunLoopContext::startThreadsManager() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -434,7 +494,7 @@ void ExampleServer::startThreadsManager() NO_EXCEPTION
   );
 }
 
-void ExampleServer::startAcceptors() NO_EXCEPTION
+void ServerRunLoopContext::startAcceptors() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -445,14 +505,14 @@ void ExampleServer::startAcceptors() NO_EXCEPTION
     /// will be executed only when |run_loop| is running
     , base::MessageLoop::current()->task_runner().get()
     , base::BindOnce(
-        &ExampleServer::configureAndRunAcceptor
+        &ServerRunLoopContext::configureAndRunAcceptor
         , base::Unretained(this)
     )
     , /*nestedPromise*/ true
   );
 }
 
-void ExampleServer::closeNetworkResources() NO_EXCEPTION
+void ServerRunLoopContext::closeNetworkResources() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -567,7 +627,7 @@ void ExampleServer::closeNetworkResources() NO_EXCEPTION
   );
 }
 
-void ExampleServer::validateAndFreeNetworkResources(
+void ServerRunLoopContext::validateAndFreeNetworkResources(
   base::RepeatingClosure resolveCallback) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
@@ -624,8 +684,8 @@ void ExampleServer::validateAndFreeNetworkResources(
   );
 }
 
-ExampleServer::VoidPromise
-  ExampleServer::promiseNetworkResourcesFreed() NO_EXCEPTION
+ServerRunLoopContext::VoidPromise
+  ServerRunLoopContext::promiseNetworkResourcesFreed() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -644,7 +704,7 @@ ExampleServer::VoidPromise
   // Periodic task will be redirected to `asio_registry.asioStrand()`.
   basis::PeriodicValidateUntil::ValidationTaskType validationTask
     = base::BindRepeating(
-        &ExampleServer::validateAndFreeNetworkResources
+        &ServerRunLoopContext::validateAndFreeNetworkResources
         , base::Unretained(this)
     );
 
@@ -674,8 +734,8 @@ ExampleServer::VoidPromise
   );
 }
 
-ExampleServer::VoidPromise
-  ExampleServer::configureAndRunAcceptor() NO_EXCEPTION
+ServerRunLoopContext::VoidPromise
+  ServerRunLoopContext::configureAndRunAcceptor() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -696,7 +756,7 @@ ExampleServer::VoidPromise
   ));
 }
 
-void ExampleServer::stopIOContext() NO_EXCEPTION
+void ServerRunLoopContext::stopIOContext() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -715,16 +775,51 @@ void ExampleServer::stopIOContext() NO_EXCEPTION
     DCHECK(ioc_.stopped()); // io_context::stopped is thread-safe
   }
 }
+#endif // 0
 
-ExampleServer::~ExampleServer()
+void ServerRunLoopContext::onPluginLoaded(
+  VoidPromise loadedPromise) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  setPromiseBeforeStart(
+    // Append promise to chain as nested promise.
+    promiseBeforeStart()
+    .ThenNestedPromiseHere(FROM_HERE
+      , loadedPromise
+    )
+  );
+}
+
+void ServerRunLoopContext::onPluginUnloaded(
+  VoidPromise unloadedPromise) NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  setPromiseBeforeStop(
+    // Append promise to chain as nested promise.
+    promiseBeforeStop()
+    .ThenNestedPromiseHere(FROM_HERE
+      , unloadedPromise
+    )
+  );
+}
+
+ServerRunLoopContext::~ServerRunLoopContext()
+{
+  LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
+#if 0
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+
   DCHECK(ioc_.stopped()); // io_context::stopped is thread-safe
+#endif // 0
 
   {
     DCHECK(appState_->currentState() == AppState::FAILED
@@ -734,7 +829,7 @@ ExampleServer::~ExampleServer()
   }
 }
 
-void ExampleServer::handleConsoleInput(const std::string& line)
+void ServerRunLoopContext::handleConsoleInput(const std::string& line)
 {
   LOG_CALL(DVLOG(99));
 
@@ -747,7 +842,7 @@ void ExampleServer::handleConsoleInput(const std::string& line)
     DCHECK(mainLoopRunner_);
     (mainLoopRunner_)->PostTask(FROM_HERE
       , base::BindRepeating(
-          &backend::ExampleServer::doQuit
+          &backend::ServerRunLoopContext::doQuit
           , base::Unretained(this)));
   }
 }

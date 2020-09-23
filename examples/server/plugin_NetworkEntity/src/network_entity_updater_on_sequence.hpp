@@ -1,7 +1,6 @@
 #pragma once
 
-#include "console/console_feature_list.hpp"
-#include "console/console_input_updater.hpp"
+#include "network_entity_updater.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
@@ -46,26 +45,26 @@
 
 namespace backend {
 
-// Creates periodic console input updater (`ConsoleInputUpdater`)
-// in sequence-local-storage of `periodicConsoleTaskRunner`
+// Creates periodic updater for `network-ECS`
+// in sequence-local-storage of `periodicAsioTaskRunner`
 /// \note Manipulation of sequence-local-storage is asyncronous,
 /// so you must wait for construction/deletion or use `base::Promise`
-class ConsoleTerminalOnSequence
+class NetworkEntityUpdaterOnSequence
 {
  public:
   using VoidPromise
     = base::Promise<void, base::NoReject>;
 
-  ConsoleTerminalOnSequence(
-    scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner);
+  NetworkEntityUpdaterOnSequence(
+    scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner);
 
   /// \note API is asyncronous, so you must check
-  /// if `destructScopedSequenceCtxVar` finished
+  /// if `destructScopedCrossSequenceCtxVar` finished
   // Wait for deletion otherwise you can get `use-after-free` error
   // on resources bound to periodic callback.
   VoidPromise promiseDeletion();
 
-  ~ConsoleTerminalOnSequence();
+  ~NetworkEntityUpdaterOnSequence();
 
   // constructs object in sequence-local-storage
   template <class... Args>
@@ -76,54 +75,54 @@ class ConsoleTerminalOnSequence
   {
     LOG_CALL(DVLOG(99));
 
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputUpdaterOnSequence_));
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicAsioTaskRunner_));
+    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(networkEntityUpdater_));
 
-    return consoleInputUpdaterOnSequence_
-    .emplace_async<Args...>(from_here
+    return networkEntityUpdater_
+    .emplace_async(from_here
         , debug_name
         , std::forward<Args>(args)...
     )
     // start `periodicTaskExecutor` after object was constructed
     // in sequence-local-storage
-    .ThenOn(periodicConsoleTaskRunner_
+    .ThenOn(periodicAsioTaskRunner_
       , FROM_HERE
       , base::BindOnce(
         []
         (
           scoped_refptr<base::SequencedTaskRunner> periodicRunner
-          , ConsoleInputUpdater* consoleUpdater
+          , NetworkEntityUpdater* asioUpdater
         ){
           LOG_CALL(DVLOG(99));
 
           /// \todo make period configurable
-          consoleUpdater->periodicTaskExecutor().startPeriodicTimer(
-            base::TimeDelta::FromMilliseconds(100));
+          asioUpdater->periodicTaskExecutor().startPeriodicTimer(
+            base::TimeDelta::FromMilliseconds(10));
 
           DCHECK(periodicRunner->RunsTasksInCurrentSequence());
         }
-        , periodicConsoleTaskRunner_
+        , periodicAsioTaskRunner_
       )
     );
   }
 
  private:
-  SET_WEAK_POINTERS(ConsoleTerminalOnSequence);
+  SET_WEAK_POINTERS(NetworkEntityUpdaterOnSequence);
 
-  // Task sequence used to update text input from console terminal.
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicConsoleTaskRunner_));
+  // Task sequence used to update `network-ECS`
+  scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner_
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicAsioTaskRunner_));
 
   /// \note Will free stored variable on scope exit.
   // Use UNIQUE type to store in sequence-local-context
   /// \note initialized, used and destroyed
   /// on `TaskRunner` sequence-local-context
-  basis::ScopedSequenceCtxVar<ConsoleInputUpdater> consoleInputUpdaterOnSequence_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(consoleInputUpdaterOnSequence_));
+  basis::ScopedCrossSequenceCtxVar<NetworkEntityUpdater> networkEntityUpdater_
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(networkEntityUpdater_));
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(ConsoleTerminalOnSequence);
+  DISALLOW_COPY_AND_ASSIGN(NetworkEntityUpdaterOnSequence);
 };
 
 } // namespace backend

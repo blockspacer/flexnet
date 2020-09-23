@@ -1,6 +1,6 @@
 #pragma once
 
-#include "net/network_entity_updater_on_sequence.hpp"
+#include "network_entity_updater_on_sequence.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"

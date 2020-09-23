@@ -1,9 +1,4 @@
-#pragma once
-
-#include "console/console_input_updater.hpp"
-#include "console/console_terminal_on_sequence.hpp"
-#include "console/console_feature_list.hpp"
-#include "net/network_entity_updater_on_sequence.hpp"
+#include "network_entity_updater_on_sequence.hpp" // IWYU pragma: associated
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -76,61 +71,33 @@
 
 namespace backend {
 
-class ConsoleTerminalPlugin
+NetworkEntityUpdaterOnSequence::NetworkEntityUpdaterOnSequence(
+  scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner)
+  : ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_ptr_factory_(COPIED(this)))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(
+        weak_ptr_factory_.GetWeakPtr()))
+  , periodicAsioTaskRunner_(periodicAsioTaskRunner)
+  , networkEntityUpdater_(
+      periodicAsioTaskRunner
+      )
 {
- public:
-  using VoidPromise
-    = base::Promise<void, base::NoReject>;
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+}
 
-  using StatusPromise
-    = base::Promise<::util::Status, base::NoReject>;
+NetworkEntityUpdaterOnSequence::VoidPromise NetworkEntityUpdaterOnSequence::promiseDeletion()
+{
+  LOG_CALL(DVLOG(99));
 
-  ConsoleTerminalPlugin();
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(networkEntityUpdater_));
 
-  ~ConsoleTerminalPlugin();
+  return networkEntityUpdater_.promiseDeletion();
+}
 
-  // blocking construction of object in sequence-local-storage
-  VoidPromise load(
-    ConsoleInputUpdater::HandleConsoleInputCb consoleInputCb);
-
-  VoidPromise unload();
-
-  SET_WEAK_SELF(ConsoleTerminalPlugin)
-
-private:
-  void onLoaded()
-  {
-    LOG_CALL(DVLOG(99));
-
-    DCHECK_RUN_ON(&sequence_checker_);
-
-    DCHECK(consoleTerminal_);
-  }
-
-  void onUnloaded()
-  {
-    LOG_CALL(DVLOG(99));
-
-    DCHECK_RUN_ON(&sequence_checker_);
-
-    DCHECK(!consoleTerminal_);
-  }
-
- private:
-  SET_WEAK_POINTERS(ConsoleTerminalPlugin);
-
-  // Task sequence used to update text input from console terminal.
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicConsoleTaskRunner_));
-
-  // On scope exit will schedule destruction (from sequence-local-context),
-  // so use `base::Optional` to control scope i.e. control lifetime.
-  base::Optional<ConsoleTerminalOnSequence> consoleTerminal_
-    GUARDED_BY(&sequence_checker_);
-
-  SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(ConsoleTerminalPlugin);
-};
+NetworkEntityUpdaterOnSequence::~NetworkEntityUpdaterOnSequence()
+{
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
 
 } // namespace backend

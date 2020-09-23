@@ -1,11 +1,11 @@
 #pragma once
 
+#include "plugin_manager/plugin_interface.hpp"
+#include "plugin_manager/plugin_manager.hpp"
 #include "state/app_state.hpp"
 #include "signal_handler/signal_handler.hpp"
-#include "console/console_terminal_plugin.hpp"
-#include "net/network_entity_plugin.hpp"
-#include "console/console_terminal_on_sequence.hpp"
-#include "net/network_entity_updater_on_sequence.hpp"
+#include "console_terminal/console_terminal_plugin.hpp"
+#include "console_terminal/console_terminal_on_sequence.hpp"
 #include "net/asio_threads_manager.hpp"
 #include "tcp_entity_allocator.hpp"
 
@@ -56,15 +56,14 @@ namespace backend {
 
 using namespace flexnet;
 
-class ConsoleTerminalOnSequence;
-
-struct ServerStartOptions
-{
-  const std::string ip_addr = "127.0.0.1";
-  const unsigned short port_num = 8085;
-};
-
-class ExampleServer
+// MOTIVATION
+//
+// We want to construct and destruct most of objects
+// only if base::RunLoop is running.
+//
+/// \todo `ServerRunLoopContext` also creates plugin manager
+/// and application state manager.
+class ServerRunLoopContext
 {
  public:
   using VoidPromise
@@ -73,14 +72,10 @@ class ExampleServer
   using StatusPromise
     = base::Promise<::util::Status, base::NoReject>;
 
-  using EndpointType
-    = ws::Listener::EndpointType;
-
  public:
-  ExampleServer(
-    ServerStartOptions startOptions = ServerStartOptions());
+  ServerRunLoopContext();
 
-  ~ExampleServer();
+  ~ServerRunLoopContext();
 
   void runLoop() NO_EXCEPTION
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
@@ -130,9 +125,10 @@ class ExampleServer
     return promiseBeforeStart_;
   }
 
-  SET_WEAK_SELF(ExampleServer)
+  SET_WEAK_SELF(ServerRunLoopContext)
 
  private:
+#if 0
   void startThreadsManager() NO_EXCEPTION
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
@@ -180,9 +176,15 @@ class ExampleServer
   // io_context and any remaining handlers in it.
   void stopIOContext() NO_EXCEPTION
     RUN_ON(&sequence_checker_);
+#endif // 0
+  void onPluginLoaded(VoidPromise loadedPromise) NO_EXCEPTION;
+    ///\todo RUN_ON(&sequence_checker_);
+
+  void onPluginUnloaded(VoidPromise unloadedPromise) NO_EXCEPTION;
+    ///\todo RUN_ON(&sequence_checker_);
 
  private:
-  SET_WEAK_POINTERS(ExampleServer);
+  SET_WEAK_POINTERS(ServerRunLoopContext);
 
   /// \todo replace with AppStatePromise
   // Must be resolved before `RunLoop.Run` called.
@@ -204,10 +206,7 @@ class ExampleServer
   VoidPromise promiseBeforeStop_
     GUARDED_BY(sequence_checker_);
 
-  // The io_context is required for all I/O
-  boost::asio::io_context ioc_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
-
+#if 0
   const EndpointType tcpEndpoint_
     GUARDED_BY(sequence_checker_);
 
@@ -225,6 +224,7 @@ class ExampleServer
   // Listens for tcp connections.
   ws::Listener listener_
     GUARDED_BY(sequence_checker_);
+#endif // 0
 
   // Main loop that performs scheduled tasks.
   base::RunLoop run_loop_
@@ -235,6 +235,7 @@ class ExampleServer
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
 
+#if 0
   // Captures SIGINT and SIGTERM to perform a clean shutdown
   /// \note `boost::asio::signal_set` will not handle signals if ioc stopped
   SignalHandler signalHandler_
@@ -253,31 +254,38 @@ class ExampleServer
   /// ConfigManager configManager;
     /// \todo
     //GUARDED_BY(sequence_checker_);
+#endif // 0
 
   /// \todo use plugin loader
   ConsoleTerminalPlugin consoleTerminalPlugin;
     /// \todo
     //GUARDED_BY(sequence_checker_);
-
-  /// \todo use plugin loader
-  NetworkEntityPlugin networkEntityPlugin;
-    /// \todo
-    //GUARDED_BY(sequence_checker_);
-
+#if 0
   /// \todo use plugin loader
   AsioThreadsManager asioThreadsManager_;
     /// \todo
     //GUARDED_BY(sequence_checker_);
+#endif // 0
 
-  base::WeakPtr<ECS::SequenceLocalContext> mainLoopContext_;
-    GUARDED_BY(sequence_checker_);
+  //base::WeakPtr<ECS::SequenceLocalContext> mainLoopContext_;
+  //  GUARDED_BY(sequence_checker_);
 
-  const util::UnownedRef<AppState> appState_
+  base::Optional<
+    plugin::PluginManager<::plugin::PluginInterface>
+  > pluginManager_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
+  base::FilePath dir_exe_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
+  basis::ScopedSequenceCtxVar<AppState> appState_
     GUARDED_BY(sequence_checker_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(ExampleServer);
+  DISALLOW_COPY_AND_ASSIGN(ServerRunLoopContext);
 };
 
 } // namespace backend

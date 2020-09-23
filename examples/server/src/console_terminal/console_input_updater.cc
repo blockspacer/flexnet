@@ -1,4 +1,5 @@
-#include "net/network_entity_updater_on_sequence.hpp" // IWYU pragma: associated
+#include "console_terminal/console_input_updater.hpp" // IWYU pragma: associated
+#include "console_terminal/console_feature_list.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -71,33 +72,85 @@
 
 namespace backend {
 
-NetworkEntityUpdaterOnSequence::NetworkEntityUpdaterOnSequence(
-  scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner)
+ConsoleInputUpdater::ConsoleInputUpdater(
+  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
+  , HandleConsoleInputCb consoleInputCb)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , periodicAsioTaskRunner_(periodicAsioTaskRunner)
-  , networkEntityUpdater_(
-      periodicAsioTaskRunner
+  , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
+  , consoleInputCb_(consoleInputCb)
+  , periodicTaskExecutor_(
+      base::BindRepeating(
+        &ConsoleInputUpdater::update
+        /// \note callback may be skipped if `WeakPtr` becomes invalid
+        , weakSelf()
       )
-{
-  DETACH_FROM_SEQUENCE(sequence_checker_);
-}
-
-NetworkEntityUpdaterOnSequence::VoidPromise NetworkEntityUpdaterOnSequence::promiseDeletion()
+    )
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(networkEntityUpdater_));
+  DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  return networkEntityUpdater_.promiseDeletion();
+  DCHECK(base::FeatureList::IsEnabled(kFeatureConsoleTerminal));
 }
 
-NetworkEntityUpdaterOnSequence::~NetworkEntityUpdaterOnSequence()
+ConsoleInputUpdater::~ConsoleInputUpdater()
 {
+  LOG_CALL(DVLOG(99));
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
+
+void ConsoleInputUpdater::update() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputCb_));
+
+  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicConsoleTaskRunner_.get());
+
+  std::string line;
+
+  // use cin.peek to check if there is anything to read,
+  // to exit if no input
+  if(!std::cin.eof())
+  {
+    /// \todo std::getline blocks without timeout, so add timeout like in
+    /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
+    /// or stackoverflow.com/a/34994150
+    /// i.e. use STDIN_FILENO and poll in Linux
+    /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
+    /// or need the GetStdHandle function to obtain a handle
+    /// to the console, then you can use WaitForSingleObject
+    /// to wait for an event to happen on that handle, with a timeout
+    /// see stackoverflow.com/a/21749034
+    /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
+    std::getline(std::cin, line);
+
+    DVLOG(99)
+      << "console input: "
+      << line;
+
+    DCHECK(consoleInputCb_);
+    consoleInputCb_.Run(line);
+  } else {
+    DVLOG(99)
+      << "no console input";
+  }
+}
+
+MUST_USE_RETURN_VALUE
+basis::PeriodicTaskExecutor&
+  ConsoleInputUpdater::periodicTaskExecutor() NO_EXCEPTION
+{
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(periodicTaskExecutor));
+
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicTaskExecutor_));
+  return periodicTaskExecutor_;
 }
 
 } // namespace backend

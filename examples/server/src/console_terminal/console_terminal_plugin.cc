@@ -1,4 +1,4 @@
-#include "console/console_terminal_plugin.hpp" // IWYU pragma: associated
+#include "console_terminal/console_terminal_plugin.hpp" // IWYU pragma: associated
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"

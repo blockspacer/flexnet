@@ -1,9 +1,7 @@
 #pragma once
 
-#include "console/console_terminal_plugin.hpp"
-#include "net/network_entity_plugin.hpp"
-#include "console/console_terminal_on_sequence.hpp"
-#include "net/network_entity_updater_on_sequence.hpp"
+#include "console_terminal/console_terminal_plugin.hpp"
+#include "console_terminal/console_terminal_on_sequence.hpp"
 #include "tcp_entity_allocator.hpp"
 
 #include <flexnet/websocket/listener.hpp>

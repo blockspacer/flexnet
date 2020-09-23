@@ -1,4 +1,4 @@
-#include "net/network_entity_updater.hpp" // IWYU pragma: associated
+#include "network_entity_plugin.hpp" // IWYU pragma: associated
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -71,100 +71,90 @@
 
 namespace backend {
 
-NetworkEntityUpdater::NetworkEntityUpdater(
-  scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner
-  , ECS::AsioRegistry& asioRegistry
-  , boost::asio::io_context& ioc)
+NetworkEntityPlugin::NetworkEntityPlugin()
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , asioRegistry_(REFERENCED(asioRegistry))
-  , ioc_(REFERENCED(ioc))
-  , periodicAsioTaskRunner_(periodicAsioTaskRunner)
-  , periodicTaskExecutor_(
-      base::BindRepeating(
-        &NetworkEntityUpdater::update
-        /// \note callback may be skipped if `WeakPtr` becomes invalid
-        , weakSelf()
-      )
-    )
+  , periodicAsioTaskRunner_(
+      base::ThreadPool::GetInstance()->
+        CreateSequencedTaskRunnerWithTraits(
+          base::TaskTraits{
+            base::TaskPriority::BEST_EFFORT
+            , base::MayBlock()
+            , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+          }
+        ))
+  , networkEntityUpdater_(base::in_place, periodicAsioTaskRunner_)
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-NetworkEntityUpdater::~NetworkEntityUpdater()
+NetworkEntityPlugin::~NetworkEntityPlugin()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  // Do not forget to call `unload()`.
+  DCHECK(!networkEntityUpdater_);
 }
 
-void NetworkEntityUpdater::update() NO_EXCEPTION
+NetworkEntityPlugin::VoidPromise NetworkEntityPlugin::load(
+  ECS::AsioRegistry& asioRegistry
+  , boost::asio::io_context& ioc)
 {
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  LOG_CALL(DVLOG(99));
+
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicAsioTaskRunner_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
 
-  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
+  DCHECK_RUN_ON(&sequence_checker_);
 
-  /// \note you can not use `::boost::asio::post`
-  /// if `ioc_->stopped()`
-  if(ioc_->stopped()) // io_context::stopped is thread-safe
-  {
-    LOG(WARNING)
-      << "skipping update of registry"
-         " because of stopped io context";
+  scoped_refptr<base::SequencedTaskRunner> runnerCopy
+    = periodicAsioTaskRunner_;
 
-    // make sure that all allocated
-    // `per-connection resources` are freed
-    // i.e. use check `registry.empty()`
-    {
-      /// \note (thread-safety) access when ioc->stopped
-      /// i.e. assume no running asio threads that use |asioRegistry_|
-      DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_->FUNC_GUARD(registry));
-      DCHECK(asioRegistry_->registry().empty());
-    }
-
-    return;
-  }
-
-  ::boost::asio::post(
-    asioRegistry_->asioStrand()
-    /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler([
-      ](
-        ECS::AsioRegistry& asio_registry
-      ){
-        DCHECK(
-          asio_registry.running_in_this_thread());
-
-        ECS::updateNewConnections(asio_registry);
-
-        ECS::updateSSLDetection(asio_registry);
-
-        /// \todo cutomizable cleanup period
-        ECS::updateUnusedSystem(asio_registry);
-
-        /// \todo cutomizable cleanup period
-        ECS::updateCleanupSystem(asio_registry);
-      }
-      , REFERENCED(*asioRegistry_)
+  return networkEntityUpdater_->promiseEmplaceAndStart
+      <
+        scoped_refptr<base::SequencedTaskRunner>
+        , std::reference_wrapper<ECS::AsioRegistry>
+        , std::reference_wrapper<boost::asio::io_context>
+      >
+      (FROM_HERE
+        , "NetworkEntityUpdater" // debug name
+        , base::rvalue_cast(runnerCopy)
+        , REFERENCED(asioRegistry)
+        , REFERENCED(ioc)
+      )
+  .ThenHere(FROM_HERE
+    , base::BindOnce(
+        &NetworkEntityPlugin::onLoaded
+        , base::Unretained(this)
     )
   );
 }
 
-MUST_USE_RETURN_VALUE
-basis::PeriodicTaskExecutor&
-  NetworkEntityUpdater::periodicTaskExecutor() NO_EXCEPTION
+NetworkEntityPlugin::VoidPromise NetworkEntityPlugin::unload()
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(periodicTaskExecutor));
+  LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicTaskExecutor_));
-  return periodicTaskExecutor_;
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  // prolong lifetime of shared object because we free `networkEntityUpdater_` below
+  auto sharedPromise = networkEntityUpdater_->promiseDeletion();
+
+  /// \note posts async-task that will delete object in sequence-local-context
+  networkEntityUpdater_.reset();
+
+  return sharedPromise
+  .ThenHere(FROM_HERE
+    , base::BindOnce(
+        &NetworkEntityPlugin::onUnloaded
+        , base::Unretained(this)
+    )
+  );
 }
 
 } // namespace backend

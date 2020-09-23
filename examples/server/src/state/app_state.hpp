@@ -77,6 +77,37 @@ public:
       >;
 
 public:
+  // USAGE
+  //
+  // // Warning: all callbacks must be used
+  // // within the lifetime of the state machine.
+  // StateMachineType::CallbackType okStateCallback =
+  //   base::BindRepeating(
+  //   []
+  //   (Event event
+  //    , State next_state
+  //    , Event* recovery_event)
+  //   {
+  //     ignore_result(event);
+  //     ignore_result(next_state);
+  //     ignore_result(recovery_event);
+  //     return ::util::OkStatus();
+  //   });
+  // sm_->AddExitAction(UNINITIALIZED, okStateCallback);
+  void AddExitAction(
+   const State& state
+   , const StateMachineType::CallbackType& callback) NO_EXCEPTION
+  {
+    sm_.AddExitAction(state, callback);
+  }
+
+  void AddEntryAction(
+   const State& state
+   , const StateMachineType::CallbackType& callback) NO_EXCEPTION
+  {
+    sm_.AddEntryAction(state, callback);
+  }
+
   AppState(const State& initial_state = UNINITIALIZED)
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 

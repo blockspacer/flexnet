@@ -63,10 +63,6 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
-# Generate clang compilation database
-# see https://stackoverflow.com/a/31086619/10904212
-#set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
 find_package(cmake_platform_detection REQUIRED)
 run_cmake_platform_detection()
 
@@ -102,6 +98,15 @@ if(COMPILE_WITH_LLVM_TOOLS)
   # force change CMAKE_*_COMPILER and CMAKE_LINKER to clang from conan
   compile_with_llvm_tools() # from cmake_helper_utils (conan package)
 endif(COMPILE_WITH_LLVM_TOOLS)
+
+# prefer ASCII for folder names
+force_latin_paths() # from cmake_helper_utils (conan package)
+
+# out dirs (CMAKE_*_OUTPUT_DIRECTORY) must be not empty
+validate_out_dirs() # from cmake_helper_utils (conan package)
+
+# In-source builds not allowed
+validate_out_source_build(WARNING) # from cmake_helper_utils (conan package)
 
 set_project_version(0 0 1) # from Utils.cmake
 
@@ -293,6 +298,7 @@ target_link_libraries(${LIB_NAME} PUBLIC#PRIVATE
 set(DEBUG_LIBRARY_SUFFIX "-d")
 set_target_properties(${LIB_NAME}
   PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" # TODO: /lib
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" # TODO: /lib
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" # TODO: /bin

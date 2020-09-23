@@ -1,8 +1,7 @@
 #include "example_server.hpp" // IWYU pragma: associated
-#include "console/console_input_updater.hpp"
-#include "console/console_terminal_on_sequence.hpp"
-#include "console/console_feature_list.hpp"
-#include "net/network_entity_updater_on_sequence.hpp"
+#include "console_terminal/console_input_updater.hpp"
+#include "console_terminal/console_terminal_on_sequence.hpp"
+#include "console_terminal/console_feature_list.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"

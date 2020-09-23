@@ -1,4 +1,4 @@
-#include "console/console_feature_list.hpp" // IWYU pragma: associated
+#include "console_terminal/console_feature_list.hpp" // IWYU pragma: associated
 
 namespace backend {
 

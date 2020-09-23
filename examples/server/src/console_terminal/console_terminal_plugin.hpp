@@ -1,5 +1,8 @@
-#include "console/console_input_updater.hpp" // IWYU pragma: associated
-#include "console/console_feature_list.hpp"
+#pragma once
+
+#include "console_terminal/console_input_updater.hpp"
+#include "console_terminal/console_terminal_on_sequence.hpp"
+#include "console_terminal/console_feature_list.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -72,85 +75,61 @@
 
 namespace backend {
 
-ConsoleInputUpdater::ConsoleInputUpdater(
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
-  , HandleConsoleInputCb consoleInputCb)
-  : ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_ptr_factory_(COPIED(this)))
-  , ALLOW_THIS_IN_INITIALIZER_LIST(
-      weak_this_(
-        weak_ptr_factory_.GetWeakPtr()))
-  , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
-  , consoleInputCb_(consoleInputCb)
-  , periodicTaskExecutor_(
-      base::BindRepeating(
-        &ConsoleInputUpdater::update
-        /// \note callback may be skipped if `WeakPtr` becomes invalid
-        , weakSelf()
-      )
-    )
+class ConsoleTerminalPlugin
 {
-  LOG_CALL(DVLOG(99));
+ public:
+  using VoidPromise
+    = base::Promise<void, base::NoReject>;
 
-  DETACH_FROM_SEQUENCE(sequence_checker_);
+  using StatusPromise
+    = base::Promise<::util::Status, base::NoReject>;
 
-  DCHECK(base::FeatureList::IsEnabled(kFeatureConsoleTerminal));
-}
+  ConsoleTerminalPlugin();
 
-ConsoleInputUpdater::~ConsoleInputUpdater()
-{
-  LOG_CALL(DVLOG(99));
+  ~ConsoleTerminalPlugin();
 
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-}
+  // async-construction of object in sequence-local-storage
+  VoidPromise load(
+    ConsoleInputUpdater::HandleConsoleInputCb consoleInputCb);
 
-void ConsoleInputUpdater::update() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
+  VoidPromise unload();
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputCb_));
+  SET_WEAK_SELF(ConsoleTerminalPlugin)
 
-  DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicConsoleTaskRunner_.get());
-
-  std::string line;
-
-  // use cin.peek to check if there is anything to read,
-  // to exit if no input
-  if(!std::cin.eof())
+private:
+  void onLoaded()
   {
-    /// \todo std::getline blocks without timeout, so add timeout like in
-    /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
-    /// or stackoverflow.com/a/34994150
-    /// i.e. use STDIN_FILENO and poll in Linux
-    /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
-    /// or need the GetStdHandle function to obtain a handle
-    /// to the console, then you can use WaitForSingleObject
-    /// to wait for an event to happen on that handle, with a timeout
-    /// see stackoverflow.com/a/21749034
-    /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
-    std::getline(std::cin, line);
+    LOG_CALL(DVLOG(99));
 
-    DVLOG(99)
-      << "console input: "
-      << line;
+    DCHECK_RUN_ON(&sequence_checker_);
 
-    DCHECK(consoleInputCb_);
-    consoleInputCb_.Run(line);
-  } else {
-    DVLOG(99)
-      << "no console input";
+    DCHECK(consoleTerminal_);
   }
-}
 
-MUST_USE_RETURN_VALUE
-basis::PeriodicTaskExecutor&
-  ConsoleInputUpdater::periodicTaskExecutor() NO_EXCEPTION
-{
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(periodicTaskExecutor));
+  void onUnloaded()
+  {
+    LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicTaskExecutor_));
-  return periodicTaskExecutor_;
-}
+    DCHECK_RUN_ON(&sequence_checker_);
+
+    DCHECK(!consoleTerminal_);
+  }
+
+ private:
+  SET_WEAK_POINTERS(ConsoleTerminalPlugin);
+
+  // Task sequence used to update text input from console terminal.
+  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicConsoleTaskRunner_));
+
+  // On scope exit will schedule destruction (from sequence-local-context),
+  // so use `base::Optional` to control scope i.e. control lifetime.
+  base::Optional<ConsoleTerminalOnSequence> consoleTerminal_
+    GUARDED_BY(&sequence_checker_);
+
+  SEQUENCE_CHECKER(sequence_checker_);
+
+  DISALLOW_COPY_AND_ASSIGN(ConsoleTerminalPlugin);
+};
 
 } // namespace backend
