@@ -33,6 +33,7 @@
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
 #include <basis/strong_alias.hpp>
+#include <basis/ECS/sequence_local_context.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -47,12 +48,13 @@ namespace backend {
 class ConsoleInputUpdater
 {
  public:
-  using HandleConsoleInputCb
-    = base::RepeatingCallback<void(const std::string&)>;
+  using ConsoleTerminalEventDispatcher
+    = entt::dispatcher;
 
+ public:
   ConsoleInputUpdater(
     scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
-    , HandleConsoleInputCb consoleInputCb);
+    , scoped_refptr<base::SequencedTaskRunner> mainLoopRunner);
 
   ~ConsoleInputUpdater();
 
@@ -69,12 +71,12 @@ class ConsoleInputUpdater
  private:
   SET_WEAK_POINTERS(ConsoleInputUpdater);
 
+  scoped_refptr<base::SequencedTaskRunner> mainLoopRunner_;
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
+
   // Task sequence used to update text input from console terminal.
   scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicConsoleTaskRunner_));
-
-  HandleConsoleInputCb consoleInputCb_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(consoleInputCb_));
 
   /// \note will stop periodic timer on scope exit
   basis::PeriodicTaskExecutor periodicTaskExecutor_

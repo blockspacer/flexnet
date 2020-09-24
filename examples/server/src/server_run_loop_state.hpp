@@ -49,6 +49,10 @@
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 
+#include <entt/entity/registry.hpp>
+#include <entt/signal/dispatcher.hpp>
+#include <entt/entt.hpp>
+
 #include <memory>
 #include <chrono>
 
@@ -56,14 +60,86 @@ namespace backend {
 
 using namespace flexnet;
 
+class ServerRunLoopState;
+
+/// Creates globals like `plugin manager`.
+///
+/// \note Prefer to use `basis::ScopedSequenceCtxVar`
+/// instead of singleton pattern.
+class ServerGlobals
+{
+ public:
+  using VoidPromise
+    = base::Promise<void, base::NoReject>;
+
+  using StatusPromise
+    = base::Promise<::util::Status, base::NoReject>;
+
+  using ConsoleTerminalEventDispatcher
+    = entt::dispatcher;
+
+ public:
+  ServerGlobals();
+
+  ~ServerGlobals();
+
+  void handleConsoleInput(const std::string& line);
+
+  void onPluginLoaded(VoidPromise loadedPromise) NO_EXCEPTION;
+    ///\todo RUN_ON(&sequence_checker_);
+
+  void onPluginUnloaded(VoidPromise unloadedPromise) NO_EXCEPTION;
+    ///\todo RUN_ON(&sequence_checker_);
+
+ private:
+  SET_WEAK_POINTERS(ServerGlobals);
+
+  // Same as `base::MessageLoop::current()->task_runner()`
+  // during class construction
+  scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
+    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
+
+  /// \todo use plugin loader
+  ConsoleTerminalPlugin consoleTerminalPlugin;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
+  basis::ScopedSequenceCtxVar<
+    ConsoleTerminalEventDispatcher
+  > consoleTerminalEventDispatcher_;
+
+  base::WeakPtr<ECS::SequenceLocalContext> mainLoopContext_;
+    GUARDED_BY(sequence_checker_);
+
+  util::UnownedRef<ServerRunLoopState> serverRunLoopState_;
+    /// \todo
+    ///SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
+
+  plugin::PluginManager<
+    ::plugin::PluginInterface
+  > pluginManager_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
+  base::FilePath dir_exe_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
+  SEQUENCE_CHECKER(sequence_checker_);
+
+  DISALLOW_COPY_AND_ASSIGN(ServerGlobals);
+};
+
 // MOTIVATION
 //
 // We want to construct and destruct most of objects
-// only if base::RunLoop is running.
+// only if `base::RunLoop` is running
+// i.e. construct globals immediately after `base::RunLoop::Run()`
+// and destruct globals before `base::RunLoop::QuitClosure().Run()`.
 //
-/// \todo `ServerRunLoopContext` also creates plugin manager
-/// and application state manager.
-class ServerRunLoopContext
+// Also creates `application state manager`
+// i.e. state of server `RunLoop`.
+class ServerRunLoopState
 {
  public:
   using VoidPromise
@@ -73,9 +149,9 @@ class ServerRunLoopContext
     = base::Promise<::util::Status, base::NoReject>;
 
  public:
-  ServerRunLoopContext();
+  ServerRunLoopState();
 
-  ~ServerRunLoopContext();
+  ~ServerRunLoopState();
 
   void runLoop() NO_EXCEPTION
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
@@ -84,8 +160,6 @@ class ServerRunLoopContext
   // i.e. call is asynchronous returns immediately.
   void doQuit()
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
-
-  void handleConsoleInput(const std::string& line);
 
   // Append promise to chain as nested promise.
   void setPromiseBeforeStop(
@@ -125,7 +199,7 @@ class ServerRunLoopContext
     return promiseBeforeStart_;
   }
 
-  SET_WEAK_SELF(ServerRunLoopContext)
+  SET_WEAK_SELF(ServerRunLoopState)
 
  private:
 #if 0
@@ -177,14 +251,9 @@ class ServerRunLoopContext
   void stopIOContext() NO_EXCEPTION
     RUN_ON(&sequence_checker_);
 #endif // 0
-  void onPluginLoaded(VoidPromise loadedPromise) NO_EXCEPTION;
-    ///\todo RUN_ON(&sequence_checker_);
-
-  void onPluginUnloaded(VoidPromise unloadedPromise) NO_EXCEPTION;
-    ///\todo RUN_ON(&sequence_checker_);
 
  private:
-  SET_WEAK_POINTERS(ServerRunLoopContext);
+  SET_WEAK_POINTERS(ServerRunLoopState);
 
   /// \todo replace with AppStatePromise
   // Must be resolved before `RunLoop.Run` called.
@@ -256,10 +325,6 @@ class ServerRunLoopContext
     //GUARDED_BY(sequence_checker_);
 #endif // 0
 
-  /// \todo use plugin loader
-  ConsoleTerminalPlugin consoleTerminalPlugin;
-    /// \todo
-    //GUARDED_BY(sequence_checker_);
 #if 0
   /// \todo use plugin loader
   AsioThreadsManager asioThreadsManager_;
@@ -267,25 +332,16 @@ class ServerRunLoopContext
     //GUARDED_BY(sequence_checker_);
 #endif // 0
 
-  //base::WeakPtr<ECS::SequenceLocalContext> mainLoopContext_;
-  //  GUARDED_BY(sequence_checker_);
-
-  base::Optional<
-    plugin::PluginManager<::plugin::PluginInterface>
-  > pluginManager_;
-    /// \todo
-    //GUARDED_BY(sequence_checker_);
-
-  base::FilePath dir_exe_;
-    /// \todo
-    //GUARDED_BY(sequence_checker_);
-
   basis::ScopedSequenceCtxVar<AppState> appState_
     GUARDED_BY(sequence_checker_);
 
+  basis::ScopedSequenceCtxVar<ServerGlobals> serverGlobals_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(ServerRunLoopContext);
+  DISALLOW_COPY_AND_ASSIGN(ServerRunLoopState);
 };
 
 } // namespace backend

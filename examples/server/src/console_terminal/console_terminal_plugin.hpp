@@ -89,8 +89,7 @@ class ConsoleTerminalPlugin
   ~ConsoleTerminalPlugin();
 
   // async-construction of object in sequence-local-storage
-  VoidPromise load(
-    ConsoleInputUpdater::HandleConsoleInputCb consoleInputCb);
+  VoidPromise load();
 
   VoidPromise unload();
 

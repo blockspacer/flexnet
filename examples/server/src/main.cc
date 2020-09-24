@@ -1,5 +1,5 @@
 #include "init_env.hpp"
-#include "example_server.hpp"
+#include "server_run_loop_state.hpp"
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
 #include "ECS/systems/ssl_detect_result.hpp"
@@ -36,52 +36,12 @@
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
-
+#include <basis/scoped_sequence_context_var.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 
 #include <memory>
 #include <chrono>
-
-#include <Corrade/Containers/Pointer.h>
-#include <Corrade/PluginManager/AbstractManager.h>
-#include <Corrade/PluginManager/Manager.h>
-#include <Corrade/Utility/Configuration.h>
-#include <Corrade/Utility/ConfigurationGroup.h>
-#include <Corrade/Utility/Directory.h>
-
-/** Import static plugins
-
-If you link static plugins to your executable, they can't automatically
-register themselves at startup to be known to
-@ref Corrade::PluginManager::Manager "PluginManager::Manager", and you need to
-load them explicitly by calling @ref CORRADE_PLUGIN_IMPORT() at the beginning
-of the @cpp main() @ce function. You can also wrap these macro calls in another
-function (which will then be compiled into a dynamic library or the main
-executable) and use the @ref CORRADE_AUTOMATIC_INITIALIZER() macro for an
-automatic call
-*/
-static void loadStaticPlugins()
-{
-  GENERATE_CORRADE_PLUGIN_IMPORT
-}
-
-/** Eject a previously imported static plugins
-(plugin name same as defined with CORRADE_PLUGIN_REGISTER())
-
-Deregisters a plugin previously registered using @ref CORRADE_PLUGIN_IMPORT().
-
-@attention This macro should be called outside of any namespace. See the
-    @ref CORRADE_RESOURCE_INITIALIZE() macro for more information.
-
-Functions called by this macro don't do any dynamic allocation or other
-operations that could fail, so it's safe to call it even in restricted phases
-of application exection. It's also safe to call this macro more than once.
-*/
-static void unloadStaticPlugins()
-{
-  GENERATE_CORRADE_PLUGIN_EJECT
-}
 
 using namespace flexnet;
 using namespace backend;
@@ -105,13 +65,18 @@ int main(int argc, char* argv[])
     }
   }
 
-  loadStaticPlugins();
+  {
+    basis::ScopedSequenceCtxVar<ServerRunLoopState> serverRunLoopState;
 
-  ServerRunLoopContext serverRunLoopContext;
+    ignore_result(
+      serverRunLoopState.emplace(
+        FROM_HERE
+        , "ServerRunLoopState_" + FROM_HERE.ToString()
+      )
+    );
 
-  serverRunLoopContext.runLoop();
-
-  unloadStaticPlugins();
+    serverRunLoopState->runLoop();
+  }
 
   LOG(INFO)
     << "server is quitting";

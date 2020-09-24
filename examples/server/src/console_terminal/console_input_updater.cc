@@ -70,18 +70,50 @@
 #include <memory>
 #include <chrono>
 
+namespace {
+
+template<
+  typename Type
+  , typename DispatcherType
+>
+void triggerEventOnRunner(
+  scoped_refptr<base::SequencedTaskRunner> taskRunner
+  , Type&& line)
+{
+  taskRunner->PostTask(FROM_HERE,
+    base::BindOnce(
+    [
+    ](
+      Type&& line
+    ){
+      base::WeakPtr<ECS::SequenceLocalContext> mainLoopContext
+        = ECS::SequenceLocalContext::getSequenceLocalInstance(
+            FROM_HERE, base::MessageLoop::current()->task_runner());
+      DispatcherType& eventDispatcher
+        = mainLoopContext->ctx<DispatcherType>(FROM_HERE);
+      eventDispatcher.template trigger<
+        Type
+      >(line);
+    }
+    , base::rvalue_cast(line)
+    )
+  );
+}
+
+} // namespace
+
 namespace backend {
 
 ConsoleInputUpdater::ConsoleInputUpdater(
   scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
-  , HandleConsoleInputCb consoleInputCb)
+  , scoped_refptr<base::SequencedTaskRunner> mainLoopRunner)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
+  , mainLoopRunner_(mainLoopRunner)
   , periodicConsoleTaskRunner_(periodicConsoleTaskRunner)
-  , consoleInputCb_(consoleInputCb)
   , periodicTaskExecutor_(
       base::BindRepeating(
         &ConsoleInputUpdater::update
@@ -109,7 +141,6 @@ void ConsoleInputUpdater::update() NO_EXCEPTION
   LOG_CALL(DVLOG(99));
 
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicConsoleTaskRunner_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(consoleInputCb_));
 
   DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicConsoleTaskRunner_.get());
 
@@ -135,8 +166,10 @@ void ConsoleInputUpdater::update() NO_EXCEPTION
       << "console input: "
       << line;
 
-    DCHECK(consoleInputCb_);
-    consoleInputCb_.Run(line);
+    triggerEventOnRunner<
+      std::string, ConsoleTerminalEventDispatcher
+    >(mainLoopRunner_
+      , base::rvalue_cast(line));
   } else {
     DVLOG(99)
       << "no console input";

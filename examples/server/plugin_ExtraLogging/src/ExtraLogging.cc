@@ -70,7 +70,16 @@ class ExtraLogging
     : ::plugin::PluginInterface{manager, pluginName}
     , mainLoopRunner_(base::MessageLoop::current()->task_runner())
   {
+    LOG_CALL(DVLOG(99));
+
     DETACH_FROM_SEQUENCE(sequence_checker_);
+  }
+
+  ~ExtraLogging()
+  {
+    LOG_CALL(DVLOG(99));
+
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   }
 
   std::string title() const override

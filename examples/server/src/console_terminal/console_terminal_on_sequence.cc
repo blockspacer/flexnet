@@ -73,7 +73,8 @@
 namespace backend {
 
 ConsoleTerminalOnSequence::ConsoleTerminalOnSequence(
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner)
+  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
+  , scoped_refptr<base::SequencedTaskRunner> mainLoopRunner)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(

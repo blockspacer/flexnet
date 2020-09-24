@@ -93,7 +93,9 @@ ConsoleTerminalPlugin::ConsoleTerminalPlugin()
 
   if(base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
   {
-    consoleTerminal_.emplace(periodicConsoleTaskRunner_);
+    consoleTerminal_.emplace(
+      periodicConsoleTaskRunner_
+      , base::MessageLoop::current()->task_runner());
   }
 }
 
@@ -107,8 +109,7 @@ ConsoleTerminalPlugin::~ConsoleTerminalPlugin()
   DCHECK(!consoleTerminal_);
 }
 
-ConsoleTerminalPlugin::VoidPromise ConsoleTerminalPlugin::load(
-  ConsoleInputUpdater::HandleConsoleInputCb consoleInputCb)
+ConsoleTerminalPlugin::VoidPromise ConsoleTerminalPlugin::load()
 {
   LOG_CALL(DVLOG(99));
 
@@ -118,23 +119,17 @@ ConsoleTerminalPlugin::VoidPromise ConsoleTerminalPlugin::load(
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  DCHECK(consoleInputCb);
-
   scoped_refptr<base::SequencedTaskRunner> runnerCopy
     = periodicConsoleTaskRunner_;
-
-  ConsoleInputUpdater::HandleConsoleInputCb cbCopy
-    = consoleInputCb;
 
   return consoleTerminal_->promiseEmplaceAndStart
       <
         scoped_refptr<base::SequencedTaskRunner>
-        , ConsoleInputUpdater::HandleConsoleInputCb
       >
       (FROM_HERE
         , "PeriodicConsoleExecutor" // debug name
         , base::rvalue_cast(runnerCopy)
-        , base::rvalue_cast(cbCopy)
+        , base::MessageLoop::current()->task_runner()
       )
   .ThenHere(FROM_HERE
     , base::BindOnce(

@@ -1,7 +1,8 @@
-#include "example_server.hpp" // IWYU pragma: associated
+#include "server_run_loop_state.hpp" // IWYU pragma: associated
 #include "console_terminal/console_input_updater.hpp"
 #include "console_terminal/console_terminal_on_sequence.hpp"
 #include "console_terminal/console_feature_list.hpp"
+#include "generated/static_plugins.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -90,7 +91,173 @@ static const char kPluginsConfigFilesDir[]
 static const char kPluginsDirName[]
   = "plugins";
 
-ServerRunLoopContext::ServerRunLoopContext()
+ServerGlobals::ServerGlobals()
+  : ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_ptr_factory_(COPIED(this)))
+  , ALLOW_THIS_IN_INITIALIZER_LIST(
+      weak_this_(
+        weak_ptr_factory_.GetWeakPtr()))
+    , mainLoopRunner_{
+        base::MessageLoop::current()->task_runner()}
+    , mainLoopContext_{
+        ECS::SequenceLocalContext::getSequenceLocalInstance(
+          FROM_HERE, base::MessageLoop::current()->task_runner())}
+    , serverRunLoopState_(
+        REFERENCED(mainLoopContext_->ctx<ServerRunLoopState>(FROM_HERE)))
+    , pluginManager_(
+        base::BindRepeating(
+          &ServerGlobals::onPluginLoaded
+          , base::Unretained(this)
+        )
+        , base::BindRepeating(
+            &ServerGlobals::onPluginUnloaded
+            , base::Unretained(this)
+          )
+      )
+{
+  LOG_CALL(DVLOG(99));
+
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+
+  if (!base::PathService::Get(base::DIR_EXE, &dir_exe_)) {
+    NOTREACHED();
+  }
+
+  ignore_result(
+    consoleTerminalEventDispatcher_.emplace(
+      FROM_HERE
+      , "ConsoleTerminalEventDispatcher_" + FROM_HERE.ToString()
+    )
+  );
+
+  if(base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
+  {
+    serverRunLoopState_->setPromiseBeforeStart(
+      // Append promise to chain as nested promise.
+      serverRunLoopState_->promiseBeforeStart()
+      .ThenHere(FROM_HERE
+        , base::BindOnce(
+            &ConsoleTerminalPlugin::load
+            , base::Unretained(&consoleTerminalPlugin)
+        )
+        , /*nestedPromise*/ true
+      )
+    );
+
+    serverRunLoopState_->setPromiseBeforeStop(
+      // Append promise to chain as nested promise.
+      serverRunLoopState_->promiseBeforeStop()
+      .ThenHere(FROM_HERE
+        , base::BindOnce(
+            &ConsoleTerminalPlugin::unload
+            , base::Unretained(&consoleTerminalPlugin)
+        )
+        , /*nestedPromise*/ true
+      )
+    );
+  } else {
+    DVLOG(99)
+      << "console terminal not enabled";
+  }
+
+  serverRunLoopState_->setPromiseBeforeStop(
+    // Append promise to chain as nested promise.
+    serverRunLoopState_->promiseBeforeStop()
+    .ThenOn(mainLoopRunner_
+      , FROM_HERE
+      // stop plugin manager
+      , base::BindOnce(
+        [
+        ](
+          plugin::PluginManager<::plugin::PluginInterface>& pluginManager
+        ){
+          // calls `unload()` for each loaded plugin
+          pluginManager.shutdown();
+
+          unloadStaticPlugins();
+        }
+        , REFERENCED(pluginManager_)))
+  );
+
+
+  serverRunLoopState_->setPromiseBeforeStart(
+    // Append promise to chain as nested promise.
+    serverRunLoopState_->promiseBeforeStart()
+    .ThenOn(base::MessageLoop::current()->task_runner()
+      , FROM_HERE
+      , base::BindOnce(
+        [
+        ](
+          plugin::PluginManager<::plugin::PluginInterface>& pluginManager
+          , base::FilePath& dir_exe
+        ){
+          // start plugin manager
+          {
+            base::FilePath pathToDirWithPlugins
+            = dir_exe
+                .AppendASCII(kPluginsDirName);
+
+            base::FilePath pathToPluginsConfFile
+            = dir_exe
+                .AppendASCII(kPluginsConfigFilesDir)
+                .AppendASCII(::plugin::kPluginsConfigFileName);
+
+            std::vector<base::FilePath> pathsToExtraPluginFiles{};
+
+            loadStaticPlugins();
+
+            pluginManager.startup(
+              base::rvalue_cast(pathToDirWithPlugins)
+              , base::rvalue_cast(pathToPluginsConfFile)
+              , base::rvalue_cast(pathsToExtraPluginFiles)
+            );
+          }
+        }
+        , REFERENCED(pluginManager_)
+        , REFERENCED(dir_exe_)))
+  );
+}
+
+ServerGlobals::~ServerGlobals()
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON(&sequence_checker_);
+}
+
+void ServerGlobals::onPluginLoaded(
+  VoidPromise loadedPromise) NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  serverRunLoopState_->setPromiseBeforeStart(
+    // Append promise to chain as nested promise.
+    serverRunLoopState_->promiseBeforeStart()
+    .ThenNestedPromiseHere(FROM_HERE
+      , loadedPromise
+    )
+  );
+}
+
+void ServerGlobals::onPluginUnloaded(
+  VoidPromise unloadedPromise) NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  serverRunLoopState_->setPromiseBeforeStop(
+    // Append promise to chain as nested promise.
+    serverRunLoopState_->promiseBeforeStop()
+    .ThenNestedPromiseHere(FROM_HERE
+      , unloadedPromise
+    )
+  );
+}
+
+ServerRunLoopState::ServerRunLoopState()
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -126,74 +293,24 @@ ServerRunLoopContext::ServerRunLoopContext()
         , basis::bindToTaskRunner(
             FROM_HERE,
             base::BindOnce(
-                &ServerRunLoopContext::doQuit
+                &ServerRunLoopState::doQuit
                 , base::Unretained(this)),
             base::MessageLoop::current()->task_runner())
       )
     , periodicValidateUntil_()
 #endif // 0
-    //, mainLoopContext_{
-    //    ECS::SequenceLocalContext::getSequenceLocalInstance(
-    //      FROM_HERE, base::MessageLoop::current()->task_runner())}
-    , pluginManager_(
-        base::in_place
-        , base::BindRepeating(
-          &ServerRunLoopContext::onPluginLoaded
-          , base::Unretained(this)
-        )
-        , base::BindRepeating(
-            &ServerRunLoopContext::onPluginUnloaded
-            , base::Unretained(this)
-          )
-      )
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  appState_.emplace(
-    FROM_HERE
-    , "AppState" + FROM_HERE.ToString()
-    , AppState::UNINITIALIZED
+  ignore_result(
+    appState_.emplace(
+      FROM_HERE
+      , "AppState_" + FROM_HERE.ToString()
+      , AppState::UNINITIALIZED
+    )
   );
-
-  if (!base::PathService::Get(base::DIR_EXE, &dir_exe_)) {
-    NOTREACHED();
-  }
-
-  if(base::FeatureList::IsEnabled(kFeatureConsoleTerminal))
-  {
-    setPromiseBeforeStart(
-      // Append promise to chain as nested promise.
-      promiseBeforeStart()
-      .ThenHere(FROM_HERE
-        , base::BindOnce(
-            &ConsoleTerminalPlugin::load
-            , base::Unretained(&consoleTerminalPlugin)
-            , base::BindRepeating(
-                &ServerRunLoopContext::handleConsoleInput
-                , base::Unretained(this)
-              )
-        )
-        , /*nestedPromise*/ true
-      )
-    );
-
-    setPromiseBeforeStop(
-      // Append promise to chain as nested promise.
-      promiseBeforeStop()
-      .ThenHere(FROM_HERE
-        , base::BindOnce(
-            &ConsoleTerminalPlugin::unload
-            , base::Unretained(&consoleTerminalPlugin)
-        )
-        , /*nestedPromise*/ true
-      )
-    );
-  } else {
-    DVLOG(99)
-      << "console terminal not enabled";
-  }
 
 #if 0
   setPromiseBeforeStop(
@@ -203,7 +320,7 @@ ServerRunLoopContext::ServerRunLoopContext()
       , FROM_HERE
       , base::BindOnce(
         // stop accepting of new connections
-        &ServerRunLoopContext::stopAcceptors
+        &ServerRunLoopState::stopAcceptors
         , base::Unretained(this)
       )
       , /*nestedPromise*/ true
@@ -234,7 +351,7 @@ ServerRunLoopContext::ServerRunLoopContext()
       , FROM_HERE
       , base::BindOnce(
         // async-wait for destruction of existing connections
-        &ServerRunLoopContext::promiseNetworkResourcesFreed
+        &ServerRunLoopState::promiseNetworkResourcesFreed
         , base::Unretained(this)
       )
       , /*nestedPromise*/ true
@@ -251,7 +368,7 @@ ServerRunLoopContext::ServerRunLoopContext()
         /// \note you can not use `::boost::asio::post`
         /// if `ioc_->stopped()`
         /// i.e. can not use strand of registry e.t.c.
-        &ServerRunLoopContext::stopIOContext
+        &ServerRunLoopState::stopIOContext
         , base::Unretained(this)
       )
     )
@@ -287,7 +404,7 @@ ServerRunLoopContext::ServerRunLoopContext()
 #endif // 0
 }
 
-void ServerRunLoopContext::doQuit()
+void ServerRunLoopState::doQuit()
 {
   LOG_CALL(DVLOG(99));
 
@@ -312,38 +429,21 @@ void ServerRunLoopContext::doQuit()
           << "application terminating...";
       })
   )
-  .ThenOn(mainLoopRunner_
-    , FROM_HERE
-    // stop plugin manager
-    , base::BindOnce(
-      [
-      ](
-        base::Optional<
-          plugin::PluginManager<::plugin::PluginInterface>
-        >& pluginManager
-      ){
-        // calls `unload()` for each loaded plugin
-        pluginManager->shutdown();
-      }
-      , REFERENCED(pluginManager_)))
   // async-waits untill `unload()` finished
   // for each loaded plugin etc.
   .ThenNestedPromiseOn(mainLoopRunner_
     , FROM_HERE
     , promiseBeforeStop_)
-  .ThenOn(mainLoopRunner_
+  .ThenOn(base::MessageLoop::current()->task_runner()
     , FROM_HERE
-    // stop plugin manager
     , base::BindOnce(
       [
       ](
-        base::Optional<
-          plugin::PluginManager<::plugin::PluginInterface>
-        >& pluginManager
+        basis::ScopedSequenceCtxVar<ServerGlobals>& serverGlobals
       ){
-        pluginManager.reset();
+        serverGlobals.reset();
       }
-      , REFERENCED(pluginManager_)))
+      , REFERENCED(serverGlobals_)))
   .ThenOn(mainLoopRunner_
     , FROM_HERE
     , run_loop_.QuitClosure());
@@ -352,7 +452,7 @@ void ServerRunLoopContext::doQuit()
 }
 
 #if 0
-ServerRunLoopContext::StatusPromise ServerRunLoopContext::stopAcceptors() NO_EXCEPTION
+ServerRunLoopState::StatusPromise ServerRunLoopState::stopAcceptors() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -364,7 +464,7 @@ ServerRunLoopContext::StatusPromise ServerRunLoopContext::stopAcceptors() NO_EXC
 }
 #endif // 0
 
-void ServerRunLoopContext::runLoop() NO_EXCEPTION
+void ServerRunLoopState::runLoop() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -399,18 +499,33 @@ void ServerRunLoopContext::runLoop() NO_EXCEPTION
   .ThenOn(mainLoopRunner_
     , FROM_HERE
     , base::BindOnce(
-        &ServerRunLoopContext::startAcceptors
+        &ServerRunLoopState::startAcceptors
         , base::Unretained(this)
     )
   )
   .ThenOn(mainLoopRunner_
     , FROM_HERE
     , base::BindOnce(
-        &ServerRunLoopContext::startThreadsManager
+        &ServerRunLoopState::startThreadsManager
         , base::Unretained(this)
     )
   )
 #endif // 0
+  .ThenOn(base::MessageLoop::current()->task_runner()
+    , FROM_HERE
+    , base::BindOnce(
+      [
+      ](
+        basis::ScopedSequenceCtxVar<ServerGlobals>& serverGlobals
+      ){
+        ignore_result(
+          serverGlobals.emplace(
+            FROM_HERE
+            , "ServerGlobals_" + FROM_HERE.ToString()
+          )
+        );
+      }
+      , REFERENCED(serverGlobals_)))
   .ThenOn(base::MessageLoop::current()->task_runner()
     , FROM_HERE
     , base::BindOnce(
@@ -424,38 +539,6 @@ void ServerRunLoopContext::runLoop() NO_EXCEPTION
          DCHECK(result.ok());
       }
       , REFERENCED(appState_)))
-  .ThenOn(base::MessageLoop::current()->task_runner()
-    , FROM_HERE
-    , base::BindOnce(
-      [
-      ](
-        base::Optional<
-          plugin::PluginManager<::plugin::PluginInterface>
-        >& pluginManager
-        , base::FilePath& dir_exe
-      ){
-        // start plugin manager
-        {
-          base::FilePath pathToDirWithPlugins
-          = dir_exe
-              .AppendASCII(kPluginsDirName);
-
-          base::FilePath pathToPluginsConfFile
-          = dir_exe
-              .AppendASCII(kPluginsConfigFilesDir)
-              .AppendASCII(::plugin::kPluginsConfigFileName);
-
-          std::vector<base::FilePath> pathsToExtraPluginFiles{};
-
-          pluginManager->startup(
-            base::rvalue_cast(pathToDirWithPlugins)
-            , base::rvalue_cast(pathToPluginsConfFile)
-            , base::rvalue_cast(pathsToExtraPluginFiles)
-          );
-        }
-      }
-      , REFERENCED(pluginManager_)
-      , REFERENCED(dir_exe_)))
   .ThenOn(base::MessageLoop::current()->task_runner()
     , FROM_HERE
     , base::BindOnce(
@@ -477,7 +560,7 @@ void ServerRunLoopContext::runLoop() NO_EXCEPTION
 }
 
 #if 0
-void ServerRunLoopContext::startThreadsManager() NO_EXCEPTION
+void ServerRunLoopState::startThreadsManager() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -494,7 +577,7 @@ void ServerRunLoopContext::startThreadsManager() NO_EXCEPTION
   );
 }
 
-void ServerRunLoopContext::startAcceptors() NO_EXCEPTION
+void ServerRunLoopState::startAcceptors() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -505,14 +588,14 @@ void ServerRunLoopContext::startAcceptors() NO_EXCEPTION
     /// will be executed only when |run_loop| is running
     , base::MessageLoop::current()->task_runner().get()
     , base::BindOnce(
-        &ServerRunLoopContext::configureAndRunAcceptor
+        &ServerRunLoopState::configureAndRunAcceptor
         , base::Unretained(this)
     )
     , /*nestedPromise*/ true
   );
 }
 
-void ServerRunLoopContext::closeNetworkResources() NO_EXCEPTION
+void ServerRunLoopState::closeNetworkResources() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -627,7 +710,7 @@ void ServerRunLoopContext::closeNetworkResources() NO_EXCEPTION
   );
 }
 
-void ServerRunLoopContext::validateAndFreeNetworkResources(
+void ServerRunLoopState::validateAndFreeNetworkResources(
   base::RepeatingClosure resolveCallback) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
@@ -684,8 +767,8 @@ void ServerRunLoopContext::validateAndFreeNetworkResources(
   );
 }
 
-ServerRunLoopContext::VoidPromise
-  ServerRunLoopContext::promiseNetworkResourcesFreed() NO_EXCEPTION
+ServerRunLoopState::VoidPromise
+  ServerRunLoopState::promiseNetworkResourcesFreed() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -704,7 +787,7 @@ ServerRunLoopContext::VoidPromise
   // Periodic task will be redirected to `asio_registry.asioStrand()`.
   basis::PeriodicValidateUntil::ValidationTaskType validationTask
     = base::BindRepeating(
-        &ServerRunLoopContext::validateAndFreeNetworkResources
+        &ServerRunLoopState::validateAndFreeNetworkResources
         , base::Unretained(this)
     );
 
@@ -734,8 +817,8 @@ ServerRunLoopContext::VoidPromise
   );
 }
 
-ServerRunLoopContext::VoidPromise
-  ServerRunLoopContext::configureAndRunAcceptor() NO_EXCEPTION
+ServerRunLoopState::VoidPromise
+  ServerRunLoopState::configureAndRunAcceptor() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -756,7 +839,7 @@ ServerRunLoopContext::VoidPromise
   ));
 }
 
-void ServerRunLoopContext::stopIOContext() NO_EXCEPTION
+void ServerRunLoopState::stopIOContext() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -777,39 +860,7 @@ void ServerRunLoopContext::stopIOContext() NO_EXCEPTION
 }
 #endif // 0
 
-void ServerRunLoopContext::onPluginLoaded(
-  VoidPromise loadedPromise) NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  setPromiseBeforeStart(
-    // Append promise to chain as nested promise.
-    promiseBeforeStart()
-    .ThenNestedPromiseHere(FROM_HERE
-      , loadedPromise
-    )
-  );
-}
-
-void ServerRunLoopContext::onPluginUnloaded(
-  VoidPromise unloadedPromise) NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  setPromiseBeforeStop(
-    // Append promise to chain as nested promise.
-    promiseBeforeStop()
-    .ThenNestedPromiseHere(FROM_HERE
-      , unloadedPromise
-    )
-  );
-}
-
-ServerRunLoopContext::~ServerRunLoopContext()
+ServerRunLoopState::~ServerRunLoopState()
 {
   LOG_CALL(DVLOG(99));
 
@@ -826,24 +877,6 @@ ServerRunLoopContext::~ServerRunLoopContext()
       || appState_->currentState() == AppState::TERMINATED)
       << " current app state:"
       << appState_->currentState();
-  }
-}
-
-void ServerRunLoopContext::handleConsoleInput(const std::string& line)
-{
-  LOG_CALL(DVLOG(99));
-
-  if (line == "stop")
-  {
-    DVLOG(9)
-      << "got `stop` console command";
-
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
-    DCHECK(mainLoopRunner_);
-    (mainLoopRunner_)->PostTask(FROM_HERE
-      , base::BindRepeating(
-          &backend::ServerRunLoopContext::doQuit
-          , base::Unretained(this)));
   }
 }
 

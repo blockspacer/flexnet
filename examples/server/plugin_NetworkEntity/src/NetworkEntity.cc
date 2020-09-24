@@ -146,6 +146,13 @@ class NetworkEntity
     DETACH_FROM_SEQUENCE(sequence_checker_);
   }
 
+  ~NetworkEntity()
+  {
+    LOG_CALL(DVLOG(99));
+
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  }
+
   std::string title() const override
   {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);

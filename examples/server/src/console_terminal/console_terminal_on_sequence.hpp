@@ -57,7 +57,8 @@ class ConsoleTerminalOnSequence
     = base::Promise<void, base::NoReject>;
 
   ConsoleTerminalOnSequence(
-    scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner);
+    scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner
+    , scoped_refptr<base::SequencedTaskRunner> mainLoopRunner);
 
   /// \note API is asyncronous, so you must check
   /// if `destructScopedCrossSequenceCtxVar` finished
