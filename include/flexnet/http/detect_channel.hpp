@@ -83,7 +83,7 @@ namespace http {
 //
 // HOT-CODE PATH
 //
-// Use plain collbacks (do not use `base::Promise` etc.)
+// Use plain callbacks (do not use `base::Promise` etc.)
 // and avoid heap memory allocations
 // because performance is critical here.
 class DetectChannel

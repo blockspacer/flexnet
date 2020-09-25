@@ -1,5 +1,6 @@
 #include "plugin_interface/plugin_interface.hpp"
 #include "console_terminal/console_dispatcher.hpp"
+#include "registry/main_loop_registry.hpp"
 
 #include <base/logging.h>
 #include <base/cpu.h>
@@ -34,36 +35,38 @@
 namespace {
 
 template<
-  typename Type
+  typename EventType
   , typename DispatcherType
 >
-void triggerEventOnRunner(
+void postOnRunnerDispatcherEvent(
   scoped_refptr<base::SequencedTaskRunner> taskRunner
-  , Type&& line)
+  , EventType&& event)
 {
   taskRunner->PostTask(FROM_HERE,
     base::BindOnce(
     [
     ](
-      Type&& line
+      EventType&& event
     ){
-      base::WeakPtr<ECS::SequenceLocalContext> mainLoopContext
-        = ECS::SequenceLocalContext::getSequenceLocalInstance(
-            FROM_HERE, base::MessageLoop::current()->task_runner());
-      if(!mainLoopContext->try_ctx<DispatcherType>(FROM_HERE))
+      ::backend::MainLoopRegistry::RegistryType& mainLoopRegistry
+          = ::backend::MainLoopRegistry::GetInstance()->registry();
+
+      if(!mainLoopRegistry.try_ctx<DispatcherType>())
       {
         DVLOG(99)
           << "Unable to trigger event"
              " using not-existing runner";
         return;
       }
+
       DispatcherType& eventDispatcher
-        = mainLoopContext->ctx<DispatcherType>(FROM_HERE);
+        = mainLoopRegistry.template ctx<DispatcherType>();
+
       eventDispatcher->template trigger<
-        Type
-      >(line);
+        EventType
+      >(event);
     }
-    , base::rvalue_cast(line)
+    , base::rvalue_cast(event)
     )
   );
 }
@@ -158,6 +161,9 @@ class ConsoleTerminal
               , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
             }
           ))
+     , consoleTerminalEventDispatcher_(REFERENCED(
+        ::backend::MainLoopRegistry::GetInstance()->registry()
+          .set<::backend::ConsoleTerminalEventDispatcher>()))
   {
     LOG_CALL(DVLOG(99));
 
@@ -200,15 +206,8 @@ class ConsoleTerminal
 
     TRACE_EVENT0("headless", "plugin::ConsoleTerminal::load()");
 
-     LOG_CALL(DVLOG(99))
+    LOG_CALL(DVLOG(99))
       << " ConsoleTerminal starting...";
-
-    ignore_result(
-     consoleTerminalEventDispatcher_.emplace(
-       FROM_HERE
-       , "ConsoleTerminalEventDispatcher_" + FROM_HERE.ToString()
-     )
-    );
 
     return base::PostPromise(
       FROM_HERE
@@ -287,8 +286,9 @@ class ConsoleTerminal
         << "console input: "
         << line;
 
-      triggerEventOnRunner<
-        std::string, backend::ConsoleTerminalEventDispatcher
+      postOnRunnerDispatcherEvent<
+        std::string // event type
+        , backend::ConsoleTerminalEventDispatcher // dispatcher type
       >(mainLoopRunner
         , base::rvalue_cast(line));
     } else {
@@ -304,9 +304,11 @@ private:
 
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_;
 
-  basis::ScopedSequenceCtxVar<
+  util::UnownedRef<
     backend::ConsoleTerminalEventDispatcher
   > consoleTerminalEventDispatcher_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
 
   // Task sequence used to update text input from console terminal.
   scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_;

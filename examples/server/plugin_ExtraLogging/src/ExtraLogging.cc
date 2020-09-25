@@ -18,7 +18,6 @@
 
 namespace {
 
-/// \todo make configurable in plugin [configuration]
 static constexpr int kDefaultMinCores
   = 4;
 

@@ -1,18 +1,5 @@
 #include "net/asio_threads_manager.hpp" // IWYU pragma: associated
 
-#include "ECS/systems/accept_connection_result.hpp"
-#include "ECS/systems/cleanup.hpp"
-#include "ECS/systems/ssl_detect_result.hpp"
-#include "ECS/systems/unused.hpp"
-
-#include <flexnet/websocket/listener.hpp>
-#include <flexnet/websocket/ws_channel.hpp>
-#include <flexnet/http/http_channel.hpp>
-#include <flexnet/http/detect_channel.hpp>
-#include <flexnet/websocket/ws_channel.hpp>
-#include <flexnet/ECS/tags.hpp>
-#include <flexnet/ECS/components/tcp_connection.hpp>
-
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -123,7 +110,10 @@ void AsioThreadsManager::startThreads(
   const size_t threadsNum
   , boost::asio::io_context& ioc)
 {
-  LOG_CALL(DVLOG(99));
+  LOG_CALL(DVLOG(99))
+    << "creating "
+    << threadsNum
+    << " asio threads";
 
   DCHECK_RUN_ON(&sequence_checker_);
 

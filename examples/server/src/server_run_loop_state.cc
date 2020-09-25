@@ -100,9 +100,6 @@ ServerGlobals::ServerGlobals()
         .ctx<::backend::ServerRunLoopState>()))
   , mainLoopRunner_{
       base::MessageLoop::current()->task_runner()}
-  , mainLoopContext_{
-      ECS::SequenceLocalContext::getSequenceLocalInstance(
-        FROM_HERE, base::MessageLoop::current()->task_runner())}
   , pluginManager_(
       /*base::BindRepeating(
         &ServerGlobals::onPluginLoaded
@@ -260,15 +257,6 @@ ServerRunLoopState::ServerRunLoopState(
   , mainLoopRunner_{
       base::MessageLoop::current()->task_runner()}
 #if 0
-  , signalHandler_(
-      REFERENCED(ioc_)
-      , basis::bindToTaskRunner(
-          FROM_HERE,
-          base::BindOnce(
-              &ServerRunLoopState::doQuit
-              , base::Unretained(this)),
-          base::MessageLoop::current()->task_runner())
-    )
   , periodicValidateUntil_()
 #endif // 0
   , appState_(AppState::UNINITIALIZED)
@@ -342,13 +330,6 @@ ServerRunLoopState::ServerRunLoopState(
   setPromiseBeforeStop(
     // Append promise to chain as nested promise.
     promiseBeforeStop()
-    .ThenOn(mainLoopRunner_
-      , FROM_HERE
-      , base::BindOnce(
-        &AsioThreadsManager::stopThreads
-        , base::Unretained(&asioThreadsManager_)
-      )
-    )
   );
 
   /// \todo use it
@@ -548,12 +529,6 @@ void ServerRunLoopState::startThreadsManager() NO_EXCEPTION
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
 
   DCHECK_RUN_ON(&sequence_checker_);
-
-  asioThreadsManager_.startThreads(
-    /// \todo make configurable
-    5
-    , REFERENCED(ioc_)
-  );
 }
 
 void ServerRunLoopState::startAcceptors() NO_EXCEPTION

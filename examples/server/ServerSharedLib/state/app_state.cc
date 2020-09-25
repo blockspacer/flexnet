@@ -83,6 +83,10 @@ AppState::VoidPromise
     const base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
 {
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON(&sequence_checker_);
+
   base::ManualPromiseResolver<void, base::NoReject>
     eventOnceResolver(FROM_HERE);
 
@@ -98,8 +102,6 @@ AppState::VoidPromise
       ignore_result(event);
       ignore_result(next_state);
       ignore_result(recovery_event);
-
-      DCHECK(base::RunLoop::IsRunningOnCurrentThread());
 
       /// \note `AddEntryAction` will add repeating callback,
       /// but we want to execute it only once
@@ -122,6 +124,10 @@ AppState::VoidPromise
     const base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
 {
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON(&sequence_checker_);
+
   base::ManualPromiseResolver<void, base::NoReject>
     eventOnceResolver(FROM_HERE);
 
@@ -137,8 +143,6 @@ AppState::VoidPromise
       ignore_result(event);
       ignore_result(next_state);
       ignore_result(recovery_event);
-
-      DCHECK(base::RunLoop::IsRunningOnCurrentThread());
 
       /// \note `AddEntryAction` will add repeating callback,
       /// but we want to execute it only once
@@ -163,7 +167,7 @@ AppState::StateMachineType::TransitionTable
 
   StateMachineType::TransitionTable sm_table_;
 
-  //    [state][event] -> next state
+  // [state][event] -> next state
   sm_table_[UNINITIALIZED][START] = STARTED;
   sm_table_[UNINITIALIZED][TERMINATE] = TERMINATED;
   sm_table_[UNINITIALIZED][FAULT] = FAILED;

@@ -6,6 +6,34 @@ macro(add_server_lib LIBRARY_NAME)
     ${ARGN}
   )
 
+  if(ENABLE_MSAN)
+    message(STATUS "enabling MSAN on ${LIBRARY_NAME}")
+    add_msan_static_link(${LIBRARY_NAME})
+    add_msan_definitions(${LIBRARY_NAME})
+    add_msan_flags()
+  endif(ENABLE_MSAN)
+
+  if(ENABLE_TSAN)
+    message(STATUS "enabling TSAN on ${LIBRARY_NAME}")
+    add_tsan_static_link(${LIBRARY_NAME})
+    add_tsan_definitions(${LIBRARY_NAME})
+    add_tsan_flags()
+  endif(ENABLE_TSAN)
+
+  if(ENABLE_ASAN)
+    message(STATUS "enabling ASAN on ${LIBRARY_NAME}")
+    add_asan_static_link(${LIBRARY_NAME})
+    add_asan_definitions(${LIBRARY_NAME})
+    add_asan_flags()
+  endif(ENABLE_ASAN)
+
+  if(ENABLE_UBSAN)
+    message(STATUS "enabling UBSAN on ${LIBRARY_NAME}")
+    add_ubsan_static_link(${LIBRARY_NAME})
+    add_ubsan_definitions(${LIBRARY_NAME})
+    add_ubsan_flags()
+  endif(ENABLE_UBSAN)
+
   target_link_libraries(${LIBRARY_NAME} PRIVATE
     ${LIB_NAME}
     CONAN_PKG::corrade
@@ -120,14 +148,8 @@ add_executable(server_executable
   ${CMAKE_CURRENT_SOURCE_DIR}/src/server_run_loop_state.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/server_run_loop_state.hpp
   #
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/signal_handler/signal_handler.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/signal_handler/signal_handler.cc
-  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/plugin_manager/plugin_manager.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/plugin_manager/plugin_manager.cc
-  #
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/net/asio_threads_manager.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/net/asio_threads_manager.hpp
   #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.hpp
@@ -141,6 +163,34 @@ add_executable(server_executable
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/accept_connection_result.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/accept_connection_result.hpp
 )
+
+if(ENABLE_MSAN)
+  message(STATUS "enabling MSAN on server_executable")
+  add_msan_static_link(server_executable)
+  add_msan_definitions(server_executable)
+  add_msan_flags()
+endif(ENABLE_MSAN)
+
+if(ENABLE_TSAN)
+  message(STATUS "enabling TSAN on server_executable")
+  add_tsan_static_link(server_executable)
+  add_tsan_definitions(server_executable)
+  add_tsan_flags()
+endif(ENABLE_TSAN)
+
+if(ENABLE_ASAN)
+  message(STATUS "enabling ASAN on server_executable")
+  add_asan_static_link(server_executable)
+  add_asan_definitions(server_executable)
+  add_asan_flags()
+endif(ENABLE_ASAN)
+
+if(ENABLE_UBSAN)
+  message(STATUS "enabling UBSAN on server_executable")
+  add_ubsan_static_link(server_executable)
+  add_ubsan_definitions(server_executable)
+  add_ubsan_flags()
+endif(ENABLE_UBSAN)
 
 target_link_libraries(server_executable PRIVATE
   ${LIB_NAME}
@@ -241,6 +291,34 @@ macro(add_server_plugin PLUGIN_NAME PLUGIN_RELATIVE_DIR)
       ${CMAKE_CURRENT_BINARY_DIR}
       ${metadata_file}
       ${ARGN})
+
+    if(ENABLE_MSAN)
+      message(STATUS "enabling MSAN on ${PLUGIN_NAME}")
+      add_msan_static_link(${PLUGIN_NAME})
+      add_msan_definitions(${PLUGIN_NAME})
+      add_msan_flags()
+    endif(ENABLE_MSAN)
+
+    if(ENABLE_TSAN)
+      message(STATUS "enabling TSAN on ${PLUGIN_NAME}")
+      add_tsan_static_link(${PLUGIN_NAME})
+      add_tsan_definitions(${PLUGIN_NAME})
+      add_tsan_flags()
+    endif(ENABLE_TSAN)
+
+    if(ENABLE_ASAN)
+      message(STATUS "enabling ASAN on ${PLUGIN_NAME}")
+      add_asan_static_link(${PLUGIN_NAME})
+      add_asan_definitions(${PLUGIN_NAME})
+      add_asan_flags()
+    endif(ENABLE_ASAN)
+
+    if(ENABLE_UBSAN)
+      message(STATUS "enabling UBSAN on ${PLUGIN_NAME}")
+      add_ubsan_static_link(${PLUGIN_NAME})
+      add_ubsan_definitions(${PLUGIN_NAME})
+      add_ubsan_flags()
+    endif(ENABLE_UBSAN)
   else()
     add_library(${PLUGIN_NAME} SHARED
       ${ARGN}
@@ -253,6 +331,7 @@ macro(add_server_plugin PLUGIN_NAME PLUGIN_RELATIVE_DIR)
   #
   target_include_directories(${PLUGIN_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/${PLUGIN_RELATIVE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PLUGIN_RELATIVE_DIR}/src
   )
   #
   target_link_libraries(${PLUGIN_NAME} PRIVATE
@@ -265,6 +344,7 @@ macro(add_server_plugin PLUGIN_NAME PLUGIN_RELATIVE_DIR)
     ${USED_SYSTEM_LIBS}
     ${base_LIB}
     ${build_util_LIB}
+    ServerSharedLib
     PluginInterfaceSharedLib
   )
   set_target_properties(${PLUGIN_NAME} PROPERTIES
@@ -314,7 +394,6 @@ add_server_plugin(BasicConsoleCommands
 
 target_link_libraries(BasicConsoleCommands PRIVATE
   ConsoleTerminalSharedLib
-  ServerSharedLib
 )
 
 add_server_plugin(ConsoleTerminal
@@ -324,6 +403,27 @@ add_server_plugin(ConsoleTerminal
 
 target_link_libraries(ConsoleTerminal PRIVATE
   ConsoleTerminalSharedLib
+)
+
+add_server_plugin(AsioContextThreads
+  plugin_AsioContextThreads
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_AsioContextThreads/src/AsioContextThreads.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_AsioContextThreads/src/net/asio_threads_manager.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_AsioContextThreads/src/net/asio_threads_manager.cc
+)
+
+add_server_plugin(SignalHandler
+  plugin_SignalHandler
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_SignalHandler/src/SignalHandler.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_SignalHandler/src/signal_handler/signal_handler.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_SignalHandler/src/signal_handler/signal_handler.cc
+)
+
+add_server_plugin(TcpServer
+  plugin_TcpServer
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_TcpServer/src/TcpServer.cc
 )
 
 #add_server_plugin(NetworkEntity

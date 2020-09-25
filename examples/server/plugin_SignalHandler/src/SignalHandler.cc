@@ -1,5 +1,5 @@
 #include "plugin_interface/plugin_interface.hpp"
-#include "console_terminal/console_dispatcher.hpp"
+#include "signal_handler/signal_handler.hpp"
 #include "state/app_state.hpp"
 #include "registry/main_loop_registry.hpp"
 
@@ -30,9 +30,9 @@
 #include <thread>
 
 namespace plugin {
-namespace basic_console_commands {
+namespace signal_handler {
 
-class ConsoleInputHandler
+class SignalHandlerPlugin
 {
  public:
   using VoidPromise
@@ -42,103 +42,98 @@ class ConsoleInputHandler
     = base::Promise<::util::Status, base::NoReject>;
 
  public:
-  ConsoleInputHandler();
+  SignalHandlerPlugin();
 
-  ~ConsoleInputHandler();
+  ~SignalHandlerPlugin();
 
-  void handleConsoleInput(const std::string& line);
+  void handleSigQuit();
     /// \todo
     ///RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(handleConsoleInput));
 
  private:
-  SET_WEAK_POINTERS(ConsoleInputHandler);
+  SET_WEAK_POINTERS(SignalHandlerPlugin);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
 
-  util::UnownedRef<
-    ::backend::ConsoleTerminalEventDispatcher
-  > consoleTerminalEventDispatcher_;
-    /// \todo
-    ///SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
+  // Captures SIGINT and SIGTERM to perform a clean shutdown
+  /// \note `boost::asio::signal_set` will not handle signals if ioc stopped
+  ::backend::SignalHandler signalHandler_
+    GUARDED_BY(sequence_checker_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(ConsoleInputHandler);
+  DISALLOW_COPY_AND_ASSIGN(SignalHandlerPlugin);
 };
 
-ConsoleInputHandler::ConsoleInputHandler()
+SignalHandlerPlugin::SignalHandlerPlugin()
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-    , mainLoopRunner_{
-        base::MessageLoop::current()->task_runner()}
-    , consoleTerminalEventDispatcher_(
-        REFERENCED(::backend::MainLoopRegistry::GetInstance()->registry()
-          .ctx<::backend::ConsoleTerminalEventDispatcher>()))
+  , mainLoopRunner_{
+      base::MessageLoop::current()->task_runner()}
+  , signalHandler_(
+      REFERENCED(::backend::MainLoopRegistry::GetInstance()->registry()
+        .ctx<::boost::asio::io_context>())
+      // `bindToTaskRunner` re-routes callback to task runner
+      , basis::bindToTaskRunner(
+          FROM_HERE,
+          base::BindOnce(
+              &SignalHandlerPlugin::handleSigQuit
+              , base::Unretained(this)),
+          base::MessageLoop::current()->task_runner())
+    )
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
-
-  (*consoleTerminalEventDispatcher_)->sink<
-    std::string
-  >().connect<&ConsoleInputHandler::handleConsoleInput>(this);
 }
 
-ConsoleInputHandler::~ConsoleInputHandler()
+SignalHandlerPlugin::~SignalHandlerPlugin()
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
-
-  (*consoleTerminalEventDispatcher_)->sink<
-    std::string
-  >().disconnect<&ConsoleInputHandler::handleConsoleInput>(this);
 }
 
-void ConsoleInputHandler::handleConsoleInput(
-  const std::string& line)
+void SignalHandlerPlugin::handleSigQuit()
 {
   LOG_CALL(DVLOG(99));
 
-  if (line == "stop")
-  {
     DVLOG(9)
-      << "got `stop` console command";
+      << "got sigquit";
 
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
-    DCHECK(mainLoopRunner_);
-    (mainLoopRunner_)->PostTask(FROM_HERE
-      , base::BindOnce(
-        [
-        ](
-        ){
-           // send termination event
-           ::backend::AppState& appState =
-             ::backend::MainLoopRegistry::GetInstance()->registry()
-               .ctx<::backend::AppState>();
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
+  DCHECK(mainLoopRunner_);
+  (mainLoopRunner_)->PostTask(FROM_HERE
+    , base::BindOnce(
+      [
+      ](
+      ){
+         // send termination event
+         ::backend::AppState& appState =
+           ::backend::MainLoopRegistry::GetInstance()->registry()
+             .ctx<::backend::AppState>();
 
-           ::util::Status result =
-             appState.processStateChange(
-               FROM_HERE
-               , ::backend::AppState::TERMINATE);
+         ::util::Status result =
+           appState.processStateChange(
+             FROM_HERE
+             , ::backend::AppState::TERMINATE);
 
-           DCHECK(result.ok());
-        }
-      ));
-  }
+         DCHECK(result.ok());
+      }
+    ));
 }
 
-class BasicConsoleCommands
+class SignalHandler
   final
   : public ::plugin::PluginInterface {
  public:
-  explicit BasicConsoleCommands(
+  explicit SignalHandler(
     ::plugin::AbstractManager& manager
     , const std::string& pluginName)
     : ::plugin::PluginInterface{manager, pluginName}
@@ -149,7 +144,7 @@ class BasicConsoleCommands
     DETACH_FROM_SEQUENCE(sequence_checker_);
   }
 
-  ~BasicConsoleCommands()
+  ~SignalHandler()
   {
     LOG_CALL(DVLOG(99));
 
@@ -183,7 +178,7 @@ class BasicConsoleCommands
 
     DCHECK(mainLoopRunner_->RunsTasksInCurrentSequence());
 
-    TRACE_EVENT0("headless", "plugin::BasicConsoleCommands::load()");
+    TRACE_EVENT0("headless", "plugin::SignalHandler::load()");
 
     return
       base::PostPromise(FROM_HERE
@@ -193,7 +188,7 @@ class BasicConsoleCommands
           ](
           ){
              LOG_CALL(DVLOG(99))
-              << " BasicConsoleCommands starting...";
+              << " SignalHandler starting...";
           })
       );
   }
@@ -204,7 +199,7 @@ class BasicConsoleCommands
 
     DCHECK(mainLoopRunner_->RunsTasksInCurrentSequence());
 
-    TRACE_EVENT0("headless", "plugin::BasicConsoleCommands::unload()");
+    TRACE_EVENT0("headless", "plugin::SignalHandler::unload()");
 
     DLOG(INFO)
       << "unloaded plugin with title = "
@@ -221,7 +216,7 @@ class BasicConsoleCommands
           ](
           ){
              LOG_CALL(DVLOG(99))
-              << " BasicConsoleCommands terminating...";
+              << " SignalHandler terminating...";
           })
       );
   }
@@ -229,17 +224,17 @@ class BasicConsoleCommands
 private:
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_;
 
-  ConsoleInputHandler consoleInputHandler_;
+  SignalHandlerPlugin signalHandlerPlugin_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(BasicConsoleCommands);
+  DISALLOW_COPY_AND_ASSIGN(SignalHandler);
 };
 
-} // namespace basic_console_commands
+} // namespace signal_handler
 } // namespace plugin
 
-REGISTER_PLUGIN(/*name*/ BasicConsoleCommands
-    , /*className*/ plugin::basic_console_commands::BasicConsoleCommands
+REGISTER_PLUGIN(/*name*/ SignalHandler
+    , /*className*/ plugin::signal_handler::SignalHandler
     // plugin interface version checks to avoid unexpected behavior
     , /*interface*/ "plugin.PluginInterface/1.0")

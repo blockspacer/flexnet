@@ -1,7 +1,7 @@
 #include "plugin_interface/plugin_interface.hpp"
-#include "console_terminal/console_dispatcher.hpp"
 #include "state/app_state.hpp"
 #include "registry/main_loop_registry.hpp"
+#include "net/asio_threads_manager.hpp"
 
 #include <base/logging.h>
 #include <base/cpu.h>
@@ -30,9 +30,15 @@
 #include <thread>
 
 namespace plugin {
-namespace basic_console_commands {
+namespace asio_context_threads {
 
-class ConsoleInputHandler
+static constexpr int kDefaultAsioThreads
+  = 4;
+
+static constexpr char kConfAsioThreads[]
+  = "asioThreads";
+
+class AsioContextThreadsPlugin
 {
  public:
   using VoidPromise
@@ -42,34 +48,35 @@ class ConsoleInputHandler
     = base::Promise<::util::Status, base::NoReject>;
 
  public:
-  ConsoleInputHandler();
+  AsioContextThreadsPlugin(
+    const Corrade::PluginManager::PluginMetadata* metadata);
 
-  ~ConsoleInputHandler();
-
-  void handleConsoleInput(const std::string& line);
-    /// \todo
-    ///RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(handleConsoleInput));
+  ~AsioContextThreadsPlugin();
 
  private:
-  SET_WEAK_POINTERS(ConsoleInputHandler);
+  SET_WEAK_POINTERS(AsioContextThreadsPlugin);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
 
-  util::UnownedRef<
-    ::backend::ConsoleTerminalEventDispatcher
-  > consoleTerminalEventDispatcher_;
+  util::UnownedRef<::boost::asio::io_context> ioc_;
     /// \todo
-    ///SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
+    //GUARDED_BY(sequence_checker_);
+
+  /// \todo use plugin loader
+  ::backend::AsioThreadsManager asioThreadsManager_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(ConsoleInputHandler);
+  DISALLOW_COPY_AND_ASSIGN(AsioContextThreadsPlugin);
 };
 
-ConsoleInputHandler::ConsoleInputHandler()
+AsioContextThreadsPlugin::AsioContextThreadsPlugin(
+  const Corrade::PluginManager::PluginMetadata* metadata)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -77,68 +84,45 @@ ConsoleInputHandler::ConsoleInputHandler()
         weak_ptr_factory_.GetWeakPtr()))
     , mainLoopRunner_{
         base::MessageLoop::current()->task_runner()}
-    , consoleTerminalEventDispatcher_(
-        REFERENCED(::backend::MainLoopRegistry::GetInstance()->registry()
-          .ctx<::backend::ConsoleTerminalEventDispatcher>()))
+    , ioc_(REFERENCED(
+        ::backend::MainLoopRegistry::GetInstance()->registry()
+          .set<::boost::asio::io_context>()))
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  (*consoleTerminalEventDispatcher_)->sink<
-    std::string
-  >().connect<&ConsoleInputHandler::handleConsoleInput>(this);
+  int confAsioThreads
+    = kDefaultAsioThreads;
+
+  if(metadata->configuration().hasValue(kConfAsioThreads))
+  {
+    base::StringToInt(
+      metadata->configuration().value(kConfAsioThreads)
+      , &confAsioThreads);
+  }
+
+  asioThreadsManager_.startThreads(
+    /// \note Crash if out of range.
+    base::checked_cast<size_t>(confAsioThreads)
+    , REFERENCED(*ioc_)
+  );
 }
 
-ConsoleInputHandler::~ConsoleInputHandler()
+AsioContextThreadsPlugin::~AsioContextThreadsPlugin()
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  (*consoleTerminalEventDispatcher_)->sink<
-    std::string
-  >().disconnect<&ConsoleInputHandler::handleConsoleInput>(this);
+  asioThreadsManager_.stopThreads();
 }
 
-void ConsoleInputHandler::handleConsoleInput(
-  const std::string& line)
-{
-  LOG_CALL(DVLOG(99));
-
-  if (line == "stop")
-  {
-    DVLOG(9)
-      << "got `stop` console command";
-
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
-    DCHECK(mainLoopRunner_);
-    (mainLoopRunner_)->PostTask(FROM_HERE
-      , base::BindOnce(
-        [
-        ](
-        ){
-           // send termination event
-           ::backend::AppState& appState =
-             ::backend::MainLoopRegistry::GetInstance()->registry()
-               .ctx<::backend::AppState>();
-
-           ::util::Status result =
-             appState.processStateChange(
-               FROM_HERE
-               , ::backend::AppState::TERMINATE);
-
-           DCHECK(result.ok());
-        }
-      ));
-  }
-}
-
-class BasicConsoleCommands
+class AsioContextThreads
   final
   : public ::plugin::PluginInterface {
  public:
-  explicit BasicConsoleCommands(
+  explicit AsioContextThreads(
     ::plugin::AbstractManager& manager
     , const std::string& pluginName)
     : ::plugin::PluginInterface{manager, pluginName}
@@ -149,7 +133,7 @@ class BasicConsoleCommands
     DETACH_FROM_SEQUENCE(sequence_checker_);
   }
 
-  ~BasicConsoleCommands()
+  ~AsioContextThreads()
   {
     LOG_CALL(DVLOG(99));
 
@@ -183,7 +167,7 @@ class BasicConsoleCommands
 
     DCHECK(mainLoopRunner_->RunsTasksInCurrentSequence());
 
-    TRACE_EVENT0("headless", "plugin::BasicConsoleCommands::load()");
+    TRACE_EVENT0("headless", "plugin::AsioContextThreads::load()");
 
     return
       base::PostPromise(FROM_HERE
@@ -193,7 +177,7 @@ class BasicConsoleCommands
           ](
           ){
              LOG_CALL(DVLOG(99))
-              << " BasicConsoleCommands starting...";
+              << " AsioContextThreads starting...";
           })
       );
   }
@@ -204,7 +188,7 @@ class BasicConsoleCommands
 
     DCHECK(mainLoopRunner_->RunsTasksInCurrentSequence());
 
-    TRACE_EVENT0("headless", "plugin::BasicConsoleCommands::unload()");
+    TRACE_EVENT0("headless", "plugin::AsioContextThreads::unload()");
 
     DLOG(INFO)
       << "unloaded plugin with title = "
@@ -221,7 +205,22 @@ class BasicConsoleCommands
           ](
           ){
              LOG_CALL(DVLOG(99))
-              << " BasicConsoleCommands terminating...";
+              << " AsioContextThreads terminating...";
+
+             {
+               VLOG(1)
+                 << "stopping io context";
+
+               ::boost::asio::io_context& ioc =
+                 ::backend::MainLoopRegistry::GetInstance()->registry()
+                   .ctx<::boost::asio::io_context>();
+
+               // Stop the `io_context`. This will cause `io_context.run()`
+               // to return immediately, eventually destroying the
+               // io_context and any remaining handlers in it.
+               ioc.stop(); // io_context::stop is thread-safe
+               DCHECK(ioc.stopped()); // io_context::stopped is thread-safe
+             }
           })
       );
   }
@@ -229,17 +228,17 @@ class BasicConsoleCommands
 private:
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_;
 
-  ConsoleInputHandler consoleInputHandler_;
+  AsioContextThreadsPlugin asioContextThreadsPlugin_{metadata()};
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(BasicConsoleCommands);
+  DISALLOW_COPY_AND_ASSIGN(AsioContextThreads);
 };
 
-} // namespace basic_console_commands
+} // namespace asio_context_threads
 } // namespace plugin
 
-REGISTER_PLUGIN(/*name*/ BasicConsoleCommands
-    , /*className*/ plugin::basic_console_commands::BasicConsoleCommands
+REGISTER_PLUGIN(/*name*/ AsioContextThreads
+    , /*className*/ plugin::asio_context_threads::AsioContextThreads
     // plugin interface version checks to avoid unexpected behavior
     , /*interface*/ "plugin.PluginInterface/1.0")

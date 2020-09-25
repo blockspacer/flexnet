@@ -56,11 +56,19 @@ using PluginManager
       ::plugin::PluginInterface
     >;
 
-static const char kPluginsConfigFilesDir[]
+static const char kDefaultPluginsConfigFilesDir[]
   = "resources/configuration_files";
 
-static const char kPluginsDirName[]
+// example: --plugins_conf=$PWD/conf/plugins.conf
+static const char kPluginsConfigFileNameSwitch[]
+  = "plugins_conf";
+
+static const char kDefaultPluginsDirName[]
   = "plugins";
+
+// example: --plugins_dir=$PWD/plugins
+static const char kPluginsDirSwitch[]
+  = "plugins_dir";
 
 MUST_USE_RESULT
 static VoidPromise startPluginManager() NO_EXCEPTION
@@ -74,14 +82,25 @@ static VoidPromise startPluginManager() NO_EXCEPTION
     NOTREACHED();
   }
 
+  base::CommandLine* cmdLine
+    = base::CommandLine::ForCurrentProcess();
+
   base::FilePath pathToDirWithPlugins
-  = dir_exe
-      .AppendASCII(kPluginsDirName);
+    = cmdLine->HasSwitch(kPluginsDirSwitch)
+      ? base::FilePath{cmdLine->GetSwitchValueASCII(
+          kPluginsDirSwitch)}
+      // default value
+      : dir_exe
+        .AppendASCII(kDefaultPluginsDirName);
 
   base::FilePath pathToPluginsConfFile
-  = dir_exe
-      .AppendASCII(kPluginsConfigFilesDir)
-      .AppendASCII(::plugin::kPluginsConfigFileName);
+  = cmdLine->HasSwitch(kPluginsConfigFileNameSwitch)
+      ? base::FilePath{cmdLine->GetSwitchValueASCII(
+          kPluginsConfigFileNameSwitch)}
+      // default value
+      : dir_exe
+        .AppendASCII(kDefaultPluginsConfigFilesDir)
+        .AppendASCII(::plugin::kPluginsConfigFileName);
 
   std::vector<base::FilePath> pathsToExtraPluginFiles{};
 
@@ -141,10 +160,10 @@ static void unsetGlobals() NO_EXCEPTION
   DCHECK(base::RunLoop::IsRunningOnCurrentThread());
 
   MainLoopRegistry::GetInstance()->registry()
-    .unset<AppState>();
+    .unset<PluginManager>();
 
   MainLoopRegistry::GetInstance()->registry()
-    .unset<PluginManager>();
+    .unset<AppState>();
 }
 
 MUST_USE_RESULT
@@ -222,8 +241,14 @@ int main(int argc, char* argv[])
     , runLoop.QuitClosure()
   );
 
-  /// \note blocks util `runLoop.QuitClosure()` called
-  runLoop.Run();
+  {
+    /// \note blocks util `runLoop.QuitClosure()` called
+    runLoop.Run();
+
+    /// \note Do NOT use `base::MessageLoop::current().task_runner()`
+    /// after `runLoop.Run` finished (otherwise posted tasks
+    /// will be NOT executed i.e. scheduled forever).
+  }
 
   DVLOG(9)
     << "Main run loop finished";

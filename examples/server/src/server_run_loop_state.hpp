@@ -3,8 +3,6 @@
 #include "plugin_interface/plugin_interface.hpp"
 #include "plugin_manager/plugin_manager.hpp"
 #include "state/app_state.hpp"
-#include "signal_handler/signal_handler.hpp"
-#include "net/asio_threads_manager.hpp"
 #include "tcp_entity_allocator.hpp"
 #include "registry/main_loop_registry.hpp"
 
@@ -101,9 +99,6 @@ class ServerGlobals
   // during class construction
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
-
-  base::WeakPtr<ECS::SequenceLocalContext> mainLoopContext_;
-    GUARDED_BY(sequence_checker_);
 
   plugin::PluginManager<
     ::plugin::PluginInterface
@@ -337,11 +332,6 @@ class ServerRunLoopState
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
 
 #if 0
-  // Captures SIGINT and SIGTERM to perform a clean shutdown
-  /// \note `boost::asio::signal_set` will not handle signals if ioc stopped
-  SignalHandler signalHandler_
-    GUARDED_BY(sequence_checker_);
-
   // Used to free network resources.
   basis::PeriodicValidateUntil periodicValidateUntil_
     SET_THREAD_COLLISION_GUARD(MEMBER_GUARD(periodicValidateUntil_));
@@ -353,13 +343,6 @@ class ServerRunLoopState
 
   /// \todo use plugin loader
   /// ConfigManager configManager;
-    /// \todo
-    //GUARDED_BY(sequence_checker_);
-#endif // 0
-
-#if 0
-  /// \todo use plugin loader
-  AsioThreadsManager asioThreadsManager_;
     /// \todo
     //GUARDED_BY(sequence_checker_);
 #endif // 0

@@ -78,7 +78,7 @@ namespace ws {
 //
 // HOT-CODE PATH
 //
-// Use plain collbacks (do not use `base::Promise` etc.)
+// Use plain callbacks (do not use `base::Promise` etc.)
 // and avoid heap memory allocations
 // because performance is critical here.
 class Listener
@@ -136,17 +136,11 @@ public:
     // The application is expected to be able to move back into
     // the Started state very quickly
     PAUSED = 2,
-    // The application was running at some point,
-    // but has been backgrounded to the
-    // point where resources are invalid
-    // and execution should be halted
-    // until resumption.
-    SUSPENDED = 3, /// \todo use it
     // Representation of a idle/terminal/shutdown state
     // with no resources.
-    TERMINATED = 4,
+    TERMINATED = 3,
     // Resources are invalid.
-    FAILED = 5,
+    FAILED = 4,
   };
 
   enum Event {
@@ -356,7 +350,7 @@ private:
   {
     StateMachineType::TransitionTable sm_table_;
 
-    //    [state][event] -> next state
+    // [state][event] -> next state
     sm_table_[UNINITIALIZED][START] = STARTED;
     sm_table_[UNINITIALIZED][TERMINATE] = TERMINATED;
     sm_table_[UNINITIALIZED][FAULT] = FAILED;
