@@ -1,9 +1,11 @@
 #include "init_env.hpp"
+#include "generated/static_plugins.hpp"
 #include "server_run_loop_state.hpp"
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
 #include "ECS/systems/ssl_detect_result.hpp"
 #include "ECS/systems/unused.hpp"
+#include "registry/main_loop_registry.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
@@ -46,6 +48,146 @@
 using namespace flexnet;
 using namespace backend;
 
+using VoidPromise
+  = base::Promise<void, base::NoReject>;
+
+using PluginManager
+  = plugin::PluginManager<
+      ::plugin::PluginInterface
+    >;
+
+static const char kPluginsConfigFilesDir[]
+  = "resources/configuration_files";
+
+static const char kPluginsDirName[]
+  = "plugins";
+
+MUST_USE_RESULT
+static VoidPromise startPluginManager() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK(base::RunLoop::IsRunningOnCurrentThread());
+
+  base::FilePath dir_exe;
+  if (!base::PathService::Get(base::DIR_EXE, &dir_exe)) {
+    NOTREACHED();
+  }
+
+  base::FilePath pathToDirWithPlugins
+  = dir_exe
+      .AppendASCII(kPluginsDirName);
+
+  base::FilePath pathToPluginsConfFile
+  = dir_exe
+      .AppendASCII(kPluginsConfigFilesDir)
+      .AppendASCII(::plugin::kPluginsConfigFileName);
+
+  std::vector<base::FilePath> pathsToExtraPluginFiles{};
+
+  loadStaticPlugins();
+
+  PluginManager& pluginManager =
+    MainLoopRegistry::GetInstance()->registry()
+      .ctx<PluginManager>();
+
+  return pluginManager.startup(
+    base::rvalue_cast(pathToDirWithPlugins)
+    , base::rvalue_cast(pathToPluginsConfFile)
+    , base::rvalue_cast(pathsToExtraPluginFiles)
+  );
+}
+
+MUST_USE_RESULT
+static VoidPromise shutdownPluginManager() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK(base::RunLoop::IsRunningOnCurrentThread());
+
+  PluginManager& pluginManager =
+    MainLoopRegistry::GetInstance()->registry()
+      .ctx<PluginManager>();
+
+  return pluginManager.shutdown()
+  .ThenHere(FROM_HERE
+    /// \note call after `pluginManager.shutdown()` finished
+    , base::BindOnce(&unloadStaticPlugins)
+  );
+}
+
+// Add objects into global storage.
+static void setGlobals() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK(base::RunLoop::IsRunningOnCurrentThread());
+
+  AppState& appState =
+    MainLoopRegistry::GetInstance()->registry()
+      .set<AppState>(AppState::UNINITIALIZED);
+
+  PluginManager& pluginManager =
+    MainLoopRegistry::GetInstance()->registry()
+      .set<PluginManager>();
+}
+
+// Remove objects from global storage.
+/// \note Remove in order reverse to construction.
+static void unsetGlobals() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK(base::RunLoop::IsRunningOnCurrentThread());
+
+  MainLoopRegistry::GetInstance()->registry()
+    .unset<AppState>();
+
+  MainLoopRegistry::GetInstance()->registry()
+    .unset<PluginManager>();
+}
+
+MUST_USE_RESULT
+static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK(base::RunLoop::IsRunningOnCurrentThread());
+
+  setGlobals();
+
+  AppState& appState =
+    MainLoopRegistry::GetInstance()->registry()
+      .ctx<AppState>();
+
+  {
+     ::util::Status result =
+       appState.processStateChange(
+         FROM_HERE
+         , AppState::START);
+     DCHECK(result.ok());
+  }
+
+  ignore_result(
+    startPluginManager()
+  );
+
+  return
+  // async-wait for termination event
+  appState.promiseEntryOnce(
+    FROM_HERE
+    , AppState::TERMINATE)
+  .ThenHere(FROM_HERE
+    , base::BindOnce(&shutdownPluginManager)
+    , base::IsNestedPromise{true}
+  )
+  .ThenHere(FROM_HERE
+    , base::BindOnce(
+        base::BindOnce(&unsetGlobals)
+      )
+  );
+}
+
 int main(int argc, char* argv[])
 {
   // stores basic requirements, like thread pool, logging, etc.
@@ -65,21 +207,26 @@ int main(int argc, char* argv[])
     }
   }
 
-  {
-    basis::ScopedSequenceCtxVar<ServerRunLoopState> serverRunLoopState;
+  // Main loop that performs scheduled tasks.
+  base::RunLoop runLoop;
 
-    ignore_result(
-      serverRunLoopState.emplace(
-        FROM_HERE
-        , "ServerRunLoopState_" + FROM_HERE.ToString()
-      )
-    );
+  /// \note Task will be executed
+  /// when `runLoop.Run()` called.
+  base::PostPromise(FROM_HERE,
+    base::MessageLoop::current().task_runner().get()
+    , base::BindOnce(&runServerAndPromiseQuit)
+    , base::IsNestedPromise{true}
+  )
+  // Stop `base::RunLoop` when `base::Promise` resolved.
+  .ThenHere(FROM_HERE
+    , runLoop.QuitClosure()
+  );
 
-    serverRunLoopState->runLoop();
-  }
+  /// \note blocks util `runLoop.QuitClosure()` called
+  runLoop.Run();
 
-  LOG(INFO)
-    << "server is quitting";
+  DVLOG(9)
+    << "Main run loop finished";
 
   return
     EXIT_SUCCESS;

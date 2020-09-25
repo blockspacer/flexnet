@@ -250,7 +250,7 @@ public:
   auto postTaskOnStrand(
     const base::Location& from_here
     , CallbackT&& task
-    , bool nestedPromise = false)
+    , base::IsNestedPromise isNestedPromise = base::IsNestedPromise())
   {
     DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(stream_));
     DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
@@ -262,7 +262,7 @@ public:
       // Post our work to the strand, to prevent data race
       , *perConnectionStrand_
       , std::forward<CallbackT>(task)
-      , nestedPromise);
+      , isNestedPromise);
   }
 
   /// \note returns COPY because of thread safety reasons:

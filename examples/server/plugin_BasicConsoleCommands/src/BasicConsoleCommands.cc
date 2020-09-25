@@ -1,6 +1,7 @@
-#include "plugin_manager/plugin_interface.hpp"
-
-#include "server_run_loop_state.hpp"
+#include "plugin_interface/plugin_interface.hpp"
+#include "console_terminal/console_dispatcher.hpp"
+#include "state/app_state.hpp"
+#include "registry/main_loop_registry.hpp"
 
 #include <base/logging.h>
 #include <base/cpu.h>
@@ -29,6 +30,7 @@
 #include <thread>
 
 namespace plugin {
+namespace basic_console_commands {
 
 class ConsoleInputHandler
 {
@@ -39,15 +41,14 @@ class ConsoleInputHandler
   using StatusPromise
     = base::Promise<::util::Status, base::NoReject>;
 
-  using ConsoleTerminalEventDispatcher
-    = entt::dispatcher;
-
  public:
   ConsoleInputHandler();
 
   ~ConsoleInputHandler();
 
   void handleConsoleInput(const std::string& line);
+    /// \todo
+    ///RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(handleConsoleInput));
 
  private:
   SET_WEAK_POINTERS(ConsoleInputHandler);
@@ -61,14 +62,8 @@ class ConsoleInputHandler
     GUARDED_BY(sequence_checker_);
 
   util::UnownedRef<
-    ConsoleTerminalEventDispatcher
+    ::backend::ConsoleTerminalEventDispatcher
   > consoleTerminalEventDispatcher_;
-    /// \todo
-    ///SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
-
-  util::UnownedRef<
-    ::backend::ServerRunLoopState
-  > serverRunLoopState_;
     /// \todo
     ///SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
 
@@ -88,16 +83,16 @@ ConsoleInputHandler::ConsoleInputHandler()
     , mainLoopContext_{
         ECS::SequenceLocalContext::getSequenceLocalInstance(
           FROM_HERE, base::MessageLoop::current()->task_runner())}
-    , serverRunLoopState_(
-        REFERENCED(mainLoopContext_->ctx<::backend::ServerRunLoopState>(FROM_HERE)))
     , consoleTerminalEventDispatcher_(
-        REFERENCED(mainLoopContext_->ctx<ConsoleTerminalEventDispatcher>(FROM_HERE)))
+        REFERENCED(mainLoopContext_->ctx<
+          ::backend::ConsoleTerminalEventDispatcher
+        >(FROM_HERE)))
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  consoleTerminalEventDispatcher_->sink<
+  (*consoleTerminalEventDispatcher_)->sink<
     std::string
   >().connect<&ConsoleInputHandler::handleConsoleInput>(this);
 }
@@ -108,7 +103,7 @@ ConsoleInputHandler::~ConsoleInputHandler()
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  consoleTerminalEventDispatcher_->sink<
+  (*consoleTerminalEventDispatcher_)->sink<
     std::string
   >().disconnect<&ConsoleInputHandler::handleConsoleInput>(this);
 }
@@ -126,10 +121,23 @@ void ConsoleInputHandler::handleConsoleInput(
     DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
     DCHECK(mainLoopRunner_);
     (mainLoopRunner_)->PostTask(FROM_HERE
-      , base::BindRepeating(
-          /// \todo modify sequence local context instead of callback
-          &::backend::ServerRunLoopState::doQuit
-          , base::Unretained(&(*serverRunLoopState_))));
+      , base::BindOnce(
+        [
+        ](
+        ){
+           // send termination event
+           ::backend::AppState& appState =
+             ::backend::MainLoopRegistry::GetInstance()->registry()
+               .ctx<::backend::AppState>();
+
+           ::util::Status result =
+             appState.processStateChange(
+               FROM_HERE
+               , ::backend::AppState::TERMINATE);
+
+           DCHECK(result.ok());
+        }
+      ));
   }
 }
 
@@ -241,14 +249,19 @@ class BasicConsoleCommands
 private:
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_;
 
-  basis::ScopedSequenceCtxVar<ConsoleInputHandler> consoleInputHandler_;
+  basis::ScopedSequenceCtxVar<
+    ConsoleInputHandler
+  > consoleInputHandler_;
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(BasicConsoleCommands);
 };
 
+} // namespace basic_console_commands
 } // namespace plugin
 
 REGISTER_PLUGIN(/*name*/ BasicConsoleCommands
-    , /*className*/ plugin::BasicConsoleCommands
+    , /*className*/ plugin::basic_console_commands::BasicConsoleCommands
     // plugin interface version checks to avoid unexpected behavior
     , /*interface*/ "plugin.PluginInterface/1.0")

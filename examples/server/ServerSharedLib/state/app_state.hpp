@@ -76,6 +76,9 @@ public:
         , AppState::Event
       >;
 
+  using VoidPromise
+    = base::Promise<void, base::NoReject>;
+
 public:
   // USAGE
   //
@@ -126,9 +129,21 @@ public:
   }
 
   MUST_USE_RETURN_VALUE
+  VoidPromise promiseEntryOnce(
+    const base::Location& from_here
+    , const AppState::Event& processEvent) NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+
+  MUST_USE_RETURN_VALUE
+  VoidPromise promiseExitOnce(
+    const base::Location& from_here
+    , const AppState::Event& processEvent) NO_EXCEPTION
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+
+  MUST_USE_RETURN_VALUE
   ::util::Status processStateChange(
     const base::Location& from_here
-    , const AppState::Event& processEvent)
+    , const AppState::Event& processEvent) NO_EXCEPTION
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
 private:

@@ -1,12 +1,12 @@
 #pragma once
 
-#include "net/asio_threads_manager.hpp"
-#include "tcp_entity_allocator.hpp"
+#include "state/app_state.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/ECS/tags.hpp>
 
+#include <base/memory/singleton.h>
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -39,47 +39,58 @@
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
 #include <basis/strong_alias.hpp>
+#include <basis/scoped_sequence_context_var.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
+
+#include <entt/entity/registry.hpp>
+#include <entt/signal/dispatcher.hpp>
+#include <entt/entt.hpp>
 
 #include <memory>
 #include <chrono>
 
 namespace backend {
 
-class SignalHandler
-{
+// Guaranteed to be valid while `base::RunLoop.Run()` is running.
+class MainLoopRegistry {
  public:
-  SignalHandler(
-    ::boost::asio::io_context& ioc
-    , base::OnceClosure&& quitCb)
-    RUN_ON(&sequence_checker_);
+  using RegistryType
+    = entt::registry;
 
-  ~SignalHandler()
-    RUN_ON(&sequence_checker_);
+  /// \note Every call incurs some overhead
+  /// to check whether the object has already been initialized.
+  /// You may wish to cache the result of get(); it will not change.
+  static MainLoopRegistry* GetInstance();
+
+  RegistryType& registry()
+  {
+    DCHECK(base::RunLoop::IsRunningOnCurrentThread());
+
+    return registry_;
+  }
+
+  const RegistryType& registry() const
+  {
+    DCHECK(base::RunLoop::IsRunningOnCurrentThread());
+
+    return registry_;
+  }
 
  private:
-  void handleQuitSignal(::boost::system::error_code const&, int)
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(handleQuitSignal));
+  // private due to singleton
+  MainLoopRegistry() = default;
+
+  // private due to singleton
+  ~MainLoopRegistry() = default;
+
+  friend struct base::DefaultSingletonTraits<MainLoopRegistry>;
 
  private:
-  // Capture SIGINT and SIGTERM to perform a clean shutdown
-  ::boost::asio::signal_set signals_set_
-    GUARDED_BY(sequence_checker_);
+  RegistryType registry_;
 
-  base::OnceClosure quitCb_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(quitCb_));
-
-  std::atomic<size_t> signalsRecievedCount_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(signalsRecievedCount_));
-
-  /// \note can be called from any thread
-  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(handleQuitSignal));
-
-  SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(SignalHandler);
+  DISALLOW_COPY_AND_ASSIGN(MainLoopRegistry);
 };
 
 } // namespace backend

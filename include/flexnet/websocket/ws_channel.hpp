@@ -302,7 +302,7 @@ public:
   auto postTaskOnConnectionStrand(
     const base::Location& from_here
     , CallbackT&& task
-    , bool nestedPromise = false)
+    , base::IsNestedPromise isNestedPromise = base::IsNestedPromise())
   {
     DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
 
@@ -311,7 +311,7 @@ public:
       // Post our work to the strand, to prevent data race
       , *perConnectionStrand_
       , std::forward<CallbackT>(task)
-      , nestedPromise);
+      , isNestedPromise);
   }
 
   // calls `ws_.socket().shutdown`

@@ -1,18 +1,18 @@
 #pragma once
 
-#include "plugin_manager/plugin_interface.hpp"
+#include "plugin_interface/plugin_interface.hpp"
 #include "plugin_manager/plugin_manager.hpp"
 #include "state/app_state.hpp"
 #include "signal_handler/signal_handler.hpp"
-#include "console_terminal/console_terminal_plugin.hpp"
-#include "console_terminal/console_terminal_on_sequence.hpp"
 #include "net/asio_threads_manager.hpp"
 #include "tcp_entity_allocator.hpp"
+#include "registry/main_loop_registry.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/ECS/tags.hpp>
 
+#include <base/memory/singleton.h>
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -45,6 +45,7 @@
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
 #include <basis/strong_alias.hpp>
+#include <basis/scoped_sequence_context_var.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -56,6 +57,7 @@
 #include <memory>
 #include <chrono>
 
+#if 0
 namespace backend {
 
 using namespace flexnet;
@@ -75,15 +77,10 @@ class ServerGlobals
   using StatusPromise
     = base::Promise<::util::Status, base::NoReject>;
 
-  using ConsoleTerminalEventDispatcher
-    = entt::dispatcher;
-
  public:
   ServerGlobals();
 
   ~ServerGlobals();
-
-  void handleConsoleInput(const std::string& line);
 
   void onPluginLoaded(VoidPromise loadedPromise) NO_EXCEPTION;
     ///\todo RUN_ON(&sequence_checker_);
@@ -94,26 +91,19 @@ class ServerGlobals
  private:
   SET_WEAK_POINTERS(ServerGlobals);
 
+  util::UnownedRef<
+    ::backend::ServerRunLoopState
+  > serverRunLoopState_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
 
-  /// \todo use plugin loader
-  ConsoleTerminalPlugin consoleTerminalPlugin;
-    /// \todo
-    //GUARDED_BY(sequence_checker_);
-
-  basis::ScopedSequenceCtxVar<
-    ConsoleTerminalEventDispatcher
-  > consoleTerminalEventDispatcher_;
-
   base::WeakPtr<ECS::SequenceLocalContext> mainLoopContext_;
     GUARDED_BY(sequence_checker_);
-
-  util::UnownedRef<ServerRunLoopState> serverRunLoopState_;
-    /// \todo
-    ///SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
 
   plugin::PluginManager<
     ::plugin::PluginInterface
@@ -124,6 +114,10 @@ class ServerGlobals
   base::FilePath dir_exe_;
     /// \todo
     //GUARDED_BY(sequence_checker_);
+
+  //basis::ScopedSequenceCtxVar<
+  //  backend::ConsoleTerminalEventDispatcher
+  //> consoleTerminalEventDispatcher_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 
@@ -149,11 +143,11 @@ class ServerRunLoopState
     = base::Promise<::util::Status, base::NoReject>;
 
  public:
-  ServerRunLoopState();
+  ServerRunLoopState(base::RunLoop& run_loop);
 
   ~ServerRunLoopState();
 
-  void runLoop() NO_EXCEPTION
+  VoidPromise run() NO_EXCEPTION
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
   // Posts task that will start application termination
@@ -199,9 +193,45 @@ class ServerRunLoopState
     return promiseBeforeStart_;
   }
 
+  // USAGE
+  //
+  // // Warning: all callbacks must be used
+  // // within the lifetime of the state machine.
+  // StateMachineType::CallbackType okStateCallback =
+  //   base::BindRepeating(
+  //   []
+  //   (Event event
+  //    , State next_state
+  //    , Event* recovery_event)
+  //   {
+  //     ignore_result(event);
+  //     ignore_result(next_state);
+  //     ignore_result(recovery_event);
+  //     return ::util::OkStatus();
+  //   });
+  // sm_->AddExitAction(UNINITIALIZED, okStateCallback);
+  void AddExitAction(
+   const AppState::State& state
+   , const AppState::StateMachineType::CallbackType& callback) NO_EXCEPTION
+  {
+    DCHECK_RUN_ON(&sequence_checker_);
+
+    appState_.AddExitAction(state, callback);
+  }
+
+  void AddEntryAction(
+   const AppState::State& state
+   , const AppState::StateMachineType::CallbackType& callback) NO_EXCEPTION
+  {
+    DCHECK_RUN_ON(&sequence_checker_);
+
+    appState_.AddEntryAction(state, callback);
+  }
+
   SET_WEAK_SELF(ServerRunLoopState)
 
  private:
+
 #if 0
   void startThreadsManager() NO_EXCEPTION
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
@@ -255,6 +285,12 @@ class ServerRunLoopState
  private:
   SET_WEAK_POINTERS(ServerRunLoopState);
 
+  util::UnownedRef<
+    base::RunLoop
+  > run_loop_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
   /// \todo replace with AppStatePromise
   // Must be resolved before `RunLoop.Run` called.
   base::ManualPromiseResolver<void, base::NoReject>
@@ -295,10 +331,6 @@ class ServerRunLoopState
     GUARDED_BY(sequence_checker_);
 #endif // 0
 
-  // Main loop that performs scheduled tasks.
-  base::RunLoop run_loop_
-    GUARDED_BY(sequence_checker_);
-
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
@@ -332,10 +364,10 @@ class ServerRunLoopState
     //GUARDED_BY(sequence_checker_);
 #endif // 0
 
-  basis::ScopedSequenceCtxVar<AppState> appState_
+  AppState appState_
     GUARDED_BY(sequence_checker_);
 
-  basis::ScopedSequenceCtxVar<ServerGlobals> serverGlobals_;
+  ServerGlobals serverGlobals_;
     /// \todo
     //GUARDED_BY(sequence_checker_);
 
@@ -345,3 +377,4 @@ class ServerRunLoopState
 };
 
 } // namespace backend
+#endif // 0

@@ -1,4 +1,4 @@
-#include "plugin_manager/plugin_interface.hpp"
+#include "plugin_interface/plugin_interface.hpp"
 
 #include <base/logging.h>
 #include <base/cpu.h>
@@ -18,12 +18,9 @@
 
 ///////////////
 
-#include "plugin_manager/plugin_interface.hpp"
-#include "plugin_manager/plugin_manager.hpp"
+#include "plugin_interface/plugin_interface.hpp"
 #include "state/app_state.hpp"
 #include "signal_handler/signal_handler.hpp"
-#include "console_terminal/console_terminal_plugin.hpp"
-#include "console_terminal/console_terminal_on_sequence.hpp"
 #include "net/asio_threads_manager.hpp"
 #include "tcp_entity_allocator.hpp"
 
@@ -113,6 +110,7 @@ static void displayMachineInfo()
 } // namespace
 
 namespace plugin {
+namespace network_entity {
 
 #if 0
 struct ServerStartOptions
@@ -221,7 +219,7 @@ class NetworkEntity
             &NetworkEntityPlugin::unload
             , base::Unretained(&networkEntityPlugin_)
         )
-        , /*nestedPromise*/ true
+        , base::IsNestedPromise{true}
       );
   }
 
@@ -259,26 +257,33 @@ class NetworkEntity
             , REFERENCED(asioRegistry_)
             , REFERENCED(ioc_)
         )
-        , /*nestedPromise*/ true
+        , base::IsNestedPromise{true}
       );
   }
 
 private:
   basis::ScopedLogRunTime scopedLogRunTime_{};
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
 
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
 
   /// \todo use plugin loader
   NetworkEntityPlugin networkEntityPlugin_;
     /// \todo
     //GUARDED_BY(sequence_checker_);
 
+  SEQUENCE_CHECKER(sequence_checker_);
+
   DISALLOW_COPY_AND_ASSIGN(NetworkEntity);
 };
 
+} // namespace network_entity
 } // namespace plugin
 
 REGISTER_PLUGIN(/*name*/ NetworkEntity
-    , /*className*/ plugin::NetworkEntity
+    , /*className*/ plugin::network_entity::NetworkEntity
     // plugin interface version checks to avoid unexpected behavior
     , /*interface*/ "plugin.PluginInterface/1.0")

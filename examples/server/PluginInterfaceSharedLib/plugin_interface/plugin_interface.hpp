@@ -50,7 +50,6 @@ class PluginInterface
     , const std::string& pluginName)
     : AbstractPlugin{manager, pluginName}
   {
-    DETACH_FROM_SEQUENCE(sequence_checker_);
   }
 
   static std::string pluginInterface() {
@@ -73,8 +72,6 @@ class PluginInterface
   virtual VoidPromise unload() = 0;
 
 protected:
-  SEQUENCE_CHECKER(sequence_checker_);
-
   DISALLOW_COPY_AND_ASSIGN(PluginInterface);
 };
 

@@ -53,7 +53,7 @@ AppState::AppState(const State& initial_state)
 
 util::Status AppState::processStateChange(
   const base::Location &from_here
-  , const AppState::Event &processEvent)
+  , const AppState::Event &processEvent) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -76,6 +76,84 @@ util::Status AppState::processStateChange(
     DCHECK(false);
   }
   return stateProcessed;
+}
+
+AppState::VoidPromise
+  AppState::promiseEntryOnce(
+    const base::Location& from_here
+    , const AppState::Event& processEvent) NO_EXCEPTION
+{
+  base::ManualPromiseResolver<void, base::NoReject>
+    eventOnceResolver(FROM_HERE);
+
+  AddEntryAction(AppState::TERMINATED, base::BindRepeating(
+    []
+    (base::OnceClosure&& resolveCb
+     , AppState::Event event
+     , AppState::State next_state
+     , AppState::Event* recovery_event)
+    {
+      LOG_CALL(DVLOG(99));
+
+      ignore_result(event);
+      ignore_result(next_state);
+      ignore_result(recovery_event);
+
+      DCHECK(base::RunLoop::IsRunningOnCurrentThread());
+
+      /// \note `AddEntryAction` will add repeating callback,
+      /// but we want to execute it only once
+      if(resolveCb) {
+        base::rvalue_cast(resolveCb).Run();
+      }
+
+      return ::util::OkStatus();
+    }
+    /// \note A base::RepeatingCallback can only be run once
+    /// if arguments were bound with base::Passed().
+    , base::Passed(eventOnceResolver.GetRepeatingResolveCallback())
+  ));
+
+  return eventOnceResolver.promise();
+}
+
+AppState::VoidPromise
+  AppState::promiseExitOnce(
+    const base::Location& from_here
+    , const AppState::Event& processEvent) NO_EXCEPTION
+{
+  base::ManualPromiseResolver<void, base::NoReject>
+    eventOnceResolver(FROM_HERE);
+
+  AddEntryAction(AppState::TERMINATED, base::BindRepeating(
+    []
+    (base::OnceClosure&& resolveCb
+     , AppState::Event event
+     , AppState::State next_state
+     , AppState::Event* recovery_event)
+    {
+      LOG_CALL(DVLOG(99));
+
+      ignore_result(event);
+      ignore_result(next_state);
+      ignore_result(recovery_event);
+
+      DCHECK(base::RunLoop::IsRunningOnCurrentThread());
+
+      /// \note `AddEntryAction` will add repeating callback,
+      /// but we want to execute it only once
+      if(resolveCb) {
+        base::rvalue_cast(resolveCb).Run();
+      }
+
+      return ::util::OkStatus();
+    }
+    /// \note A base::RepeatingCallback can only be run once
+    /// if arguments were bound with base::Passed().
+    , base::Passed(eventOnceResolver.GetRepeatingResolveCallback())
+  ));
+
+  return eventOnceResolver.promise();
 }
 
 AppState::StateMachineType::TransitionTable

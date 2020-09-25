@@ -85,12 +85,6 @@ public:
   using VoidPromise
     = base::Promise<void, base::NoReject>;
 
-  using PluginLoadCb
-    = base::RepeatingCallback<void(VoidPromise)>;
-
-  using PluginUnloadCb
-    = base::RepeatingCallback<void(VoidPromise)>;
-
   using AbstractPlugin
     = ::Corrade::PluginManager::AbstractPlugin;
 
@@ -107,11 +101,7 @@ public:
     = ::Corrade::PluginManager::LoadState;
 
 public:
-  PluginManager(
-    PluginLoadCb pluginloadCb
-    , PluginUnloadCb pluginUnloadCb)
-  : pluginLoadCb_(pluginloadCb)
-  , pluginUnloadCb_(pluginUnloadCb)
+  PluginManager()
   {
     DETACH_FROM_SEQUENCE(sequence_checker_);
   }
@@ -121,7 +111,7 @@ public:
   }
 
   /// \todo refactor long method
-  void startup(
+  VoidPromise startup(
     // dir must contain plugin files (usually `.so` files)
     const base::FilePath& _pathToDirWithPlugins
     // path to `plugins.conf`
@@ -136,6 +126,8 @@ public:
     VLOG(9) << "(PluginManager) startup";
 
     using namespace ::Corrade::Utility::Directory;
+
+    std::vector<VoidPromise> allPromises;
 
     const std::string executable_path
       = path(
@@ -418,9 +410,7 @@ public:
 
       VoidPromise loadPromise
         = plugin->load();
-
-      DCHECK(pluginLoadCb_);
-      pluginLoadCb_.Run(loadPromise);
+      allPromises.push_back(loadPromise);
 
       loaded_plugins_.push_back(std::move(plugin));
       VLOG(9)
@@ -431,10 +421,12 @@ public:
       << "Plugin manager must be initialized once."
       << "You can unload or reload plugins at runtime.";
     is_initialized_ = true;
+
+    return base::Promises::All(FROM_HERE, allPromises);
   }
 
   // calls `unload()` for each loaded plugin
-  void shutdown()
+  VoidPromise shutdown()
   {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -442,16 +434,18 @@ public:
 
     VLOG(9) << "(PluginManager) shutdown";
 
+    std::vector<VoidPromise> allPromises;
+
     /// \note destructor of ::Corrade::PluginManager::Manager
     /// also unloads all plugins
     for(PluginPtr& loaded_plugin : loaded_plugins_) {
       DCHECK(loaded_plugin);
       VoidPromise unloadPromise
         = loaded_plugin->unload();
-
-      DCHECK(pluginUnloadCb_);
-      pluginUnloadCb_.Run(unloadPromise);
+      allPromises.push_back(unloadPromise);
     }
+
+    return base::Promises::All(FROM_HERE, allPromises);
   }
 
   [[nodiscard]] /* do not ignore return value */
@@ -463,10 +457,6 @@ public:
   }
 
 private:
-  PluginLoadCb pluginLoadCb_;
-
-  PluginUnloadCb pluginUnloadCb_;
-
   bool is_initialized_ = false;
 
   std::unique_ptr<

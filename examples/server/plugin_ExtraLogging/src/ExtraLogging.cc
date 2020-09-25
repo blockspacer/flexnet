@@ -1,4 +1,4 @@
-#include "plugin_manager/plugin_interface.hpp"
+#include "plugin_interface/plugin_interface.hpp"
 
 #include <base/logging.h>
 #include <base/cpu.h>
@@ -59,6 +59,7 @@ static void displayMachineInfo()
 } // namespace
 
 namespace plugin {
+namespace extra_logging {
 
 class ExtraLogging
   final
@@ -176,15 +177,22 @@ class ExtraLogging
 
 private:
   basis::ScopedLogRunTime scopedLogRunTime_{};
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
 
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_;
+    /// \todo
+    //GUARDED_BY(sequence_checker_);
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(ExtraLogging);
 };
 
+} // namespace extra_logging
 } // namespace plugin
 
 REGISTER_PLUGIN(/*name*/ ExtraLogging
-    , /*className*/ plugin::ExtraLogging
+    , /*className*/ plugin::extra_logging::ExtraLogging
     // plugin interface version checks to avoid unexpected behavior
     , /*interface*/ "plugin.PluginInterface/1.0")

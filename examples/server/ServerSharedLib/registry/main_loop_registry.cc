@@ -1,13 +1,4 @@
-#pragma once
-
-#include "console_terminal/console_input_updater.hpp"
-#include "console_terminal/console_terminal_on_sequence.hpp"
-#include "console_terminal/console_feature_list.hpp"
-
-#include "ECS/systems/accept_connection_result.hpp"
-#include "ECS/systems/cleanup.hpp"
-#include "ECS/systems/ssl_detect_result.hpp"
-#include "ECS/systems/unused.hpp"
+#include "main_loop_registry.hpp" // IWYU pragma: associated
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/websocket/ws_channel.hpp>
@@ -17,6 +8,15 @@
 #include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
 
+#include <base/metrics/histogram.h>
+#include <base/metrics/histogram_macros.h>
+#include <base/metrics/statistics_recorder.h>
+#include <base/metrics/user_metrics.h>
+#include <base/metrics/user_metrics_action.h>
+#include <base/metrics/histogram_functions.h>
+#include <base/trace_event/trace_event.h>
+#include <base/trace_event/trace_buffer.h>
+#include <base/trace_event/trace_log.h>
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
@@ -65,6 +65,7 @@
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
+#include <basis/task/task_util.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -75,60 +76,15 @@
 
 namespace backend {
 
-class ConsoleTerminalPlugin
+MainLoopRegistry*
+  MainLoopRegistry::GetInstance()
 {
- public:
-  using VoidPromise
-    = base::Promise<void, base::NoReject>;
+  DCHECK(base::RunLoop::IsRunningOnCurrentThread());
 
-  using StatusPromise
-    = base::Promise<::util::Status, base::NoReject>;
-
-  ConsoleTerminalPlugin();
-
-  ~ConsoleTerminalPlugin();
-
-  // async-construction of object in sequence-local-storage
-  VoidPromise load();
-
-  VoidPromise unload();
-
-  SET_WEAK_SELF(ConsoleTerminalPlugin)
-
-private:
-  void onLoaded()
-  {
-    LOG_CALL(DVLOG(99));
-
-    DCHECK_RUN_ON(&sequence_checker_);
-
-    DCHECK(consoleTerminal_);
-  }
-
-  void onUnloaded()
-  {
-    LOG_CALL(DVLOG(99));
-
-    DCHECK_RUN_ON(&sequence_checker_);
-
-    DCHECK(!consoleTerminal_);
-  }
-
- private:
-  SET_WEAK_POINTERS(ConsoleTerminalPlugin);
-
-  // Task sequence used to update text input from console terminal.
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicConsoleTaskRunner_));
-
-  // On scope exit will schedule destruction (from sequence-local-context),
-  // so use `base::Optional` to control scope i.e. control lifetime.
-  base::Optional<ConsoleTerminalOnSequence> consoleTerminal_
-    GUARDED_BY(&sequence_checker_);
-
-  SEQUENCE_CHECKER(sequence_checker_);
-
-  DISALLOW_COPY_AND_ASSIGN(ConsoleTerminalPlugin);
-};
+  /// Singleton itself thread-safe.
+  /// The underlying Type must of course be
+  /// thread-safe if you want to use it concurrently.
+  return base::Singleton<MainLoopRegistry>::get();
+}
 
 } // namespace backend
