@@ -38,6 +38,17 @@ const char kAllPluginsConfigCategory[];
 extern
 const char kIndividualPluginConfigCategory[];
 
+struct PluginMetadata
+{
+  /// \todo support plugin aliases,
+  /// not only one plugin name
+  std::string pluginName;
+
+  std::vector<std::string> dependsOn;
+
+  std::vector<std::string> requiredBy;
+};
+
 /// \note if configuration file does not have `[plugins]`
 /// section, then `is_plugin_filtering_enabled`
 /// will keep initial value (usually false).
@@ -64,19 +75,22 @@ bool parsePluginsConfig(
     >& plugin_groups
   , bool& is_plugin_filtering_enabled);
 
-/// \todo refactor to arbitrary `std::vector<std::string>` intersection
-// returns all strings that can be found in `ConfigurationGroup`
-std::vector<std::string> filterPluginsByConfig(
+// Populates plugin metadata based on `title` in each `ConfigurationGroup`.
+std::map<std::string, PluginMetadata> loadPluginsMetadata(
   std::vector<
       ::Corrade::Utility::ConfigurationGroup*
     >& plugin_groups
-  , std::vector<std::string>& all_plugins);
+  , std::vector<std::string>& dynamic_plugins
+  , std::vector<std::string>& static_plugins);
 
 template<
   typename PluginType
 >
 class PluginManager {
 public:
+  using ConfigurationGroup
+    = ::Corrade::Utility::ConfigurationGroup;
+
   using PluginPtr
     = Corrade::Containers::Pointer<
         PluginType
@@ -94,11 +108,15 @@ public:
   using Configuration
     = ::Corrade::Utility::Configuration;
 
-  using ConfigurationGroup
-    = ::Corrade::Utility::ConfigurationGroup;
-
   using LoadState
     = ::Corrade::PluginManager::LoadState;
+
+  struct PluginWithMetadata
+  {
+    PluginPtr plugin;
+
+    PluginMetadata metadata;
+  };
 
 public:
   PluginManager()
@@ -126,8 +144,6 @@ public:
     VLOG(9) << "(PluginManager) startup";
 
     using namespace ::Corrade::Utility::Directory;
-
-    std::vector<VoidPromise> allPromises;
 
     const std::string executable_path
       = path(
@@ -172,6 +188,8 @@ public:
 
     // parse plugins configuration file
     {
+      /// \todo support per-plugin config,
+      /// not only global config
       const bool parseOk = parsePluginsConfig(REFERENCED(conf)
         , REFERENCED(plugin_groups)
         , REFERENCED(is_plugin_filtering_enabled)
@@ -190,6 +208,12 @@ public:
       ::Corrade::PluginManager::Manager<PluginType>
       >();
 
+    // Static plugins must be available
+    // before `setPluginDirectory`.
+    // Must NOT intersect with list of dynamic plugins.
+    std::vector<std::string> static_plugins
+      = manager_->pluginList();
+
     /**
      * Set the plugin manager directory to load plugins
      *
@@ -206,24 +230,57 @@ public:
       << "Using plugin directory: "
       << manager_->pluginDirectory();
 
-    std::vector<std::string> all_plugins
+    // Dynamic plugins must be available
+    // after `setPluginDirectory`.
+    // Also contains list of static plugins.
+    std::vector<std::string> plugins_to_filter
       = manager_->pluginList();
 
-    for(const std::string& pluginName: all_plugins) {
+    std::vector<std::string> dynamic_plugins;
+
+    for(const std::string& pluginName: plugins_to_filter) {
       DVLOG(99)
         << "found plugin with name: "
         << pluginName;
+
+      auto find_result
+        = std::find(static_plugins.begin()
+                    , static_plugins.end()
+                    , pluginName);
+      if(find_result == static_plugins.end())
+      {
+        DVLOG(99)
+            << "plugin is dynamic: "
+            << pluginName;
+
+        dynamic_plugins.push_back(pluginName);
+      } else {
+        DVLOG(99)
+            << "plugin is static: "
+            << pluginName;
+      }
     }
 
-    std::vector<std::string> filtered_plugins;
+    std::map<std::string, PluginMetadata> filtered_plugins;
 
-    // parse list of plugin sections from plugins configuration file
+    // parse list of plugin sections
+    // from plugins configuration file
     if(is_plugin_filtering_enabled)
     {
       filtered_plugins
-        = filterPluginsByConfig(plugin_groups
-            , all_plugins
+        // some checks, like checks for
+        // `.so`/`.dll`/`.conf` file existance
+        = loadPluginsMetadata(plugin_groups
+            , dynamic_plugins
+            , static_plugins
           );
+    }
+
+    for(const std::string& pluginName: static_plugins)
+    {
+      DVLOG(99)
+        << "found static plugin with name: "
+        << pluginName;
     }
 
     // append path to plugins that
@@ -242,33 +299,121 @@ public:
           << "path does not exist: "
           << pluginPath;
       }
-      filtered_plugins.push_back(
-        /*
-        * @note If passing a file path, the implementation expects forward
-        *      slashes as directory separators.
-        * Use @ref Utility::Directory::fromNativeSeparators()
-        *      to convert from platform-specific format.
-        */
-        fromNativeSeparators(
-          pluginPath.value()));
+      filtered_plugins[pluginPath.value()]
+        = PluginMetadata{
+            /*
+            * @note If passing a file path, the implementation expects forward
+            *      slashes as directory separators.
+            * Use @ref Utility::Directory::fromNativeSeparators()
+            *      to convert from platform-specific format.
+            */
+            /// \todo support passing plugin name, aliases
+            /// and configuration from command-line
+            fromNativeSeparators(
+              /// \FIXME it is plugin path, not plugin name
+              pluginPath.value()) // plugin name
+            , std::vector<std::string>{} // dependsOn
+            , std::vector<std::string>{} // requiredBy
+          };
     }
 
     DCHECK(loaded_plugins_.empty())
       << "Plugin manager must load plugins once.";
 
-    for(std::vector<std::string>::const_iterator it =
+    std::vector<VoidPromise> loadPromiseParallel;
+
+    // init `loadResolvers_` and `unloadResolvers_`
+    for(std::map<std::string, PluginMetadata>::const_iterator it =
           filtered_plugins.begin()
-        ; it != filtered_plugins.end(); ++it)
+        ; it != filtered_plugins.end()
+        ; ++it)
     {
-      const std::string& pluginNameOrPath = *it;
+      const std::string& nameOrPath = (*it).second.pluginName;
+
+      // required for `load()`
+      {
+        CHECK(loadResolvers_.find(nameOrPath) == loadResolvers_.end())
+          << "unable to load twice for plugin: "
+          << nameOrPath;
+
+        loadResolvers_[nameOrPath]
+          = std::make_unique<
+              base::ManualPromiseResolver<void, base::NoReject>
+            >(FROM_HERE);
+
+        CHECK(loadPromises_.find(nameOrPath) == loadPromises_.end())
+          << "unable to promise load twice for plugin: "
+          << nameOrPath;
+
+        loadPromises_[nameOrPath]
+          = loadResolvers_[nameOrPath]->promise();
+      }
+
+      // required for `unload()`
+      {
+        CHECK(unloadResolvers_.find(nameOrPath) == unloadResolvers_.end())
+          << "unable to unload twice for plugin: "
+          << nameOrPath;
+
+        unloadResolvers_[nameOrPath]
+          = std::make_unique<
+              base::ManualPromiseResolver<void, base::NoReject>
+            >(FROM_HERE);
+
+        CHECK(unloadPromises_.find(nameOrPath) == unloadPromises_.end())
+          << "unable to promise unload twice for plugin: "
+          << nameOrPath;
+
+        unloadPromises_[nameOrPath]
+          = unloadResolvers_[nameOrPath]->promise();
+      }
+    } // for
+
+    for(std::map<std::string, PluginMetadata>::const_iterator pluginIt =
+          filtered_plugins.begin()
+        ; pluginIt != filtered_plugins.end()
+        ; ++pluginIt)
+    {
+      const PluginMetadata& pluginMeta
+        = (*pluginIt).second;
+
+      const std::string& nameOrPath
+        = pluginMeta.pluginName;
 
       // The implementation expects forward slashes as directory separators.
-      DCHECK(fromNativeSeparators(
-               pluginNameOrPath) == pluginNameOrPath);
+      DCHECK(fromNativeSeparators(nameOrPath) == nameOrPath);
 
       VLOG(9)
           << "plugin enabled: "
-          << pluginNameOrPath;
+          << nameOrPath;
+
+      VoidPromise loadDepsPromise
+        = VoidPromise::CreateResolved(FROM_HERE);
+
+      // required for `load()`
+      {
+        for(const std::string& dep : pluginMeta.dependsOn)
+        {
+          CHECK(loadPromises_.find(dep) != loadPromises_.end())
+            << "unable to find dependant promise "
+            << dep
+            << " for plugin: "
+            << nameOrPath;
+
+          DVLOG(99)
+            << "found that plugin "
+            << nameOrPath
+            << " depends on plugin during loading: "
+            << dep;
+
+          loadDepsPromise
+            = base::Promises::All(FROM_HERE
+                , std::vector<VoidPromise>{
+                    loadDepsPromise
+                    , loadPromises_[dep]}
+              );
+        }
+      }
 
       /**
        * @brief Load a plugin
@@ -306,18 +451,18 @@ public:
       DCHECK(manager_);
 
       const LoadState loadState
-        = manager_->load(pluginNameOrPath);
+        = manager_->load(nameOrPath);
 
       if(loadState & LoadState::Loaded) {
         DVLOG(99)
           << "loaded state for plugin: "
-          << pluginNameOrPath;
+          << nameOrPath;
       }
 
       if(loadState & LoadState::Static) {
         DVLOG(99)
           << "found static load state for plugin: "
-          << pluginNameOrPath;
+          << nameOrPath;
       } else {
         const bool is_loaded
           = static_cast<bool>(
@@ -329,7 +474,7 @@ public:
         if(!is_loaded) {
           LOG(ERROR)
             << "The requested plugin "
-            << pluginNameOrPath
+            << nameOrPath
             << " cannot be loaded.";
           DCHECK(false);
           continue;
@@ -346,9 +491,9 @@ public:
       @see @ref path(), @ref splitExtension()
       */
       const std::string pluginNameOrFilenameWithExt
-        = filename(pluginNameOrPath);
+        = filename(nameOrPath);
 
-      DCHECK(base::FilePath{pluginNameOrPath}
+      DCHECK(base::FilePath{nameOrPath}
                .BaseName().value()
              == pluginNameOrFilenameWithExt);
 
@@ -386,43 +531,77 @@ public:
       /// successfully loaded by this manager.
       /// \note The returned value is never |nullptr|
       DCHECK(manager_);
-      PluginPtr plugin
+      PluginPtr pluginPtr
       /// \note must be plugin name, not path to file
         = manager_->instantiate(pluginName);
-      if(!plugin) {
+      if(!pluginPtr) {
         LOG(ERROR)
           << "The requested plugin "
-          << pluginNameOrPath
+          << nameOrPath
           << " cannot be instantiated.";
         DCHECK(false);
         continue;
       }
 
       VLOG(9)
-        << "=== loading plugin ==";
+        << "=== found plugin ==";
       VLOG(9)
           << "plugin title:       "
-          << plugin->title();
+          << pluginPtr->title();
       VLOG(9)
           << "plugin description: "
-          << plugin->description().substr(0, 100)
+          << pluginPtr->description().substr(0, 100)
           << "...";
 
-      VoidPromise loadPromise
-        = plugin->load();
-      allPromises.push_back(loadPromise);
+      if(pluginMeta.dependsOn.empty())
+      {
+        LOG_CALL(DVLOG(9))
+          << "parallel load of plugin: "
+          << nameOrPath;
 
-      loaded_plugins_.push_back(std::move(plugin));
-      VLOG(9)
-        << "=== plugin loaded ==";
-    }
+        VoidPromise loadChain = pluginPtr->load()
+        .ThenHere(FROM_HERE,
+          loadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
+        );
+
+        loadPromiseParallel.push_back(loadChain);
+      }
+      else
+      {
+        LOG_CALL(DVLOG(9))
+          << "sequential load of plugin: "
+          << nameOrPath;
+
+        // must contain WHOLE recursive tree of dependencies
+        // (and `loadDepsPromise` of each dependency)
+        VoidPromise loadChain =
+          loadDepsPromise
+          .ThenHere(FROM_HERE
+            , base::BindOnce(
+              &PluginType::load
+              , base::Unretained(pluginPtr.get()))
+            , base::IsNestedPromise{true}
+          )
+          .ThenHere(FROM_HERE,
+            loadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
+          );
+
+        loadPromiseParallel.push_back(loadChain);
+      }
+
+      loaded_plugins_.push_back(PluginWithMetadata{
+        std::move(pluginPtr)
+        , pluginMeta
+      });
+    } // for
 
     DCHECK(!is_initialized_)
       << "Plugin manager must be initialized once."
       << "You can unload or reload plugins at runtime.";
     is_initialized_ = true;
 
-    return base::Promises::All(FROM_HERE, allPromises);
+
+    return base::Promises::All(FROM_HERE, loadPromiseParallel);
   }
 
   // calls `unload()` for each loaded plugin
@@ -434,18 +613,94 @@ public:
 
     VLOG(9) << "(PluginManager) shutdown";
 
-    std::vector<VoidPromise> allPromises;
+    std::vector<VoidPromise> unloadPromiseParallel;
 
-    /// \note destructor of ::Corrade::PluginManager::Manager
-    /// also unloads all plugins
-    for(PluginPtr& loaded_plugin : loaded_plugins_) {
-      DCHECK(loaded_plugin);
-      VoidPromise unloadPromise
-        = loaded_plugin->unload();
-      allPromises.push_back(unloadPromise);
+    /// \note Need to unload plugins in order reverse to loading order.
+    /// \note Destructor of ::Corrade::PluginManager::Manager
+    /// also unloads all plugins.
+    for (auto pluginIt = loaded_plugins_.rbegin()
+         ; pluginIt != loaded_plugins_.rend()
+         ; ++pluginIt)
+    {
+      PluginPtr& pluginPtr
+        = (*pluginIt).plugin;
+      DCHECK(pluginPtr);
+
+      const PluginMetadata& pluginMeta
+        = (*pluginIt).metadata;
+
+      const std::string& nameOrPath
+        = pluginMeta.pluginName;
+
+      VoidPromise unloadRequiredByPromise
+        = VoidPromise::CreateResolved(FROM_HERE);
+
+      // required for `unload()`
+      {
+        for(const std::string& req
+          : pluginMeta.requiredBy)
+        {
+          CHECK(unloadPromises_.find(req) != unloadPromises_.end())
+            << "unable to find dependant promise "
+            << req
+            << " for plugin: "
+            << nameOrPath;
+
+          DVLOG(99)
+            << "found that plugin "
+            << nameOrPath
+            << " required by plugin during unloading: "
+            << req;
+
+          unloadRequiredByPromise
+            = base::Promises::All(FROM_HERE
+                , std::vector<VoidPromise>{
+                    unloadRequiredByPromise
+                    , unloadPromises_[req]}
+              );
+        }
+      }
+
+      if(pluginMeta.requiredBy.empty())
+      {
+        LOG_CALL(DVLOG(9))
+          << "parallel unload of plugin: "
+          << nameOrPath;
+
+        VoidPromise unloadChain = pluginPtr->unload()
+        .ThenHere(FROM_HERE,
+          unloadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
+        );
+
+        unloadPromiseParallel.push_back(unloadChain);
+      }
+      else
+      {
+        LOG_CALL(DVLOG(9))
+          << "sequential unload of plugin: "
+          << nameOrPath;
+
+        // must contain WHOLE recursive tree of dependencies
+        // (and `unloadRequiredByPromise` of each dependency)
+        VoidPromise unloadChain =
+          // make sure that we unloaded plugins that
+          // require (depends on) `unloading-plugin`
+          unloadRequiredByPromise
+          .ThenHere(FROM_HERE
+            , base::BindOnce(
+              &PluginType::unload
+              , base::Unretained(pluginPtr.get()))
+            , base::IsNestedPromise{true}
+          )
+          .ThenHere(FROM_HERE,
+            unloadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
+          );
+
+        unloadPromiseParallel.push_back(unloadChain);
+      }
     }
 
-    return base::Promises::All(FROM_HERE, allPromises);
+    return base::Promises::All(FROM_HERE, unloadPromiseParallel);
   }
 
   [[nodiscard]] /* do not ignore return value */
@@ -459,11 +714,35 @@ public:
 private:
   bool is_initialized_ = false;
 
+  std::map<
+    std::string
+    , std::unique_ptr<
+        base::ManualPromiseResolver<void, base::NoReject>
+      >
+  > loadResolvers_;
+
+  std::map<
+    std::string
+    , std::unique_ptr<
+        base::ManualPromiseResolver<void, base::NoReject>
+      >
+  > unloadResolvers_;
+
+  std::map<
+    std::string
+    , VoidPromise
+  > loadPromises_;
+
+  std::map<
+    std::string
+    , VoidPromise
+  > unloadPromises_;
+
   std::unique_ptr<
     ::Corrade::PluginManager::Manager<PluginType>
     > manager_;
 
-  std::vector<PluginPtr> loaded_plugins_;
+  std::vector<PluginWithMetadata> loaded_plugins_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

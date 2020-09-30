@@ -247,6 +247,16 @@ void DetectChannel::onDetected(
 
   atomicDetectDoneFlag_.store(true);
 
+  // destroy TCP Entity if socket is closed
+  /// \note we do not force closing of connection in case of `ec`
+  /// because user may want to skip some error codes.
+  bool forceClosing
+    = !stream_.has_value()
+      || !stream_.value().socket().is_open();
+
+  DVLOG_IF(99, forceClosing)
+    << " forcing close of connection";
+
   // mark SSL detection completed
   ::boost::asio::post(
     asioRegistry_->asioStrand()
@@ -266,8 +276,7 @@ void DetectChannel::onDetected(
           , handshakeResult
           , MAKES_INVALID(stream_) base::rvalue_cast(stream_.value())
           , MAKES_INVALID(buffer_) base::rvalue_cast(buffer_)
-          /// \todo make use of it
-          , /* force closing */ false
+          , forceClosing
         )
     )
   );

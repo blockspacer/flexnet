@@ -10,6 +10,7 @@
 #include <base/files/file_util.h>
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>
+#include <base/rvalue_cast.h>
 
 #include <algorithm>
 #include <initializer_list>
@@ -96,17 +97,20 @@ bool parsePluginsConfig(
   return true;
 }
 
-std::vector<std::string> filterPluginsByConfig(
+std::map<std::string, PluginMetadata> loadPluginsMetadata(
   std::vector<
       ::Corrade::Utility::ConfigurationGroup*
     >& plugin_groups
-  , std::vector<std::string>& all_plugins)
+  , std::vector<std::string>& dynamic_plugins
+  , std::vector<std::string>& static_plugins)
 {
-  std::vector<std::string> filtered_plugins;
+  std::map<std::string, PluginMetadata> filtered_plugins;
 
   for(const ConfigurationGroup* plugin_group
       : plugin_groups)
   {
+    std::vector<std::string> dependsOn;
+
     if(!plugin_group->hasValue("title"))
     {
       LOG(WARNING)
@@ -116,31 +120,77 @@ std::vector<std::string> filterPluginsByConfig(
       continue;
     }
 
-    const std::string plugin_conf_name
+    const std::string pluginTitle
       = plugin_group->value("title");
 
-    if(plugin_group->hasValue("type")
-       && plugin_group->value("type") == "static")
+    if(plugin_group->hasValue("depends"))
     {
       DVLOG(99)
-          << "found static plugin in configuration file: "
-          << plugin_conf_name;
-      filtered_plugins.push_back(plugin_conf_name);
-      continue;
+        << "found sequential plugin group: "
+        << pluginTitle;
+
+      /// \note It is allowed to have more than one value
+      /// with the same key.
+      /// You can access all values for given key name
+      /// using values().
+      //
+      // EXAMPLE
+      //
+      // depends=bread
+      // depends=milk
+      // depends=apples
+      // depends=onions
+      for(const std::string& dep
+          : plugin_group->values("depends"))
+      {
+        dependsOn.push_back(dep);
+      }
+    } else {
+      DVLOG(99)
+        << "found parrallel plugin group: "
+        << pluginTitle;
     }
 
-    auto find_result
-      = std::find(all_plugins.begin()
-                  , all_plugins.end()
-                  , plugin_conf_name);
-    if(find_result == all_plugins.end())
+    // If plugin name found in config,
+    // than need to load plugin.
+    auto find_result_dynamic
+      = std::find(dynamic_plugins.begin()
+                  , dynamic_plugins.end()
+                  , pluginTitle);
+    auto find_result_static
+      = std::find(static_plugins.begin()
+                  , static_plugins.end()
+                  , pluginTitle);
+    if(find_result_dynamic == dynamic_plugins.end()
+       && find_result_static == static_plugins.end())
     {
-      LOG(WARNING)
+      // can not find dynamic or static plugin
+      // with desired name
+      CHECK(false)
           << "plugin not found: "
-          << plugin_conf_name;
-      NOTREACHED();
+          << pluginTitle;
     } else {
-      filtered_plugins.push_back(plugin_conf_name);
+      filtered_plugins[pluginTitle]
+        = PluginMetadata{
+            pluginTitle
+            , base::rvalue_cast(dependsOn)
+            , std::vector<std::string>{} // requiredBy
+          };
+    }
+  }
+
+  // populate `requiredBy`
+  for(std::map<std::string, PluginMetadata>::const_iterator it =
+        filtered_plugins.begin()
+      ; it != filtered_plugins.end()
+      ; ++it)
+  {
+    for(const std::string& dep
+        : (*it).second.dependsOn)
+    {
+      filtered_plugins[dep]
+        .requiredBy
+        .push_back((*it).second.pluginName);
     }
   }
 

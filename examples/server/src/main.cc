@@ -1,11 +1,8 @@
 #include "init_env.hpp"
 #include "generated/static_plugins.hpp"
-#include "server_run_loop_state.hpp"
-#include "ECS/systems/accept_connection_result.hpp"
-#include "ECS/systems/cleanup.hpp"
-#include "ECS/systems/ssl_detect_result.hpp"
-#include "ECS/systems/unused.hpp"
 #include "registry/main_loop_registry.hpp"
+#include "plugin_manager/plugin_manager.hpp"
+#include "plugin_interface/plugin_interface.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
@@ -23,6 +20,7 @@
 #include <base/threading/thread.h>
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
+#include <base/command_line.h>
 
 #include <basis/lock_with_check.hpp>
 #include <basis/task/periodic_validate_until.hpp>
@@ -197,13 +195,18 @@ static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
     FROM_HERE
     , AppState::TERMINATE)
   .ThenHere(FROM_HERE
+    // during teardown we need to be able to perform IO.
+    , base::BindOnce(
+        &base::ThreadRestrictions::SetIOAllowed
+        , true
+      )
+  )
+  .ThenHere(FROM_HERE
     , base::BindOnce(&shutdownPluginManager)
     , base::IsNestedPromise{true}
   )
   .ThenHere(FROM_HERE
-    , base::BindOnce(
-        base::BindOnce(&unsetGlobals)
-      )
+    , base::BindOnce(&unsetGlobals)
   );
 }
 
@@ -248,6 +251,7 @@ int main(int argc, char* argv[])
     /// \note Do NOT use `base::MessageLoop::current().task_runner()`
     /// after `runLoop.Run` finished (otherwise posted tasks
     /// will be NOT executed i.e. scheduled forever).
+    DCHECK(!base::RunLoop::IsRunningOnCurrentThread());
   }
 
   DVLOG(9)

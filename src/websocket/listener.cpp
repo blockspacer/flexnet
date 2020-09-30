@@ -357,8 +357,13 @@ void Listener::allocateTcpResourceAndAccept()
     /// \note `get_executor` returns copy
     == ioc_->get_executor());
 
-  // unable to `::boost::asio::post` on stopped ioc
-  DCHECK(!ioc_->stopped());
+  if(ioc_->stopped())
+  {
+    LOG_CALL(LOG(WARNING))
+      << "unable to `::boost::asio::post` on stopped ioc";
+    NOTREACHED();
+    return;
+  }
 
   // `ECS::TcpConnection` must be valid
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
@@ -587,6 +592,14 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
         << remote_endpoint;
   }
 
+  if(ioc_->stopped())
+  {
+    LOG_CALL(LOG(WARNING))
+      << "unable to `::boost::asio::post` on stopped ioc";
+    NOTREACHED();
+    return;
+  }
+
   // mark connection as newly created
   // (or as failed with error code)
   ::boost::asio::post(
@@ -607,9 +620,6 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
         )
     )
   );
-
-  // unable to `::boost::asio::post` on stopped ioc
-  DCHECK(!ioc_->stopped());
 
   // Accept another connection
   ::boost::asio::post(
@@ -648,14 +658,22 @@ void Listener::setAcceptConnectionResult(
         ECS::UnusedAcceptResultTag
       >(tcp_entity_id);
 
+    // destroy TCP Entity if socket is closed
+    /// \note we do not force closing of connection in case of `ec`
+    /// because user may want to skip some error codes.
+    bool forceClosing
+      = !socket.is_open();
+
+    DVLOG_IF(99, forceClosing)
+      << " forcing close of connection";
+
     UniqueAcceptComponent& acceptResult
       = (*asioRegistry_).reset_or_create_var<UniqueAcceptComponent>(
             "UniqueAcceptComponent_" + base::GenerateGUID() // debug name
             , tcp_entity_id
             , base::rvalue_cast(ec)
             , base::rvalue_cast(socket)
-            /// \todo make use of it
-            , /* force closing */ false);
+            , forceClosing);
   }
 }
 

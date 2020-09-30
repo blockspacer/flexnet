@@ -334,6 +334,10 @@ target_compile_definitions(${LIB_NAME} PRIVATE
   BOOST_ERROR_CODE_HEADER_ONLY
   BOOST_ASIO_STANDALONE=1
   BOOST_ASIO_HAS_MOVE=1
+  # `type_index` requires `ENTT_MAYBE_ATOMIC` to be thread-safe.
+  # `type_index` is used widely, for example in `registry` and `dispatcher`.
+  # see github.com/skypjack/entt/issues/562
+  ENTT_USE_ATOMIC=1
 )
 
 target_compile_definitions(${LIB_NAME} PUBLIC

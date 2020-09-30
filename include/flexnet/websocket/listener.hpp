@@ -274,6 +274,12 @@ public:
 
 private:
   // handles new connections
+  /// \note `async_accept` will be called
+  /// not only on new connection,
+  /// but also when `acceptor_` stops
+  /// while `async_accept` is awaiting.
+  /// i.e. `onAccept` will be called anyway
+  /// and we can use it to free allocated resources.
   void onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
                 // `per-connection entity`
                 , ECS::Entity tcp_entity_id

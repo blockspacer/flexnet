@@ -92,6 +92,18 @@ macro(set_test_compile_options target)
     $<$<CXX_COMPILER_ID:GNU>:-O0>
     $<$<CXX_COMPILER_ID:Clang>:-O0> )
 
+  target_compile_definitions(${target} PRIVATE
+    # https://stackoverflow.com/a/30877725
+    BOOST_SYSTEM_NO_DEPRECATED
+    BOOST_ERROR_CODE_HEADER_ONLY
+    BOOST_ASIO_STANDALONE=1
+    BOOST_ASIO_HAS_MOVE=1
+    # `type_index` requires `ENTT_MAYBE_ATOMIC` to be thread-safe.
+    # `type_index` is used widely, for example in `registry` and `dispatcher`.
+    # see github.com/skypjack/entt/issues/562
+    ENTT_USE_ATOMIC=1
+  )
+
   set_target_properties( ${target} PROPERTIES
     # ENABLE_EXPORTS for -rdynamic
     # i.e. export symbols from the executables

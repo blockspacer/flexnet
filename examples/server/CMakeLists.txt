@@ -6,6 +6,17 @@ macro(add_server_lib LIBRARY_NAME)
     ${ARGN}
   )
 
+  target_compile_definitions(${LIBRARY_NAME} PRIVATE
+    # https://stackoverflow.com/a/30877725
+    BOOST_SYSTEM_NO_DEPRECATED
+    BOOST_ERROR_CODE_HEADER_ONLY
+    BOOST_ASIO_STANDALONE=1
+    BOOST_ASIO_HAS_MOVE=1
+    # `type_index` requires `ENTT_MAYBE_ATOMIC` to be thread-safe.
+    # see github.com/skypjack/entt/issues/562
+    ENTT_USE_ATOMIC=1
+  )
+
   if(ENABLE_MSAN)
     message(STATUS "enabling MSAN on ${LIBRARY_NAME}")
     add_msan_static_link(${LIBRARY_NAME})
@@ -103,36 +114,36 @@ macro(add_server_lib LIBRARY_NAME)
 endmacro(add_server_lib)
 
 add_server_lib(PluginInterfaceSharedLib
-  ${CMAKE_CURRENT_SOURCE_DIR}/PluginInterfaceSharedLib/plugin_interface/plugin_interface.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/PluginInterfaceSharedLib/plugin_interface/plugin_interface.hpp
 )
 
 target_include_directories(PluginInterfaceSharedLib PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/PluginInterfaceSharedLib/
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/PluginInterfaceSharedLib/
 )
 
 add_server_lib(ServerSharedLib
-  ${CMAKE_CURRENT_SOURCE_DIR}/ServerSharedLib/boost_throw_exception.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/ServerSharedLib/boost_throw_exception.cc
   #
-  ${CMAKE_CURRENT_SOURCE_DIR}/ServerSharedLib/state/app_state.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/ServerSharedLib/state/app_state.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/ServerSharedLib/state/app_state.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/ServerSharedLib/state/app_state.hpp
   #
-  ${CMAKE_CURRENT_SOURCE_DIR}/ServerSharedLib/registry/main_loop_registry.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/ServerSharedLib/registry/main_loop_registry.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/ServerSharedLib/registry/main_loop_registry.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/ServerSharedLib/registry/main_loop_registry.hpp
 )
 
 target_include_directories(ServerSharedLib PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/ServerSharedLib
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/ServerSharedLib
 )
 
 add_server_lib(ConsoleTerminalSharedLib
-  ${CMAKE_CURRENT_SOURCE_DIR}/ConsoleTerminalSharedLib/console_terminal/console_dispatcher.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/ConsoleTerminalSharedLib/console_terminal/console_dispatcher.hpp
   #
-  ${CMAKE_CURRENT_SOURCE_DIR}/ConsoleTerminalSharedLib/console_terminal/console_feature_list.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/ConsoleTerminalSharedLib/console_terminal/console_feature_list.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/ConsoleTerminalSharedLib/console_terminal/console_feature_list.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/ConsoleTerminalSharedLib/console_terminal/console_feature_list.hpp
 )
 
 target_include_directories(ConsoleTerminalSharedLib PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/ConsoleTerminalSharedLib
+  ${CMAKE_CURRENT_SOURCE_DIR}/shared_lib/ConsoleTerminalSharedLib
 )
 
 # executable
@@ -142,26 +153,8 @@ add_executable(server_executable
   ${CMAKE_CURRENT_SOURCE_DIR}/src/init_env.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/init_env.hpp
   #
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/tcp_entity_allocator.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/tcp_entity_allocator.hpp
-  #
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/server_run_loop_state.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/server_run_loop_state.hpp
-  #
   ${CMAKE_CURRENT_SOURCE_DIR}/src/plugin_manager/plugin_manager.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/plugin_manager/plugin_manager.cc
-  #
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/cleanup.hpp
-  #
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/unused.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/unused.hpp
-  #
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/ssl_detect_result.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/ssl_detect_result.hpp
-  #
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/accept_connection_result.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/ECS/systems/accept_connection_result.hpp
 )
 
 if(ENABLE_MSAN)
@@ -224,6 +217,17 @@ set_property(TARGET server_executable
 
 set(GENERATE_CORRADE_PLUGIN_IMPORT "")
 set(GENERATE_CORRADE_PLUGIN_EJECT "")
+
+target_compile_definitions(server_executable PRIVATE
+  # https://stackoverflow.com/a/30877725
+  BOOST_SYSTEM_NO_DEPRECATED
+  BOOST_ERROR_CODE_HEADER_ONLY
+  BOOST_ASIO_STANDALONE=1
+  BOOST_ASIO_HAS_MOVE=1
+  # `type_index` requires `ENTT_MAYBE_ATOMIC` to be thread-safe.
+  # see github.com/skypjack/entt/issues/562
+  ENTT_USE_ATOMIC=1
+)
 
 target_compile_options(server_executable PRIVATE
   # NOTE: explicitly select the "C++ Core Check Lifetime Rules" (or "Microsoft All Rules") in order to enable the lifetime checks.
@@ -329,6 +333,18 @@ macro(add_server_plugin PLUGIN_NAME PLUGIN_RELATIVE_DIR)
     )
   endif(${PLUGIN_NAME}_STATIC)
   #
+  target_compile_definitions(${PLUGIN_NAME} PRIVATE
+    # https://stackoverflow.com/a/30877725
+    BOOST_SYSTEM_NO_DEPRECATED
+    BOOST_ERROR_CODE_HEADER_ONLY
+    BOOST_ASIO_STANDALONE=1
+    BOOST_ASIO_HAS_MOVE=1
+    # `type_index` requires `ENTT_MAYBE_ATOMIC` to be thread-safe.
+    # `type_index` is used widely, for example in `registry` and `dispatcher`.
+    # see github.com/skypjack/entt/issues/562
+    ENTT_USE_ATOMIC=1
+  )
+  #
   target_include_directories(${PLUGIN_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/${PLUGIN_RELATIVE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/${PLUGIN_RELATIVE_DIR}/src
@@ -361,6 +377,54 @@ macro(add_server_plugin PLUGIN_NAME PLUGIN_RELATIVE_DIR)
   # POSITION_INDEPENDENT_CODE for -fPIC
   set_property(TARGET ${PLUGIN_NAME} PROPERTY POSITION_INDEPENDENT_CODE ON)
 
+  target_compile_options(${PLUGIN_NAME} PRIVATE
+    # NOTE: explicitly select the "C++ Core Check Lifetime Rules" (or "Microsoft All Rules") in order to enable the lifetime checks.
+    # see https://devblogs.microsoft.com/cppblog/c-core-guidelines-checker-in-visual-studio-2017/
+    # see https://www.modernescpp.com/index.php/c-core-guidelines-lifetime-safety
+    $<$<CXX_COMPILER_ID:MSVC>:
+      /W3 # Set warning level
+      /Wall
+      /analyze
+    >
+    # see https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
+    $<$<CXX_COMPILER_ID:GNU>:
+      ${GCCAndClangErrorFlags}
+      ${GCCAndClangWarningFlags}
+      -Wall
+      -W
+      -Wextra
+      -Wpedantic
+      -Wdeprecated-register
+      -Wnon-virtual-dtor
+    >
+    $<$<CXX_COMPILER_ID:Clang>:
+      ${GCCAndClangErrorFlags}
+      ${GCCAndClangWarningFlags}
+      ${ClangErrorFlags}
+      # see https://pspdfkit.com/blog/2020/the-cpp-lifetime-profile/
+      # TODO: only special branch of Clang currently https://github.com/mgehre/llvm-project
+      #-Wlifetime
+      # see http://clang.llvm.org/docs/ThreadSafetyAnalysis.html
+      # see https://github.com/isocpp/CppCoreGuidelines/blob/master/docs/Lifetime.pdf
+      -Wthread-safety-analysis
+      -Wall
+      -W
+      -Wextra
+      -Wpedantic
+      -Wdeprecated-register
+      -Wnon-virtual-dtor
+      # Negative requirements are an experimental feature
+      # which will produce many warnings in existing code
+      -Wno-thread-safety-negative
+    >
+  )
+
+  # # Helper that can set default warning flags for you
+  target_set_warnings( # from cmake_helper_utils (conan package)
+    ${PLUGIN_NAME}
+    ENABLE ALL
+    DISABLE Annoying)
+
   #
   if(${PLUGIN_NAME}_STATIC)
     target_link_libraries(server_executable PRIVATE
@@ -383,13 +447,31 @@ macro(add_server_plugin PLUGIN_NAME PLUGIN_RELATIVE_DIR)
 endmacro(add_server_plugin)
 
 add_server_plugin(ExtraLogging
-  plugin_ExtraLogging
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_ExtraLogging/src/ExtraLogging.cc
+  plugins/plugin_ExtraLogging
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/register_plugin.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/main_plugin_interface.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/main_plugin_logic.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/main_plugin_constants.hpp
 )
 
 add_server_plugin(BasicConsoleCommands
-  plugin_BasicConsoleCommands
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_BasicConsoleCommands/src/BasicConsoleCommands.cc
+  plugins/plugin_BasicConsoleCommands
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/register_plugin.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_interface.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_logic.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_constants.hpp
 )
 
 target_link_libraries(BasicConsoleCommands PRIVATE
@@ -397,8 +479,17 @@ target_link_libraries(BasicConsoleCommands PRIVATE
 )
 
 add_server_plugin(ConsoleTerminal
-  plugin_ConsoleTerminal
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_ConsoleTerminal/src/ConsoleTerminal.cc
+  plugins/plugin_ConsoleTerminal
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ConsoleTerminal/src/register_plugin.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ConsoleTerminal/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ConsoleTerminal/src/main_plugin_interface.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ConsoleTerminal/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ConsoleTerminal/src/main_plugin_logic.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ConsoleTerminal/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ConsoleTerminal/src/main_plugin_constants.hpp
 )
 
 target_link_libraries(ConsoleTerminal PRIVATE
@@ -406,39 +497,84 @@ target_link_libraries(ConsoleTerminal PRIVATE
 )
 
 add_server_plugin(AsioContextThreads
-  plugin_AsioContextThreads
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_AsioContextThreads/src/AsioContextThreads.cc
+  plugins/plugin_AsioContextThreads
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_AsioContextThreads/src/register_plugin.cc
   #
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_AsioContextThreads/src/net/asio_threads_manager.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_AsioContextThreads/src/net/asio_threads_manager.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_AsioContextThreads/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_AsioContextThreads/src/main_plugin_interface.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_AsioContextThreads/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_AsioContextThreads/src/main_plugin_logic.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_AsioContextThreads/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_AsioContextThreads/src/main_plugin_constants.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_AsioContextThreads/src/net/asio_threads_manager.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_AsioContextThreads/src/net/asio_threads_manager.cc
 )
 
 add_server_plugin(SignalHandler
-  plugin_SignalHandler
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_SignalHandler/src/SignalHandler.cc
+  plugins/plugin_SignalHandler
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_SignalHandler/src/signal_handler/signal_handler.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_SignalHandler/src/signal_handler/signal_handler.cc
   #
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_SignalHandler/src/signal_handler/signal_handler.hpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_SignalHandler/src/signal_handler/signal_handler.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_SignalHandler/src/register_plugin.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_SignalHandler/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_SignalHandler/src/main_plugin_interface.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_SignalHandler/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_SignalHandler/src/main_plugin_logic.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_SignalHandler/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_SignalHandler/src/main_plugin_constants.hpp
 )
 
 add_server_plugin(TcpServer
-  plugin_TcpServer
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_TcpServer/src/TcpServer.cc
+  plugins/plugin_TcpServer
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_TcpServer/src/register_plugin.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_TcpServer/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_TcpServer/src/main_plugin_interface.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_TcpServer/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_TcpServer/src/main_plugin_logic.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_TcpServer/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_TcpServer/src/main_plugin_constants.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_TcpServer/src/tcp_entity_allocator.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_TcpServer/src/tcp_entity_allocator.hpp
 )
 
-#add_server_plugin(NetworkEntity
-#  plugin_NetworkEntity
-#  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_NetworkEntity/src/NetworkEntity.cc
-#  #
-#  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_NetworkEntity/src/network_entity_updater_on_sequence.cc
-#  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_NetworkEntity/src/network_entity_updater_on_sequence.hpp
-#  #
-#  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_NetworkEntity/src/network_entity_updater.cc
-#  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_NetworkEntity/src/network_entity_updater.hpp
-#  #
-#  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_NetworkEntity/src/network_entity_plugin.cc
-#  ${CMAKE_CURRENT_SOURCE_DIR}/plugin_NetworkEntity/src/network_entity_plugin.hpp
-#)
+add_server_plugin(NetworkEntity
+  plugins/plugin_NetworkEntity
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/network_entity_updater.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/network_entity_updater.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/register_plugin.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/main_plugin_interface.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/main_plugin_logic.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/main_plugin_constants.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/cleanup.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/cleanup.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/unused.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/unused.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/ssl_detect_result.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/ssl_detect_result.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/accept_connection_result.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/accept_connection_result.hpp
+)
 
 message(STATUS
   "GENERATE_CORRADE_PLUGIN_IMPORT=${GENERATE_CORRADE_PLUGIN_IMPORT}")
