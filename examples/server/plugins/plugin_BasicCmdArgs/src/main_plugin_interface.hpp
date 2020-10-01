@@ -1,10 +1,10 @@
 #pragma once
 
+#include "main_plugin_logic.hpp"
+
 #include "plugin_interface/plugin_interface.hpp"
 #include "state/app_state.hpp"
 #include "registry/main_loop_registry.hpp"
-#include "console_terminal/console_dispatcher.hpp"
-#include "state/app_state.hpp"
 
 #include <base/logging.h>
 #include <base/cpu.h>
@@ -33,72 +33,65 @@
 #include <thread>
 
 namespace plugin {
-namespace console_terminal {
+namespace basic_cmd_args {
 
-class MainPluginInterface;
-
-// Performs plugin logic based on
-// provided plugin interface (configuration)
-class MainPluginLogic
-{
+// sets plugin metadata (configuration)
+class MainPluginInterface
+  final
+  : public ::plugin::PluginInterface {
  public:
   using VoidPromise
     = base::Promise<void, base::NoReject>;
 
-  using StatusPromise
-    = base::Promise<::util::Status, base::NoReject>;
-
  public:
-  SET_WEAK_SELF(MainPluginLogic)
+  SET_WEAK_SELF(MainPluginInterface)
 
-  MainPluginLogic(
-    const MainPluginInterface* pluginInterface)
+  explicit MainPluginInterface(
+    ::plugin::AbstractManager& manager
+    , const std::string& pluginName)
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
-  ~MainPluginLogic()
+  ~MainPluginInterface()
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
-  VoidPromise load()
+  std::string title() const override
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
-  VoidPromise unload()
+  std::string author() const override
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
- private:
-  int consoleInputFreqMillisec() NO_EXCEPTION
-    RUN_ON(&sequence_checker_);
+  std::string description() const override
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
- private:
-  SET_WEAK_POINTERS(MainPluginLogic);
+  VoidPromise load() override
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
-  util::UnownedRef<
-    const ::Corrade::Utility::ConfigurationGroup
-  > configuration_
-      GUARDED_BY(sequence_checker_);
+  VoidPromise unload() override
+    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
-  util::UnownedPtr<
-    ::backend::MainLoopRegistry
-  > mainLoopRegistry_
+private:
+  SET_WEAK_POINTERS(MainPluginInterface);
+
+  std::string title_
     GUARDED_BY(sequence_checker_);
 
-  util::UnownedRef<
-    ::backend::ConsoleTerminalEventDispatcher
-  > consoleTerminalEventDispatcher_
+  std::string author_
     GUARDED_BY(sequence_checker_);
 
-  // Same as `base::MessageLoop::current()->task_runner()`
-  // during class construction
+  std::string description_
+    GUARDED_BY(sequence_checker_);
+
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     GUARDED_BY(sequence_checker_);
 
-  // Task sequence used to update text input from console terminal.
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
+  // Use `base::Optional` because plugin can be unloaded i.e. `reset()`
+  base::Optional<MainPluginLogic> mainPluginLogic_
     GUARDED_BY(sequence_checker_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(MainPluginLogic);
+  DISALLOW_COPY_AND_ASSIGN(MainPluginInterface);
 };
 
-} // namespace console_terminal
+} // namespace basic_cmd_args
 } // namespace plugin

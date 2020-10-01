@@ -58,10 +58,10 @@ static const char kDefaultPluginsConfigFilesDir[]
   = "resources/configuration_files";
 
 // example: --plugins_conf=$PWD/conf/plugins.conf
-static const char kPluginsConfigFileNameSwitch[]
+static const char kPluginsConfigFileSwitch[]
   = "plugins_conf";
 
-static const char kDefaultPluginsDirName[]
+static const char kRelativePluginsDir[]
   = "plugins";
 
 // example: --plugins_dir=$PWD/plugins
@@ -89,12 +89,12 @@ static VoidPromise startPluginManager() NO_EXCEPTION
           kPluginsDirSwitch)}
       // default value
       : dir_exe
-        .AppendASCII(kDefaultPluginsDirName);
+        .AppendASCII(kRelativePluginsDir);
 
   base::FilePath pathToPluginsConfFile
-  = cmdLine->HasSwitch(kPluginsConfigFileNameSwitch)
+  = cmdLine->HasSwitch(kPluginsConfigFileSwitch)
       ? base::FilePath{cmdLine->GetSwitchValueASCII(
-          kPluginsConfigFileNameSwitch)}
+          kPluginsConfigFileSwitch)}
       // default value
       : dir_exe
         .AppendASCII(kDefaultPluginsConfigFilesDir)
@@ -150,7 +150,7 @@ static void setGlobals() NO_EXCEPTION
 }
 
 // Remove objects from global storage.
-/// \note Remove in order reverse to construction.
+/// \note `unset` in order reverse to `set`.
 static void unsetGlobals() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));

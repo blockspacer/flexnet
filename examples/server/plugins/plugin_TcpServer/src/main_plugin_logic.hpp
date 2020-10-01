@@ -121,7 +121,6 @@ class MainPluginLogic
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
  private:
-
   void startAcceptors() NO_EXCEPTION
     RUN_ON(&sequence_checker_);
 
@@ -163,8 +162,25 @@ class MainPluginLogic
   void stopIOContext() NO_EXCEPTION
     RUN_ON(&sequence_checker_);
 
+  std::string ipAddr() NO_EXCEPTION
+    RUN_ON(&sequence_checker_);
+
+  int portNum() NO_EXCEPTION
+    RUN_ON(&sequence_checker_);
+
+  int quitDetectionFreqMillisec() NO_EXCEPTION
+    RUN_ON(&sequence_checker_);
+
+  int quitDetectionDebugTimeoutMillisec() NO_EXCEPTION
+    RUN_ON(&sequence_checker_);
+
  private:
   SET_WEAK_POINTERS(MainPluginLogic);
+
+  util::UnownedRef<
+    const ::Corrade::Utility::ConfigurationGroup
+  > configuration_
+      GUARDED_BY(sequence_checker_);
 
   util::UnownedPtr<
     ::backend::MainLoopRegistry

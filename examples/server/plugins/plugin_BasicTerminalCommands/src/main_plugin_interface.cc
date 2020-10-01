@@ -2,7 +2,7 @@
 #include "main_plugin_constants.hpp"
 
 namespace plugin {
-namespace basic_console_commands {
+namespace basic_terminal_commands {
 
 MainPluginInterface::MainPluginInterface(
   AbstractManager &manager
@@ -148,5 +148,5 @@ PluginInterface::VoidPromise MainPluginInterface::unload()
       );
 }
 
-} // namespace basic_console_commands
+} // namespace basic_terminal_commands
 } // namespace plugin

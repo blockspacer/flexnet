@@ -1,7 +1,7 @@
 #include "main_plugin_constants.hpp" // IWYU pragma: associated
 
 namespace plugin {
-namespace basic_console_commands {
+namespace basic_terminal_commands {
 
 // extern
 const char kPluginInterfaceVersion[]
@@ -9,7 +9,7 @@ const char kPluginInterfaceVersion[]
 
 // extern
 const char kPluginName[]
-  = "BasicConsoleCommands";
+  = "BasicTerminalCommands";
 
-} // namespace basic_console_commands
+} // namespace basic_terminal_commands
 } // namespace plugin

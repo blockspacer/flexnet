@@ -7,10 +7,10 @@
 /// accu.org/journals/overload/18/100/love_1718/
 REGISTER_PLUGIN(
   /*name*/
-  BasicConsoleCommands
+  BasicCmdArgs
   , /*className*/
   /// \note Each plugin must have unique namespace
   /// to avoid unexpected behavior due to symbol collision
-  plugin::basic_console_commands::MainPluginInterface
+  plugin::basic_cmd_args::MainPluginInterface
   , /*interface*/
-  plugin::basic_console_commands::kPluginInterfaceVersion)
+  plugin::basic_cmd_args::kPluginInterfaceVersion)

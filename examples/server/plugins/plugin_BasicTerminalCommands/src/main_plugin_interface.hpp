@@ -33,7 +33,7 @@
 #include <thread>
 
 namespace plugin {
-namespace basic_console_commands {
+namespace basic_terminal_commands {
 
 // sets plugin metadata (configuration)
 class MainPluginInterface
@@ -93,5 +93,5 @@ private:
   DISALLOW_COPY_AND_ASSIGN(MainPluginInterface);
 };
 
-} // namespace basic_console_commands
+} // namespace basic_terminal_commands
 } // namespace plugin

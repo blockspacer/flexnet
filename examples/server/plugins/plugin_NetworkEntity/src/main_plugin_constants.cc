@@ -11,5 +11,13 @@ const char kPluginInterfaceVersion[]
 const char kPluginName[]
   = "NetworkEntity";
 
+// extern
+const int kDefaultEntityUpdateFreqMillisec
+  = 1000;
+
+// extern
+const char kConfEntityUpdateFreqMillisec[]
+  = "entityUpdateFreqMillisec";
+
 } // namespace network_entity
 } // namespace plugin

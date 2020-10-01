@@ -12,6 +12,8 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
+  , configuration_{REFERENCED(
+      pluginInterface->metadata()->configuration())}
   , mainLoopRunner_{
       base::MessageLoop::current()->task_runner()}
   , mainLoopRegistry_(
@@ -27,24 +29,30 @@ MainPluginLogic::MainPluginLogic(
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
+  asioThreadsManager_.startThreads(
+    /// \note Crash if out of range.
+    base::checked_cast<size_t>(asioThreads())
+    , REFERENCED(*ioc_)
+  );
+}
+
+int MainPluginLogic::asioThreads() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   int confAsioThreads
     = kDefaultAsioThreads;
 
-  const ::Corrade::Utility::ConfigurationGroup& configuration
-    = pluginInterface->metadata()->configuration();
-
-  if(configuration.hasValue(kConfAsioThreads))
+  if(configuration_->hasValue(kConfAsioThreads))
   {
     base::StringToInt(
-      configuration.value(kConfAsioThreads)
+      configuration_->value(kConfAsioThreads)
       , &confAsioThreads);
   }
 
-  asioThreadsManager_.startThreads(
-    /// \note Crash if out of range.
-    base::checked_cast<size_t>(confAsioThreads)
-    , REFERENCED(*ioc_)
-  );
+  return confAsioThreads;
 }
 
 MainPluginLogic::~MainPluginLogic()

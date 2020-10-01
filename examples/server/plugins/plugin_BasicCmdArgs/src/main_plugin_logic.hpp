@@ -3,7 +3,6 @@
 #include "plugin_interface/plugin_interface.hpp"
 #include "state/app_state.hpp"
 #include "registry/main_loop_registry.hpp"
-#include "console_terminal/console_dispatcher.hpp"
 #include "state/app_state.hpp"
 
 #include <base/logging.h>
@@ -33,7 +32,7 @@
 #include <thread>
 
 namespace plugin {
-namespace console_terminal {
+namespace basic_cmd_args {
 
 class MainPluginInterface;
 
@@ -65,25 +64,21 @@ class MainPluginLogic
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
  private:
-  int consoleInputFreqMillisec() NO_EXCEPTION
+  void handleCmd();
+    RUN_ON(&sequence_checker_);
+
+  void handleVersionCmd();
+    RUN_ON(&sequence_checker_);
+
+  void handleHelpCmd();
     RUN_ON(&sequence_checker_);
 
  private:
   SET_WEAK_POINTERS(MainPluginLogic);
 
-  util::UnownedRef<
-    const ::Corrade::Utility::ConfigurationGroup
-  > configuration_
-      GUARDED_BY(sequence_checker_);
-
   util::UnownedPtr<
     ::backend::MainLoopRegistry
   > mainLoopRegistry_
-    GUARDED_BY(sequence_checker_);
-
-  util::UnownedRef<
-    ::backend::ConsoleTerminalEventDispatcher
-  > consoleTerminalEventDispatcher_
     GUARDED_BY(sequence_checker_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
@@ -91,14 +86,10 @@ class MainPluginLogic
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     GUARDED_BY(sequence_checker_);
 
-  // Task sequence used to update text input from console terminal.
-  scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner_
-    GUARDED_BY(sequence_checker_);
-
   SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(MainPluginLogic);
 };
 
-} // namespace console_terminal
+} // namespace basic_cmd_args
 } // namespace plugin

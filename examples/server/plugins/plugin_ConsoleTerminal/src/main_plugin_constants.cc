@@ -11,5 +11,13 @@ const char kPluginInterfaceVersion[]
 const char kPluginName[]
   = "ConsoleTerminal";
 
+// extern
+const int kDefaultConsoleInputFreqMillisec
+  = 100;
+
+// extern
+const char kConfConsoleInputFreqMillisec[]
+  = "consoleInputFreqMillisec";
+
 } // namespace console_terminal
 } // namespace plugin

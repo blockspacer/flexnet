@@ -2,6 +2,8 @@
 #include "main_plugin_interface.hpp"
 #include "main_plugin_constants.hpp"
 
+#include <base/numerics/safe_conversions.h>
+
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
@@ -25,14 +27,6 @@
 namespace plugin {
 namespace tcp_server {
 
-/// \todo make configurable
-const std::string ip_addr
-  = "127.0.0.1";
-
-/// \todo make configurable
-const unsigned short port_num
-  = 8085;
-
 MainPluginLogic::MainPluginLogic(
   const MainPluginInterface* pluginInterface)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -40,6 +34,8 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
+  , configuration_{REFERENCED(
+      pluginInterface->metadata()->configuration())}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
@@ -48,8 +44,9 @@ MainPluginLogic::MainPluginLogic(
       mainLoopRegistry_->registry()
         .ctx<::boost::asio::io_context>())}
   , tcpEndpoint_{
-    ::boost::asio::ip::make_address(ip_addr)
-    , port_num}
+    ::boost::asio::ip::make_address(ipAddr())
+    , /// \note Crash if out of range.
+      base::checked_cast<unsigned short>(portNum())}
   , asioRegistry_{
       REFERENCED(mainLoopRegistry_->registry()
         .ctx<ECS::AsioRegistry>())}
@@ -374,11 +371,11 @@ MainPluginLogic::VoidPromise
 
   return periodicValidateUntil_.runPromise(FROM_HERE
     , basis::EndingTimeout{
-        /// \todo make configurable
-        base::TimeDelta::FromSeconds(15)} // debug-only expiration time
+        base::TimeDelta::FromMilliseconds(
+          quitDetectionDebugTimeoutMillisec())} // debug-only expiration time
     , basis::PeriodicCheckUntil::CheckPeriod{
-        /// \todo make configurable
-        base::TimeDelta::FromSeconds(1)}
+        base::TimeDelta::FromMilliseconds(
+          quitDetectionFreqMillisec())}
       // debug-only error
     , "Destruction of allocated connections hanged."
       "ECS registry must become empty after some time (during app termination)."
@@ -438,6 +435,81 @@ void MainPluginLogic::stopIOContext() NO_EXCEPTION
     ioc_->stop(); // io_context::stop is thread-safe
     DCHECK(ioc_->stopped()); // io_context::stopped is thread-safe
   }
+}
+
+std::string MainPluginLogic::ipAddr() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  std::string ipAddr
+    = kDefaultIpAddr;
+
+  if(configuration_->hasValue(kConfIpAddr))
+  {
+    ipAddr =
+      configuration_->value(kConfIpAddr);
+  }
+
+  return ipAddr;
+}
+
+int MainPluginLogic::portNum() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  int portNum
+    = kDefaultPortNum;
+
+  if(configuration_->hasValue(kConfPortNum))
+  {
+    base::StringToInt(
+      configuration_->value(kConfPortNum)
+      , &portNum);
+  }
+
+  return portNum;
+}
+
+int MainPluginLogic::quitDetectionFreqMillisec() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  int quitDetectionFreqMillisec
+    = kDefaultQuitDetectionFreqMillisec;
+
+  if(configuration_->hasValue(kConfQuitDetectionFreqMillisec))
+  {
+    base::StringToInt(
+      configuration_->value(kConfQuitDetectionFreqMillisec)
+      , &quitDetectionFreqMillisec);
+  }
+
+  return quitDetectionFreqMillisec;
+}
+
+int MainPluginLogic::quitDetectionDebugTimeoutMillisec() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  int quitDetectionDebugTimeoutMillisec
+    = kDefaultQuitDetectionDebugTimeoutMillisec;
+
+  if(configuration_->hasValue(kConfQuitDetectionDebugTimeoutMillisec))
+  {
+    base::StringToInt(
+      configuration_->value(kConfQuitDetectionDebugTimeoutMillisec)
+      , &quitDetectionDebugTimeoutMillisec);
+  }
+
+  return quitDetectionDebugTimeoutMillisec;
 }
 
 } // namespace tcp_server

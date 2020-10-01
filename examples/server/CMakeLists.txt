@@ -460,22 +460,36 @@ add_server_plugin(ExtraLogging
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/main_plugin_constants.hpp
 )
 
-add_server_plugin(BasicConsoleCommands
-  plugins/plugin_BasicConsoleCommands
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/register_plugin.cc
+add_server_plugin(BasicTerminalCommands
+  plugins/plugin_BasicTerminalCommands
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicTerminalCommands/src/register_plugin.cc
   #
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_interface.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_interface.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicTerminalCommands/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicTerminalCommands/src/main_plugin_interface.hpp
   #
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_logic.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_logic.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicTerminalCommands/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicTerminalCommands/src/main_plugin_logic.hpp
   #
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_constants.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicConsoleCommands/src/main_plugin_constants.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicTerminalCommands/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicTerminalCommands/src/main_plugin_constants.hpp
 )
 
-target_link_libraries(BasicConsoleCommands PRIVATE
+target_link_libraries(BasicTerminalCommands PRIVATE
   ConsoleTerminalSharedLib
+)
+
+add_server_plugin(BasicCmdArgs
+  plugins/plugin_BasicCmdArgs
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicCmdArgs/src/register_plugin.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicCmdArgs/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicCmdArgs/src/main_plugin_interface.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicCmdArgs/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicCmdArgs/src/main_plugin_logic.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicCmdArgs/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicCmdArgs/src/main_plugin_constants.hpp
 )
 
 add_server_plugin(ConsoleTerminal

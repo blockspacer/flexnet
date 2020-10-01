@@ -67,7 +67,16 @@ class MainPluginLogic
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
  private:
+  int asioThreads() NO_EXCEPTION
+    RUN_ON(&sequence_checker_);
+
+ private:
   SET_WEAK_POINTERS(MainPluginLogic);
+
+  util::UnownedRef<
+    const ::Corrade::Utility::ConfigurationGroup
+  > configuration_
+      GUARDED_BY(sequence_checker_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction

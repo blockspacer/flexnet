@@ -3,7 +3,15 @@
 #include "main_plugin_constants.hpp"
 
 namespace plugin {
-namespace basic_console_commands {
+namespace basic_cmd_args {
+
+// example: --version
+static const char kVersionSwitch[]
+  = "version";
+
+// example: --help
+static const char kHelpSwitch[]
+  = "help";
 
 MainPluginLogic::MainPluginLogic(
   const MainPluginInterface* pluginInterface)
@@ -14,19 +22,12 @@ MainPluginLogic::MainPluginLogic(
         weak_ptr_factory_.GetWeakPtr()))
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
-  , consoleTerminalEventDispatcher_(
-      REFERENCED(mainLoopRegistry_->registry()
-        .ctx<::backend::ConsoleTerminalEventDispatcher>()))
   , mainLoopRunner_{
       base::MessageLoop::current()->task_runner()}
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
-
-  (*consoleTerminalEventDispatcher_)->sink<
-    std::string
-  >().connect<&MainPluginLogic::handleConsoleInput>(this);
 }
 
 MainPluginLogic::~MainPluginLogic()
@@ -34,50 +35,56 @@ MainPluginLogic::~MainPluginLogic()
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
-
-  (*consoleTerminalEventDispatcher_)->sink<
-    std::string
-  >().disconnect<&MainPluginLogic::handleConsoleInput>(this);
 }
 
-void MainPluginLogic::handleConsoleInput(
-  const std::string& line)
+void MainPluginLogic::handleCmd()
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  if (line == "stop")
-  {
-    DVLOG(9)
-      << "got `stop` console command";
+  base::CommandLine* cmdLine
+    = base::CommandLine::ForCurrentProcess();
+  DCHECK(cmdLine);
 
-    DCHECK(mainLoopRunner_);
-    (mainLoopRunner_)->PostTask(FROM_HERE
-      , base::BindOnce(
-          &MainPluginLogic::handleTerminationEvent
-          , weakSelf()
-      ));
+  if (cmdLine->HasSwitch(kVersionSwitch))
+  {
+    handleVersionCmd();
+  }
+  else if (cmdLine->HasSwitch(kHelpSwitch))
+  {
+    handleHelpCmd();
   }
 }
 
-void MainPluginLogic::handleTerminationEvent()
+void MainPluginLogic::handleVersionCmd()
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  // send termination event
-  ::backend::AppState& appState =
-    mainLoopRegistry_->registry()
-      .ctx<::backend::AppState>();
+  DVLOG(9)
+    << "got "
+    << kVersionSwitch
+    << " console command";
 
-  ::util::Status result =
-    appState.processStateChange(
-      FROM_HERE
-      , ::backend::AppState::TERMINATE);
+  NOTIMPLEMENTED()
+    << "TODO: --version";
+}
 
-  DCHECK(result.ok());
+void MainPluginLogic::handleHelpCmd()
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON(&sequence_checker_);
+
+  DVLOG(9)
+    << "got "
+    << kHelpSwitch
+    << " console command";
+
+  NOTIMPLEMENTED()
+    << "TODO: --help";
 }
 
 MainPluginLogic::VoidPromise
@@ -86,6 +93,8 @@ MainPluginLogic::VoidPromise
   DCHECK_RUN_ON(&sequence_checker_);
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::load()");
+
+  handleCmd();
 
   return
     VoidPromise::CreateResolved(FROM_HERE);
@@ -104,5 +113,5 @@ MainPluginLogic::VoidPromise
     VoidPromise::CreateResolved(FROM_HERE);
 }
 
-} // namespace basic_console_commands
+} // namespace basic_cmd_args
 } // namespace plugin

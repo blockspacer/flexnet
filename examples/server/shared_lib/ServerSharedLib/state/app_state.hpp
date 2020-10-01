@@ -128,12 +128,18 @@ public:
     return sm_.currentState();
   }
 
+  /// \note Returns promise that can be resolved only once.
+  /// If `Event` happens many times, than promise will NOT be resolved again
+  /// (`GetRepeatingResolveCallback` will NOT `Run()`).
   MUST_USE_RETURN_VALUE
   VoidPromise promiseEntryOnce(
     const base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
+  /// \note Returns promise that can be resolved only once.
+  /// If `Event` happens many times, than promise will NOT be resolved again
+  /// (`GetRepeatingResolveCallback` will NOT `Run()`).
   MUST_USE_RETURN_VALUE
   VoidPromise promiseExitOnce(
     const base::Location& from_here

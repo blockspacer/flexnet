@@ -97,6 +97,8 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
+  , configuration_{REFERENCED(
+      pluginInterface->metadata()->configuration())}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
@@ -133,6 +135,25 @@ MainPluginLogic::~MainPluginLogic()
   DCHECK_RUN_ON(&sequence_checker_);
 }
 
+int MainPluginLogic::entityUpdateFreqMillisec() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  int entityUpdateFreqMillisec
+    = kDefaultEntityUpdateFreqMillisec;
+
+  if(configuration_->hasValue(kConfEntityUpdateFreqMillisec))
+  {
+    base::StringToInt(
+      configuration_->value(kConfEntityUpdateFreqMillisec)
+      , &entityUpdateFreqMillisec);
+  }
+
+  return entityUpdateFreqMillisec;
+}
+
 MainPluginLogic::VoidPromise
   MainPluginLogic::load()
 {
@@ -157,8 +178,8 @@ MainPluginLogic::VoidPromise
     , FROM_HERE
     , base::BindOnce(
         &startNetworkEntityPeriodicTaskExecutorOnSequence
-        /// \todo make configurable
-        , base::TimeDelta::FromMilliseconds(100)
+        , base::TimeDelta::FromMilliseconds(
+            entityUpdateFreqMillisec())
       )
   );
 }
