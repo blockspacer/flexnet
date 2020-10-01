@@ -458,6 +458,23 @@ add_server_plugin(ExtraLogging
   #
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/main_plugin_constants.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/main_plugin_constants.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/scoped_stats_table_updater.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ExtraLogging/src/scoped_stats_table_updater.hpp
+)
+
+add_server_plugin(ActionRecorder
+  plugins/plugin_ActionRecorder
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ActionRecorder/src/register_plugin.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ActionRecorder/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ActionRecorder/src/main_plugin_interface.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ActionRecorder/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ActionRecorder/src/main_plugin_logic.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ActionRecorder/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ActionRecorder/src/main_plugin_constants.hpp
 )
 
 add_server_plugin(BasicTerminalCommands

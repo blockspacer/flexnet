@@ -668,7 +668,7 @@ void Listener::setAcceptConnectionResult(
       << " forcing close of connection";
 
     UniqueAcceptComponent& acceptResult
-      = (*asioRegistry_).reset_or_create_var<UniqueAcceptComponent>(
+      = (*asioRegistry_).reset_or_create_component<UniqueAcceptComponent>(
             "UniqueAcceptComponent_" + base::GenerateGUID() // debug name
             , tcp_entity_id
             , base::rvalue_cast(ec)

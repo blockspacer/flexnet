@@ -23,6 +23,24 @@
 #include <base/command_line.h>
 #include <base/metrics/histogram.h>
 #include <base/metrics/histogram_macros.h>
+#include <base/sampling_heap_profiler/sampling_heap_profiler.h>
+#include <base/sampling_heap_profiler/poisson_allocation_sampler.h>
+#include <base/sampling_heap_profiler/module_cache.h>
+#include <base/process/process_metrics.h>
+#include <base/allocator/partition_allocator/page_allocator.h>
+#include <base/allocator/allocator_shim.h>
+#include <base/allocator/buildflags.h>
+#include <base/allocator/partition_allocator/partition_alloc.h>
+#include <base/profiler/frame.h>
+#include <base/trace_event/malloc_dump_provider.h>
+#include <base/trace_event/memory_dump_provider.h>
+#include <base/trace_event/memory_dump_scheduler.h>
+#include <base/trace_event/memory_infra_background_whitelist.h>
+#include <base/trace_event/process_memory_dump.h>
+#include <base/trace_event/trace_event.h>
+#include <base/allocator/allocator_check.h>
+#include <base/strings/stringprintf.h>
+#include <base/strings/string_number_conversions.h>
 
 #include <basis/lock_with_check.hpp>
 #include <basis/task/periodic_validate_until.hpp>
@@ -215,6 +233,116 @@ static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
   );
 }
 
+void finishProcessMetrics() NO_EXCEPTION
+{
+  auto processMetrics
+    = base::ProcessMetrics::CreateCurrentProcessMetrics();
+
+  {
+    size_t malloc_usage =
+        processMetrics->GetMallocUsage();
+
+    VLOG(1)
+      << "malloc_usage: "
+      << malloc_usage;
+
+    int malloc_usage_mb = static_cast<int>(malloc_usage >> 20);
+    base::UmaHistogramMemoryLargeMB(
+      "App.Memory.HeapProfiler.Malloc"
+      , malloc_usage_mb);
+  }
+
+  {
+    size_t cpu_usage
+      = processMetrics->GetPlatformIndependentCPUUsage();
+
+    VLOG(1)
+      << "cpu_usage: "
+      << cpu_usage;
+
+    // We scale up to the equivalent of 64 CPU cores fully loaded.
+    // More than this does not really matter,
+    // as we are already in a terrible place.
+    const int kHistogramMin = 1;
+    const int kHistogramMax = 6400;
+    const int kHistogramBucketCount = 50;
+
+    UMA_HISTOGRAM_CUSTOM_COUNTS(
+        "App.AverageCPUUsage", cpu_usage,
+        kHistogramMin, kHistogramMax, kHistogramBucketCount);
+  }
+
+  {
+    // sampling profiling of native memory heap.
+    // Aggregates the heap allocations and records samples
+    // using GetSamples method.
+    std::vector<base::SamplingHeapProfiler::Sample> samples =
+        base::SamplingHeapProfiler::Get()->GetSamples(
+          0 // To retrieve all set to 0.
+        );
+    if (!samples.empty()) {
+      base::ModuleCache module_cache;
+      for (const base::SamplingHeapProfiler::Sample& sample : samples) {
+        std::vector<base::Frame> frames;
+        frames.reserve(sample.stack.size());
+        for (const void* frame : sample.stack) {
+          uintptr_t address = reinterpret_cast<uintptr_t>(frame);
+          const base::ModuleCache::Module* module =
+              module_cache.GetModuleForAddress(address);
+          frames.emplace_back(address, module);
+        }
+        size_t count = std::max<size_t>(
+            static_cast<size_t>(
+                std::llround(static_cast<double>(sample.total) / sample.size)),
+            1);
+        VLOG(1)
+          << "SamplingHeapProfiler"
+             " sample.total: "
+          << sample.total;
+        VLOG(1)
+          << "SamplingHeapProfiler"
+             " sample.total / sample.size: "
+          << count;
+      }
+
+      std::map<size_t, size_t> h_buckets;
+      std::map<size_t, size_t> h_sums;
+      for (auto& sample : samples) {
+        h_buckets[sample.size] += sample.total;
+      }
+      for (auto& it : h_buckets) {
+        h_sums[it.first] += it.second;
+      }
+      for (auto& it : h_sums) {
+        VLOG(1)
+          << "SamplingHeapProfiler"
+             " h_sums: "
+          << it.second;
+      }
+
+      for (const auto* module : module_cache.GetModules()) {
+        VLOG(1)
+          << "module GetDebugBasename: "
+          << base::StringPrintf(
+                // PRFilePath from <base/files/file_path.h>
+                // prints path names portably
+                "%" PRFilePath
+               , module->GetDebugBasename().value().c_str());
+        VLOG(1)
+          << "module GetBaseAddress: "
+          << base::StringPrintf(
+                // PRIxPTR from <base/basictypes.h>
+                // i.e. <inttypes.h>
+                "0x%" PRIxPTR
+               , module->GetBaseAddress());
+        VLOG(1)
+          << "module module->GetSize(): "
+          << module->GetSize();
+      }
+    }
+  }
+}
+
 int main(int argc, char* argv[])
 {
   // stores basic requirements, like thread pool, logging, etc.
@@ -243,6 +371,9 @@ int main(int argc, char* argv[])
     base::MessageLoop::current().task_runner().get()
     , base::BindOnce(&runServerAndPromiseQuit)
     , base::IsNestedPromise{true}
+  )
+  .ThenHere(FROM_HERE
+    , base::BindOnce(&finishProcessMetrics)
   )
   // Stop `base::RunLoop` when `base::Promise` resolved.
   .ThenHere(FROM_HERE

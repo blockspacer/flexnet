@@ -318,7 +318,7 @@ void DetectChannel::setSSLDetectResult(
       >(entity_id_);
 
     UniqueSSLDetectComponent& detectResult
-      = (*asioRegistry_).reset_or_create_var<UniqueSSLDetectComponent>(
+      = (*asioRegistry_).reset_or_create_component<UniqueSSLDetectComponent>(
             "UniqueSSLDetectComponent_" + base::GenerateGUID() // debug name
             , entity_id_
             , base::rvalue_cast(ec)

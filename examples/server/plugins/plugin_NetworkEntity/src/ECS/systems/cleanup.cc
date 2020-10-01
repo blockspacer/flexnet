@@ -2,10 +2,21 @@
 
 #include <flexnet/ECS/tags.hpp>
 
+#include <base/metrics/histogram.h>
+#include <base/metrics/histogram_macros.h>
+#include <base/metrics/statistics_recorder.h>
+#include <base/metrics/user_metrics.h>
+#include <base/metrics/user_metrics_action.h>
+#include <base/metrics/histogram_functions.h>
+#include <base/trace_event/trace_event.h>
+#include <base/trace_event/trace_buffer.h>
+#include <base/trace_event/trace_log.h>
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>
 
 namespace ECS {
+
+static size_t numOfCleanedUpEntities = 0;
 
 void updateCleanupSystem(
   ECS::AsioRegistry& asio_registry)
@@ -14,6 +25,16 @@ void updateCleanupSystem(
 
   auto registry_group
     = asio_registry->view<ECS::NeedToDestroyTag>();
+
+  if(registry_group.size()) {
+    UMA_HISTOGRAM_COUNTS_1000("ECS.cleanupBatches",
+      // How many entities will free in single pass.
+      registry_group.size());
+
+    numOfCleanedUpEntities += registry_group.size();
+    UMA_HISTOGRAM_COUNTS_1000("ECS.numOfCleanedUpEntities",
+      numOfCleanedUpEntities);
+  }
 
 #if !defined(NDEBUG)
   if(registry_group.size()) {

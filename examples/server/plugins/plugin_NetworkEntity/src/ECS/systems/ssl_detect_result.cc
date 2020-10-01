@@ -5,6 +5,15 @@
 #include <flexnet/http/http_channel.hpp>
 #include <flexnet/util/close_socket_unsafe.hpp>
 
+#include <base/metrics/histogram.h>
+#include <base/metrics/histogram_macros.h>
+#include <base/metrics/statistics_recorder.h>
+#include <base/metrics/user_metrics.h>
+#include <base/metrics/user_metrics_action.h>
+#include <base/metrics/histogram_functions.h>
+#include <base/trace_event/trace_event.h>
+#include <base/trace_event/trace_buffer.h>
+#include <base/trace_event/trace_log.h>
 #include <base/logging.h>
 #include <base/guid.h>
 #include <base/trace_event/trace_event.h>
@@ -12,6 +21,8 @@
 namespace ECS {
 
 static constexpr size_t kShutdownExpireTimeoutSec = 5;
+
+static size_t numOfHandleSSLDetectResult = 0;
 
 void handleSSLDetectResult(
   ECS::AsioRegistry& asio_registry
@@ -25,6 +36,10 @@ void handleSSLDetectResult(
   LOG_CALL(DVLOG(99));
 
   DCHECK(asio_registry->valid(entity_id));
+
+  numOfHandleSSLDetectResult++;
+  UMA_HISTOGRAM_COUNTS_1000("ECS.handleSSLDetectResult",
+    numOfHandleSSLDetectResult);
 
   /// \note Take care of thread-safety.
   /// We assume that is is safe to change unused asio `stream`

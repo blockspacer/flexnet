@@ -4,7 +4,6 @@
 #include "state/app_state.hpp"
 #include "registry/main_loop_registry.hpp"
 #include "state/app_state.hpp"
-#include "scoped_stats_table_updater.hpp"
 
 #include <base/logging.h>
 #include <base/cpu.h>
@@ -19,6 +18,17 @@
 #include <base/strings/string_number_conversions.h>
 #include <base/numerics/safe_conversions.h>
 
+#include <base/at_exit.h>
+#include <base/files/file_path.h>
+#include <base/macros.h>
+#include <base/bind.h>
+#include <base/memory/scoped_refptr.h>
+#include <base/message_loop/message_loop.h>
+#include <base/single_thread_task_runner.h>
+#include <base/metrics/user_metrics.h>
+#include <base/metrics/user_metrics_action.h>
+#include <base/observer_list_threadsafe.h>
+
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
@@ -31,9 +41,12 @@
 #include <entt/entt.hpp>
 
 #include <thread>
+#include <string>
+#include <vector>
+#include <memory>
 
 namespace plugin {
-namespace extra_logging {
+namespace action_recorder {
 
 class MainPluginInterface;
 
@@ -65,6 +78,31 @@ class MainPluginLogic
     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
 
  private:
+  // init with provided settings
+  // posts task |base::SetRecordActionTaskRunner|
+  // on provided task runner
+  MUST_USE_RESULT
+  VoidPromise setRecordActionTaskRunner(
+    // |task_runner| will be used by |base::SetRecordActionTaskRunner|
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner)
+    RUN_ON(&sequence_checker_);
+
+  MUST_USE_RESULT
+  VoidPromise removeActionCallback()
+    RUN_ON(&sequence_checker_);
+
+  // used by |base::RecordAction|
+  void onUserAction(
+    const std::string& action_name)
+    RUN_ON(&sequence_checker_);
+
+  void setCustomCallback()
+    RUN_ON(&sequence_checker_);
+
+  void unsetCustomCallback()
+    RUN_ON(&sequence_checker_);
+
+ private:
   SET_WEAK_POINTERS(MainPluginLogic);
 
   util::UnownedPtr<
@@ -77,10 +115,10 @@ class MainPluginLogic
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     GUARDED_BY(sequence_checker_);
 
-  basis::ScopedLogRunTime scopedLogRunTime_;
+  bool isSetActionCallback_
     GUARDED_BY(sequence_checker_);
 
-  ScopedStatsTableUpdater table_updater_
+  base::ActionCallback action_callback_
     GUARDED_BY(sequence_checker_);
 
   SEQUENCE_CHECKER(sequence_checker_);
@@ -88,5 +126,5 @@ class MainPluginLogic
   DISALLOW_COPY_AND_ASSIGN(MainPluginLogic);
 };
 
-} // namespace extra_logging
+} // namespace action_recorder
 } // namespace plugin

@@ -2,6 +2,15 @@
 
 #include <flexnet/ECS/tags.hpp>
 
+#include <base/metrics/histogram.h>
+#include <base/metrics/histogram_macros.h>
+#include <base/metrics/statistics_recorder.h>
+#include <base/metrics/user_metrics.h>
+#include <base/metrics/user_metrics_action.h>
+#include <base/metrics/histogram_functions.h>
+#include <base/trace_event/trace_event.h>
+#include <base/trace_event/trace_buffer.h>
+#include <base/trace_event/trace_log.h>
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>
 
@@ -18,6 +27,12 @@ void updateUnusedSystem(
           // entity in destruction
           ECS::NeedToDestroyTag
         >);
+
+  if(registry_group.size()) {
+    UMA_HISTOGRAM_COUNTS_1000("ECS.unusedEntitiesBatches",
+      // How many entities became unused in single pass.
+      registry_group.size());
+  }
 
 #if !defined(NDEBUG)
   if(registry_group.size()) {

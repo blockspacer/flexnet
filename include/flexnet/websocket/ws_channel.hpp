@@ -111,7 +111,8 @@ public:
   static constexpr size_t kMaxMessageSizeByte = 100000;
 
   /// \todo make configurable
-  static constexpr size_t kMaxSendQueueSize = 100000;
+  // max. num. of scheduled messages per one connection
+  static constexpr size_t kMaxSendQueueSize = 1000;
 
   /// \todo make configurable
   // Timeout during shutdown
@@ -281,6 +282,84 @@ public:
     DISALLOW_COPY_AND_ASSIGN(CircularMessageBuffer);
   };
 
+  // result of |acceptor_.async_accept(...)|
+  // i.e. stores created socket
+  struct RecievedData {
+    RecievedData(
+      std::string&& _data)
+      : data(base::rvalue_cast(_data))
+      {}
+
+    RecievedData(
+      RecievedData&& other)
+      : RecievedData(
+          base::rvalue_cast(other.data))
+      {}
+
+    // Move assignment operator
+    //
+    // MOTIVATION
+    //
+    // To use type as ECS component
+    // it must be `move-constructible` and `move-assignable`
+    RecievedData& operator=(
+      RecievedData&& rhs)
+    {
+      if (this != &rhs)
+      {
+        data = base::rvalue_cast(rhs.data);
+      }
+
+      return *this;
+    }
+
+    ~RecievedData()
+    {
+      LOG_CALL(DVLOG(99));
+    }
+
+    std::string data;
+  };
+
+  // result of |acceptor_.async_accept(...)|
+  // i.e. stores created socket
+  struct RecievedFrom {
+    RecievedFrom(
+      ECS::EntityId _entity_id)
+      : entity_id(_entity_id)
+      {}
+
+    RecievedFrom(
+      RecievedFrom&& other)
+      : RecievedFrom(
+          base::rvalue_cast(other.entity_id))
+      {}
+
+    // Move assignment operator
+    //
+    // MOTIVATION
+    //
+    // To use type as ECS component
+    // it must be `move-constructible` and `move-assignable`
+    RecievedFrom& operator=(
+      RecievedFrom&& rhs)
+    {
+      if (this != &rhs)
+      {
+        entity_id = base::rvalue_cast(rhs.entity_id);
+      }
+
+      return *this;
+    }
+
+    ~RecievedFrom()
+    {
+      LOG_CALL(DVLOG(99));
+    }
+
+    ECS::EntityId entity_id;
+  };
+
 public:
   WsChannel(
     // Take ownership of the stream
@@ -421,6 +500,10 @@ public:
     RUN_ON(&perConnectionStrand_);
 
 private:
+  void setRecievedDataComponents(
+    std::string&& message) NO_EXCEPTION
+    RUN_ON(&asioRegistry_->strand);
+
   /**
   * @brief starts async writing to client
   */

@@ -110,7 +110,7 @@ void SignalHandler::handleQuitSignal(
   signalsRecievedCount_.store(
     signalsRecievedCount_.load() + 1);
 
-  UMA_HISTOGRAM_COUNTS_1000("App.Signals.RecievedCount"
+  UMA_HISTOGRAM_COUNTS_1000("App.QuitSignalCount"
     , signalsRecievedCount_.load());
 
   // User pressed `stop` many times (possibly due to hang).

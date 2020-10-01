@@ -167,6 +167,9 @@ WsChannel::~WsChannel()
   /// \note we assume that reading unused `ws_` is thread-safe here
   /// \note don't call `close()` from destructor, handle `close()` manually
   DCHECK(!ws_.is_open());
+
+  /// \note we assume that reading unused `isSendBusy_` is thread-safe here
+  DCHECK(!isSendBusy_);
 }
 
 void WsChannel::onFail(
@@ -390,6 +393,7 @@ void WsChannel::onRead(
   LOG_CALL(DVLOG(99));
 
   DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -419,19 +423,69 @@ void WsChannel::onRead(
     return;
   }
 
-  const std::string data
-    = beast::buffers_to_string(readBuffer_.data());
-  DVLOG(99)
-    << "WsSession on_read: "
-    << data.substr(0, 1024);
-
-  /// \todo on_data(shared_from_this(), getId(), data);
+  ::boost::asio::post(
+    asioRegistry_->asioStrand()
+    /// \todo use base::BindFrontWrapper
+    , ::boost::beast::bind_front_handler([
+      ](
+        base::OnceClosure&& task
+      ){
+        DCHECK(task);
+        base::rvalue_cast(task).Run();
+      }
+      , base::BindOnce(
+          &WsChannel::setRecievedDataComponents
+          , base::Unretained(this)
+          , beast::buffers_to_string(readBuffer_.data())
+        )
+    )
+  );
 
   // Clear the buffer
   readBuffer_.consume(readBuffer_.size());
 
   // Do another read
   doRead();
+}
+
+void WsChannel::setRecievedDataComponents(
+  std::string&& message) NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
+
+  DCHECK(asioRegistry_->running_in_this_thread());
+
+  DVLOG(99)
+    << "WsSession on_read: "
+    << message.substr(0, 1024);
+
+  // We want to filter recieved messages individually,
+  // so each message becomes separate entity.
+  ECS::Entity msg_entity_id = (*asioRegistry_)->create();
+
+  {
+    using RecievedDataComponent
+      = base::Optional<WsChannel::RecievedData>;
+
+    RecievedDataComponent& recievedDataComponent
+      = (*asioRegistry_)->emplace<RecievedDataComponent>(
+            msg_entity_id // assign to entity with that id
+            , base::rvalue_cast(message));
+  }
+
+  {
+    using RecievedFromComponent
+      = base::Optional<WsChannel::RecievedFrom>;
+
+    RecievedFromComponent& recievedFromComponent
+      = (*asioRegistry_)->emplace<RecievedFromComponent>(
+            msg_entity_id // assign to entity with that id
+            , entity_id_);
+  }
 }
 
 bool WsChannel::isOpen() NO_EXCEPTION
@@ -532,13 +586,13 @@ void WsChannel::send(
 
   if(isSendBusy_)
   {
-    // expect that `writeQueued` will be called again
+    // No need to call `writeQueued` if `isSendBusy_`
+    // (we already called `writeQueued` and it will recurse
+    // until send queue becomes empty)
+    // i.e. expect that `writeQueued` will be called again
     // after `async_write` finished.
     return;
   }
-
-  // sanity check
-  DCHECK(!sendBuffer_.isEmpty());
 
   writeQueued();
 }
@@ -612,6 +666,10 @@ void WsChannel::onWrite(
 
   if (ec) {
     onFail(ec, "write");
+
+    /// \note Message will be kept in send queue (circular buffer)
+    /// and we may try to send it again (if message not removed by fresher
+    /// messages i.e. reaching max. send size of circular buffer).
     return;
   }
 
@@ -619,7 +677,15 @@ void WsChannel::onWrite(
     << "bytes sent: "
     << bytes_transferred;
 
-  /// \todo on_before_write_(shared_from_this(), &ec, bytes_transferred))
+  // Removes message from queue only if it was successfully written
+  // (do not process same message twice).
+  /// \note We remove NEWEST message manually (via `popBack`)
+  /// because we use circular buffer.
+  /// \note Because we call `writeQueued` sequentially,
+  /// `sendBuffer_.backPtr()` expected to be not changed until
+  /// `writeQueued` (i.e. `async_write`) completion,
+  /// so `popBack()` must remove NEWEST message written into queue.
+  sendBuffer_.popBack();
 
   if (!sendBuffer_.isEmpty())
   {

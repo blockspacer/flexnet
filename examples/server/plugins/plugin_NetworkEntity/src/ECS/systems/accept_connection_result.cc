@@ -5,6 +5,15 @@
 #include <flexnet/ECS/components/tcp_connection.hpp>
 #include <flexnet/util/close_socket_unsafe.hpp>
 
+#include <base/metrics/histogram.h>
+#include <base/metrics/histogram_macros.h>
+#include <base/metrics/statistics_recorder.h>
+#include <base/metrics/user_metrics.h>
+#include <base/metrics/user_metrics_action.h>
+#include <base/metrics/histogram_functions.h>
+#include <base/trace_event/trace_event.h>
+#include <base/trace_event/trace_buffer.h>
+#include <base/trace_event/trace_log.h>
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>
 #include <base/guid.h>
@@ -14,7 +23,9 @@ namespace ECS {
 using Listener
   = flexnet::ws::Listener;
 
-void handleAcceptNewConnectionResult(
+static size_t numOfHandleAcceptResult = 0;
+
+void handleAcceptResult(
   ECS::AsioRegistry& asio_registry
   , const ECS::Entity& entity_id
   , Listener::AcceptConnectionResult& acceptResult)
@@ -25,6 +36,10 @@ void handleAcceptNewConnectionResult(
   DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
 
   DCHECK(asio_registry->valid(entity_id));
+
+  numOfHandleAcceptResult++;
+  UMA_HISTOGRAM_COUNTS_1000("ECS.handleAcceptResult",
+    numOfHandleAcceptResult);
 
   // each entity representing tcp connection
   // must have that component
@@ -153,7 +168,7 @@ void updateNewConnections(
     {
       DCHECK(asio_registry->valid(entity));
 
-      handleAcceptNewConnectionResult(
+      handleAcceptResult(
         asio_registry
         , entity
         , asio_registry->get<view_component>(entity).value());
