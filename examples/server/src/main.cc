@@ -21,6 +21,8 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
 #include <base/command_line.h>
+#include <base/metrics/histogram.h>
+#include <base/metrics/histogram_macros.h>
 
 #include <basis/lock_with_check.hpp>
 #include <basis/task/periodic_validate_until.hpp>
@@ -74,6 +76,9 @@ static VoidPromise startPluginManager() NO_EXCEPTION
   LOG_CALL(DVLOG(99));
 
   DCHECK(base::RunLoop::IsRunningOnCurrentThread());
+
+  SCOPED_UMA_HISTOGRAM_TIMER( /// \note measures up to 10 seconds
+    "startPluginManager from " + FROM_HERE.ToString());
 
   base::FilePath dir_exe;
   if (!base::PathService::Get(base::DIR_EXE, &dir_exe)) {

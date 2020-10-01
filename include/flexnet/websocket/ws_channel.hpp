@@ -10,6 +10,7 @@
 #include <base/sequence_checker.h>
 #include <base/synchronization/atomic_flag.h>
 #include <base/threading/thread_collision_warner.h>
+#include <base/containers/circular_deque.h>
 
 #include <basis/checked_optional.hpp>
 #include <basis/lock_with_check.hpp>
@@ -25,6 +26,7 @@
 #include <boost/beast/core/rate_policy.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/http.hpp>
+#include <boost/circular_buffer.hpp>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -109,8 +111,7 @@ public:
   static constexpr size_t kMaxMessageSizeByte = 100000;
 
   /// \todo make configurable
-  // Timeout for inactive connection
-  static constexpr size_t kExpireTimeoutSec = 20;
+  static constexpr size_t kMaxSendQueueSize = 100000;
 
   /// \todo make configurable
   // Timeout during shutdown
@@ -158,10 +159,126 @@ public:
   using AsioTcp
     = ::boost::asio::ip::tcp;
 
+  /// \note we want to reduce copies for performance reasons,
+  /// so force user to use `std::shared_ptr` copies
+  /// or moves like so:
+  /// std::make_shared<const std::string>(base::rvalue_cast(some_text));
+  using SharedMessageData
+    = std::shared_ptr<const std::string>;
+
   struct QueuedMessage {
-    /// \todo remove shared_ptr
-    std::shared_ptr<const std::string> data;
+    SharedMessageData data;
     bool is_binary;
+  };
+
+  // max. size limit that can be configured at runtime.
+  class CircularMessageBuffer
+  {
+   public:
+    typedef QueuedMessage ValueType;
+
+   public:
+    CircularMessageBuffer(uint32_t size)
+      RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+      : storage_(size)
+    {
+      DETACH_FROM_SEQUENCE(sequence_checker_);
+    }
+
+   ~CircularMessageBuffer()
+     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+   {
+     DCHECK_RUN_ON(&sequence_checker_);
+   }
+
+   template <class... Args>
+   void writeBack(Args&&... args) NO_EXCEPTION
+     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+   {
+     DCHECK_RUN_ON(&sequence_checker_);
+
+     storage_.push_back(std::forward<Args>(args)...);
+   }
+
+   MUST_USE_RESULT
+   ValueType* frontPtr() NO_EXCEPTION
+     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+   {
+     DCHECK_RUN_ON(&sequence_checker_);
+
+     return &storage_.front();
+   }
+
+   MUST_USE_RESULT
+   ValueType* backPtr() NO_EXCEPTION
+     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+   {
+     DCHECK_RUN_ON(&sequence_checker_);
+
+     return &storage_.back();
+   }
+
+   void popFront() NO_EXCEPTION
+     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+   {
+     DCHECK_RUN_ON(&sequence_checker_);
+
+     storage_.pop_front();
+   }
+
+   void popBack() NO_EXCEPTION
+     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+   {
+     DCHECK_RUN_ON(&sequence_checker_);
+
+     storage_.pop_back();
+   }
+
+   MUST_USE_RESULT
+   size_t isEmpty() const NO_EXCEPTION
+     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+   {
+     DCHECK_RUN_ON(&sequence_checker_);
+
+     return storage_.empty();
+   }
+
+   MUST_USE_RESULT
+   size_t isFull() const NO_EXCEPTION
+     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+   {
+     DCHECK_RUN_ON(&sequence_checker_);
+
+     return storage_.full();
+   }
+
+   MUST_USE_RESULT
+   size_t size() const NO_EXCEPTION
+     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+   {
+     DCHECK_RUN_ON(&sequence_checker_);
+
+     return storage_.size();
+   }
+
+   // maximum number of items in the queue.
+   MUST_USE_RESULT
+   size_t capacity() const NO_EXCEPTION
+     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+   {
+     DCHECK_RUN_ON(&sequence_checker_);
+
+     return storage_.capacity();
+   }
+
+   private:
+    boost::circular_buffer<ValueType> storage_
+      GUARDED_BY(&sequence_checker_);
+
+    // check sequence on which class was constructed/destructed/configured
+    SEQUENCE_CHECKER(sequence_checker_);
+
+    DISALLOW_COPY_AND_ASSIGN(CircularMessageBuffer);
   };
 
 public:
@@ -178,12 +295,14 @@ public:
   ~WsChannel()
     RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(WsChannelDestructor));
 
+  SET_WEAK_SELF(WsChannel)
+
   // Start the asynchronous operation
   template<class Body, class Allocator>
   void startAccept(
     // Clients sends the HTTP request
     // asking for a WebSocket connection
-    UpgradeRequestType<Body, Allocator>&& req)
+    UpgradeRequestType<Body, Allocator>&& req) NO_EXCEPTION
     RUN_ON(&perConnectionStrand_)
   {
     DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
@@ -204,7 +323,7 @@ public:
         }
         , base::BindOnce(
           &WsChannel::onAccept
-          , UNOWNED_LIFETIME(base::Unretained(this))
+          , base::Unretained(this)
         )
       )*/
       boost::asio::bind_executor(
@@ -224,7 +343,7 @@ public:
   void startAcceptAsync(
     // Clients sends the HTTP request
     // asking for a WebSocket connection
-    UpgradeRequestType<Body, Allocator>&& req)
+    UpgradeRequestType<Body, Allocator>&& req) NO_EXCEPTION
   {
     DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
 
@@ -240,7 +359,7 @@ public:
           }
           , base::BindOnce(
             &WsChannel::startAccept<Body, Allocator>
-            , UNOWNED_LIFETIME(base::Unretained(this))
+            , base::Unretained(this)
             , base::Passed(base::rvalue_cast(req))
           )
         )
@@ -256,53 +375,21 @@ public:
     );
   }
 
-  void doRead()
-    RUN_ON(&perConnectionStrand_);
-
-  void onClose(ErrorCode ec)
-    RUN_ON(&perConnectionStrand_);
-
-  MUST_USE_RETURN_VALUE
-  bool isOpen()
-    RUN_ON(&perConnectionStrand_);
-
-#if 0
   /**
   * @brief starts async writing to client
   */
-  void sendMessageAsync(
-    const std::string& message
-    , bool is_binary = true) override;
-
-  /**
-  * @brief starts async writing to client
-  */
-  void sendMessage(
-    const std::string& message
-    , bool is_binary = true) override;
-
-  void doReadAsync();
-
-  void handleWebsocketUpgrade(
-    ErrorCode ec
-    , std::size_t bytes_transferred);
-
-  /// \note `stream_` can be moved to websocket session from http session,
-  /// so we can't use it here anymore
-  MUST_USE_RETURN_VALUE
-  bool isStreamValid() const
-  {
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
-    return is_stream_valid_.load();
-  }
-#endif // 0
+  void sendAsync(
+    SharedMessageData message
+    , bool is_binary = true) NO_EXCEPTION
+    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(send));
 
   template <typename CallbackT>
   MUST_USE_RETURN_VALUE
   auto postTaskOnConnectionStrand(
     const base::Location& from_here
     , CallbackT&& task
-    , base::IsNestedPromise isNestedPromise = base::IsNestedPromise())
+    , base::IsNestedPromise isNestedPromise
+        = base::IsNestedPromise()) NO_EXCEPTION
   {
     DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
 
@@ -315,7 +402,7 @@ public:
   }
 
   // calls `ws_.socket().shutdown`
-  void doEof()
+  void doEof() NO_EXCEPTION
     RUN_ON(&perConnectionStrand_);
 
   /// \note returns COPY because of thread safety reasons:
@@ -323,37 +410,58 @@ public:
   /// so its copy can be read from any thread.
   /// `ECS::Entity` is just number, so can be copied freely.
   MUST_USE_RETURN_VALUE
-  ECS::Entity entityId() const
+  ECS::Entity entityId() const NO_EXCEPTION
   {
     DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
     return entity_id_;
   }
 
-  SET_WEAK_SELF(WsChannel)
+  MUST_USE_RETURN_VALUE
+  bool isOpen() NO_EXCEPTION
+    RUN_ON(&perConnectionStrand_);
 
 private:
-  void onAccept(ErrorCode ec)
+  /**
+  * @brief starts async writing to client
+  */
+  void send(
+    SharedMessageData message
+    , bool is_binary = true) NO_EXCEPTION
     RUN_ON(&perConnectionStrand_);
 
-  void onRead(ErrorCode ec, std::size_t bytes_transferred)
-    RUN_ON(&perConnectionStrand_);
-
-#if 0
-
-  void onClose(
-    ErrorCode ec);
-
+  // Used as callback in `async_write`.
   void onWrite(
     ErrorCode ec
-    , std::size_t bytes_transferred);
+    , std::size_t bytes_transferred) NO_EXCEPTION
+    RUN_ON(&perConnectionStrand_);
 
-  void onPing(
-    ErrorCode ec);
-#endif // 0
+  /// \note Only one asynchronous operation
+  /// can be active at once,
+  /// see github.com/boostorg/beast/issues/1092#issuecomment-379119463
+  /// It just means that you cannot call
+  /// two initiating functions (names that start with async_)
+  /// on the same object from different threads simultaneously.
+  // So only after `async_write` finished we need can
+  // `async_write` again using data scheduled in queue.
+  void writeQueued() NO_EXCEPTION
+    RUN_ON(&perConnectionStrand_);
+
+  void doRead() NO_EXCEPTION
+    RUN_ON(&perConnectionStrand_);
+
+  // Used as callback in `async_close`.
+  void onClose(ErrorCode ec) NO_EXCEPTION
+    RUN_ON(&perConnectionStrand_);
+
+  void onAccept(ErrorCode ec) NO_EXCEPTION
+    RUN_ON(&perConnectionStrand_);
+
+  void onRead(ErrorCode ec, std::size_t bytes_transferred) NO_EXCEPTION
+    RUN_ON(&perConnectionStrand_);
 
   void onFail(
     ErrorCode ec
-    , char const* what)
+    , char const* what) NO_EXCEPTION
     RUN_ON(&perConnectionStrand_);
 
 private:
@@ -381,7 +489,7 @@ private:
     SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(perConnectionStrand_));
 
   // The dynamic buffer to store recieved data
-  MessageBufferType buffer_
+  MessageBufferType readBuffer_
     GUARDED_BY(perConnectionStrand_);
 
   // used by |entity_id_|
@@ -401,10 +509,17 @@ private:
    * so we need to implement your own write queue.
    * @see github.com/boostorg/beast/issues/1207
    **/
-  std::vector<std::shared_ptr<QueuedMessage>> sendQueue_;
+  /// \note We use circular buffer, so expect that
+  /// OLDEST data will be replaced with NEWEST data
+  /// (if circular buffer is full).
+  CircularMessageBuffer sendBuffer_
+    GUARDED_BY(perConnectionStrand_);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
+
+  /// \note can by called on any thread
+  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(send));
 
   /// \note can destruct on any thread
   CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(WsChannelDestructor));

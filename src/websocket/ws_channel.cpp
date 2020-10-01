@@ -68,9 +68,9 @@ WsChannel::WsChannel(
   , perConnectionStrand_(
       /// \note `get_executor` returns copy
       ws_.get_executor())
-  , buffer_{}
   , asioRegistry_(REFERENCED(asioRegistry))
   , entity_id_(entity_id)
+  , sendBuffer_{kMaxSendQueueSize}
 {
   LOG_CALL(DVLOG(99));
 
@@ -171,7 +171,7 @@ WsChannel::~WsChannel()
 
 void WsChannel::onFail(
   ErrorCode ec
-  , char const* what)
+  , char const* what) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -234,7 +234,7 @@ void WsChannel::onFail(
   doEof();
 }
 
-void WsChannel::onAccept(ErrorCode ec)
+void WsChannel::onAccept(ErrorCode ec) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -252,7 +252,7 @@ void WsChannel::onAccept(ErrorCode ec)
   doRead();
 }
 
-void WsChannel::doRead()
+void WsChannel::doRead() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -261,11 +261,11 @@ void WsChannel::doRead()
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
   // Clear the buffer
-  buffer_.consume(buffer_.size());
+  readBuffer_.consume(readBuffer_.size());
 
   // Read a message into our buffer
   ws_.async_read(
-      buffer_,
+      readBuffer_,
       boost::asio::bind_executor(
         *perConnectionStrand_
         , ::std::bind(
@@ -281,7 +281,7 @@ void WsChannel::doRead()
           this)*/);
 }
 
-void WsChannel::onClose(ErrorCode ec)
+void WsChannel::onClose(ErrorCode ec) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -292,6 +292,7 @@ void WsChannel::onClose(ErrorCode ec)
   if(ec)
   {
     /// \todo prevent infinite recursion
+    /// onFail -> doEof -> async_close -> onClose -> onFail
     onFail(ec, "close");
     return;
   }
@@ -299,7 +300,7 @@ void WsChannel::onClose(ErrorCode ec)
   // If we get here then the connection is closed gracefully
 }
 
-void WsChannel::doEof()
+void WsChannel::doEof() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -384,7 +385,7 @@ void WsChannel::doEof()
 
 void WsChannel::onRead(
   ErrorCode ec
-  , std::size_t bytes_transferred)
+  , std::size_t bytes_transferred) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -400,7 +401,7 @@ void WsChannel::onRead(
     return;
   }
 
-  if (!buffer_.size())
+  if (!readBuffer_.size())
   {
     // may be empty if connection reset by peer
     DVLOG(99)
@@ -409,17 +410,17 @@ void WsChannel::onRead(
     return;
   }
 
-  DCHECK(kMaxMessageSizeByte > 1);
-  if (buffer_.size() > kMaxMessageSizeByte)
+  if (readBuffer_.size() > kMaxMessageSizeByte)
   {
     DVLOG(99)
       << "WebsocketChannel::on_read:"
          " Too big messageBuffer of size "
-      << buffer_.size();
+      << readBuffer_.size();
     return;
   }
 
-  const std::string data = beast::buffers_to_string(buffer_.data());
+  const std::string data
+    = beast::buffers_to_string(readBuffer_.data());
   DVLOG(99)
     << "WsSession on_read: "
     << data.substr(0, 1024);
@@ -427,13 +428,13 @@ void WsChannel::onRead(
   /// \todo on_data(shared_from_this(), getId(), data);
 
   // Clear the buffer
-  buffer_.consume(buffer_.size());
+  readBuffer_.consume(readBuffer_.size());
 
   // Do another read
   doRead();
 }
 
-bool WsChannel::isOpen()
+bool WsChannel::isOpen() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -442,6 +443,194 @@ bool WsChannel::isOpen()
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
   return ws_.is_open();
+}
+
+void WsChannel::sendAsync(
+  SharedMessageData message
+  , bool is_binary) NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(send));
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+
+  DCHECK(message);
+
+  if (message->empty())
+  {
+    LOG_CALL(DVLOG(99))
+      << "unable to send empty message";
+    return;
+  }
+
+  if (message->size() > kMaxMessageSizeByte)
+  {
+    LOG_CALL(DVLOG(99))
+      << "unable to send too big message of size "
+      << message->size();
+    return;
+  }
+
+  ::boost::asio::post(
+    *perConnectionStrand_
+    /// \todo use base::BindFrontWrapper
+    , ::boost::beast::bind_front_handler([
+        ](
+          base::OnceClosure&& task
+        ){
+          DCHECK(task);
+          base::rvalue_cast(task).Run();
+        }
+        , base::BindOnce(
+          &WsChannel::send
+          , base::Unretained(this)
+          , message
+          , is_binary
+        )
+      )
+    /*, boost::asio::bind_executor(
+      *perConnectionStrand_
+      , ::std::bind(
+          &WsChannel::startAccept<Body, Allocator>,
+          UNOWNED_LIFETIME(
+            this)
+          , base::rvalue_cast(req)
+        )
+    )*/
+  );
+}
+
+void WsChannel::send(
+  SharedMessageData message
+  , bool is_binary) NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+
+  DCHECK(perConnectionStrand_->running_in_this_thread());
+
+  DCHECK(message);
+
+  DCHECK(!message->empty());
+
+  DCHECK(message->size() <= kMaxMessageSizeByte);
+
+  if (sendBuffer_.isFull())
+  {
+    LOG_CALL(LOG(WARNING))
+      << "Server send buffer is full."
+      << "That may indicate DDOS or configuration issues.";
+
+    // FALLTHROUGH: it is ok to write at full circular buffer
+  }
+
+  // Expect that `writeBack` will remove OLDEST data
+  // in circular buffer to free space for new message.
+  sendBuffer_.writeBack(
+    QueuedMessage{message, is_binary});
+
+  if(isSendBusy_)
+  {
+    // expect that `writeQueued` will be called again
+    // after `async_write` finished.
+    return;
+  }
+
+  // sanity check
+  DCHECK(!sendBuffer_.isEmpty());
+
+  writeQueued();
+}
+
+void WsChannel::writeQueued() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+
+  DCHECK(perConnectionStrand_->running_in_this_thread());
+
+  DCHECK(isSendBusy_);
+
+  DCHECK(!sendBuffer_.isEmpty());
+
+  DCHECK(sendBuffer_.backPtr());
+
+  QueuedMessage dp{};
+
+  // expect that `backPtr` will return NEWEST data
+  /// \note We do not remove OLDEST messages manually (via `popFront`)
+  /// because we use circular buffer.
+  dp
+    /// \note performs copy,
+    /// take care of performance
+    = (*sendBuffer_.backPtr());
+
+  /// \note we don't allow sending empty messages
+  DCHECK(dp.data.get() && !dp.data->empty());
+
+  // This controls whether or not outgoing messages
+  // are set to binary or text.
+  /// \note Because we call `writeQueued` sequentially,
+  /// `ws_.binary` expected to be not changed until
+  /// `writeQueued` (i.e. `async_write`) completion.
+  ws_.binary(dp.is_binary);
+
+  ws_.async_write(
+    ::boost::asio::buffer(
+      /// \todo performs copy
+      *(dp.data)),
+    /// \todo use base::BindFrontWrapper
+    ::boost::asio::bind_executor(
+      *perConnectionStrand_
+      , ::std::bind(
+          &WsChannel::onWrite,
+          UNOWNED_LIFETIME(
+            this)
+          , std::placeholders::_1
+          , std::placeholders::_2
+        )
+    )
+  );
+}
+
+void WsChannel::onWrite(
+  ErrorCode ec
+  , std::size_t bytes_transferred) NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+
+  DCHECK(perConnectionStrand_->running_in_this_thread());
+
+  /// \note Because we call `writeQueued` sequentially,
+  /// `isSendBusy_` expected to be not changed until
+  /// `writeQueued` (i.e. `async_write`) completion.
+  DCHECK(isSendBusy_);
+
+  if (ec) {
+    onFail(ec, "write");
+    return;
+  }
+
+  DVLOG(99)
+    << "bytes sent: "
+    << bytes_transferred;
+
+  /// \todo on_before_write_(shared_from_this(), &ec, bytes_transferred))
+
+  if (!sendBuffer_.isEmpty())
+  {
+    // Schedule `async_write`
+    // for next unprocessed message in queue.
+    writeQueued();
+  }
+  else
+  {
+    isSendBusy_ = false;
+  }
 }
 
 } // namespace ws

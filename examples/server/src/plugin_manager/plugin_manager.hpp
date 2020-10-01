@@ -13,6 +13,15 @@
 #include <base/trace_event/trace_event.h>
 #include <base/macros.h>
 #include <base/sequence_checker.h>
+#include <base/metrics/histogram.h>
+#include <base/metrics/histogram_macros.h>
+#include <base/metrics/statistics_recorder.h>
+#include <base/metrics/user_metrics.h>
+#include <base/metrics/user_metrics_action.h>
+#include <base/metrics/histogram_functions.h>
+#include <base/trace_event/trace_event.h>
+#include <base/trace_event/trace_buffer.h>
+#include <base/trace_event/trace_log.h>
 
 #include <basis/promise/post_promise.h>
 
@@ -367,6 +376,22 @@ public:
         unloadPromises_[nameOrPath]
           = unloadResolvers_[nameOrPath]->promise();
       }
+
+      {
+        CHECK(loadCount_.find(nameOrPath) == loadCount_.end())
+          << "unable to promise unload twice for plugin: "
+          << nameOrPath;
+
+        loadCount_[nameOrPath] = 0;
+      }
+
+      {
+        CHECK(unloadCount_.find(nameOrPath) == unloadCount_.end())
+          << "unable to promise unload twice for plugin: "
+          << nameOrPath;
+
+        unloadCount_[nameOrPath] = 0;
+      }
     } // for
 
     for(std::map<std::string, PluginMetadata>::const_iterator pluginIt =
@@ -562,6 +587,13 @@ public:
         VoidPromise loadChain = pluginPtr->load()
         .ThenHere(FROM_HERE,
           loadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
+        )
+        .ThenHere(FROM_HERE
+          , base::BindOnce(
+            &PluginManager::onLoaded
+            , base::Unretained(this)
+            , nameOrPath)
+          , base::IsNestedPromise{true}
         );
 
         loadPromiseParallel.push_back(loadChain);
@@ -584,6 +616,13 @@ public:
           )
           .ThenHere(FROM_HERE,
             loadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
+          )
+          .ThenHere(FROM_HERE
+            , base::BindOnce(
+              &PluginManager::onLoaded
+              , base::Unretained(this)
+              , nameOrPath)
+            , base::IsNestedPromise{true}
           );
 
         loadPromiseParallel.push_back(loadChain);
@@ -670,6 +709,13 @@ public:
         VoidPromise unloadChain = pluginPtr->unload()
         .ThenHere(FROM_HERE,
           unloadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
+        )
+        .ThenHere(FROM_HERE
+          , base::BindOnce(
+            &PluginManager::onUnloaded
+            , base::Unretained(this)
+            , nameOrPath)
+          , base::IsNestedPromise{true}
         );
 
         unloadPromiseParallel.push_back(unloadChain);
@@ -694,6 +740,13 @@ public:
           )
           .ThenHere(FROM_HERE,
             unloadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
+          )
+          .ThenHere(FROM_HERE
+            , base::BindOnce(
+              &PluginManager::onUnloaded
+              , base::Unretained(this)
+              , nameOrPath)
+            , base::IsNestedPromise{true}
           );
 
         unloadPromiseParallel.push_back(unloadChain);
@@ -707,8 +760,34 @@ public:
   size_t countLoadedPlugins()
   const noexcept
   {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
     return
       loaded_plugins_.size();
+  }
+
+  // write statistics etc.
+  VoidPromise onLoaded(const std::string& nameOrPath)
+  {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+    loadCount_[nameOrPath]++;
+    UMA_HISTOGRAM_COUNTS_1000("PluginManager.onLoaded",
+      loadCount_[nameOrPath]);
+
+    return VoidPromise::CreateResolved(FROM_HERE);
+  }
+
+  // write statistics etc.
+  VoidPromise onUnloaded(const std::string& nameOrPath)
+  {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+    unloadCount_[nameOrPath]++;
+    UMA_HISTOGRAM_COUNTS_1000("PluginManager.onUnloaded",
+      unloadCount_[nameOrPath]);
+
+    return VoidPromise::CreateResolved(FROM_HERE);
   }
 
 private:
@@ -727,6 +806,16 @@ private:
         base::ManualPromiseResolver<void, base::NoReject>
       >
   > unloadResolvers_;
+
+  std::map<
+    std::string
+    , size_t
+  > loadCount_;
+
+  std::map<
+    std::string
+    , size_t
+  > unloadCount_;
 
   std::map<
     std::string

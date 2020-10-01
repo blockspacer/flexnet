@@ -111,7 +111,7 @@ void handleAcceptNewConnectionResult(
       }
       , base::BindOnce(
         &::flexnet::http::DetectChannel::runDetector
-        , UNOWNED_LIFETIME(base::Unretained(&detectChannelCtx->value()))
+        , base::Unretained(&detectChannelCtx->value())
         // expire timeout for SSL detection
         , std::chrono::seconds(3)
       )
