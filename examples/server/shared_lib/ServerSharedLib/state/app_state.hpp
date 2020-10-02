@@ -1,6 +1,6 @@
 #pragma once
 
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/bitmask.h>
 
 #include <base/rvalue_cast.h>
@@ -112,13 +112,13 @@ public:
   }
 
   AppState(const State& initial_state = UNINITIALIZED)
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   AppState(
     AppState&& other) = delete;
 
   ~AppState()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   SET_WEAK_SELF(AppState)
 
@@ -135,7 +135,7 @@ public:
   VoidPromise promiseEntryOnce(
     const base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   /// \note Returns promise that can be resolved only once.
   /// If `Event` happens many times, than promise will NOT be resolved again
@@ -144,13 +144,13 @@ public:
   VoidPromise promiseExitOnce(
     const base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   MUST_USE_RETURN_VALUE
   ::util::Status processStateChange(
     const base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
 private:
 

@@ -1,4 +1,4 @@
-#include "basis/ECS/asio_registry.hpp"
+#include "basis/ECS/network_registry.hpp"
 
 #include <flexnet/http/detect_channel.hpp>
 
@@ -14,6 +14,6 @@ namespace ECS {
 // and avoid heap memory allocations
 // because performance is critical here.
 void updateSSLDetection(
-  ECS::AsioRegistry& asio_registry);
+  ECS::NetworkRegistry& net_registry);
 
 } // namespace ECS

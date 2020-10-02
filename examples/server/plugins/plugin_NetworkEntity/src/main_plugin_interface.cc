@@ -51,7 +51,7 @@ std::string MainPluginInterface::description() const
   return description_;
 }
 
-PluginInterface::VoidPromise
+MainPluginInterface::VoidPromise
   MainPluginInterface::load()
 {
   DCHECK_RUN_ON(&sequence_checker_);
@@ -97,7 +97,7 @@ PluginInterface::VoidPromise
       );
 }
 
-PluginInterface::VoidPromise MainPluginInterface::unload()
+MainPluginInterface::VoidPromise MainPluginInterface::unload()
 {
   DCHECK_RUN_ON(&sequence_checker_);
 
@@ -146,6 +146,28 @@ PluginInterface::VoidPromise MainPluginInterface::unload()
               << " terminated...";
           })
       );
+}
+
+int MainPluginInterface::entityUpdateFreqMillisec() const NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  const ::Corrade::Utility::ConfigurationGroup& configuration
+    = metadata()->configuration();
+
+  int entityUpdateFreqMillisec
+    = kDefaultEntityUpdateFreqMillisec;
+
+  if(configuration.hasValue(kConfEntityUpdateFreqMillisec))
+  {
+    base::StringToInt(
+      configuration.value(kConfEntityUpdateFreqMillisec)
+      , &entityUpdateFreqMillisec);
+  }
+
+  return entityUpdateFreqMillisec;
 }
 
 } // namespace network_entity

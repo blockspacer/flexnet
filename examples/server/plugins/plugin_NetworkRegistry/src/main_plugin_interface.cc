@@ -2,7 +2,7 @@
 #include "main_plugin_constants.hpp"
 
 namespace plugin {
-namespace extra_logging {
+namespace network_registry {
 
 MainPluginInterface::MainPluginInterface(
   AbstractManager &manager
@@ -148,5 +148,5 @@ MainPluginInterface::VoidPromise MainPluginInterface::unload()
       );
 }
 
-} // namespace extra_logging
+} // namespace network_registry
 } // namespace plugin

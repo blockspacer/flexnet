@@ -22,7 +22,7 @@
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/move_only.hpp>
@@ -52,7 +52,7 @@ class NetworkEntityUpdater
 
   NetworkEntityUpdater(
     scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner
-    , ECS::AsioRegistry& asioRegistry_
+    , ECS::NetworkRegistry& netRegistry_
     , boost::asio::io_context& ioc_);
 
   ~NetworkEntityUpdater();
@@ -60,34 +60,34 @@ class NetworkEntityUpdater
   // Posts task to strand associated with registry
   // that will update ECS systems
   void update() NO_EXCEPTION
-    RUN_ON_LOCKS_EXCLUDED(periodicAsioTaskRunner_.get());
+    PUBLIC_METHOD_RUN_ON(periodicAsioTaskRunner_.get());
 
   MUST_USE_RETURN_VALUE
   basis::PeriodicTaskExecutor& periodicTaskExecutor() NO_EXCEPTION
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(periodicTaskExecutor));
+    GUARD_METHOD_ON_UNKNOWN_THREAD(periodicTaskExecutor);
 
   SET_WEAK_SELF(NetworkEntityUpdater)
 
  private:
   SET_WEAK_POINTERS(NetworkEntityUpdater);
 
-  util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
+  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   // The io_context is required for all I/O
   util::UnownedRef<IoContext> ioc_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
   // Task sequence used to update `network-ECS`
   scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicAsioTaskRunner_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(periodicAsioTaskRunner_);
 
   /// \note will stop periodic timer on scope exit
   basis::PeriodicTaskExecutor periodicTaskExecutor_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(periodicTaskExecutor_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(periodicTaskExecutor_);
 
   /// \note can be called from any thread
-  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(periodicTaskExecutor));
+  CREATE_METHOD_GUARD(periodicTaskExecutor);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

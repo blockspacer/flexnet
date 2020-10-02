@@ -172,8 +172,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , configuration_{REFERENCED(
-      pluginInterface->metadata()->configuration())}
+  , pluginInterface_{REFERENCED(*pluginInterface)}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , consoleTerminalEventDispatcher_(
@@ -203,25 +202,6 @@ MainPluginLogic::~MainPluginLogic()
   DCHECK_RUN_ON(&sequence_checker_);
 }
 
-int MainPluginLogic::consoleInputFreqMillisec() NO_EXCEPTION
-{
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  LOG_CALL(DVLOG(99));
-
-  int consoleInputFreqMillisec
-    = kDefaultConsoleInputFreqMillisec;
-
-  if(configuration_->hasValue(kConfConsoleInputFreqMillisec))
-  {
-    base::StringToInt(
-      configuration_->value(kConfConsoleInputFreqMillisec)
-      , &consoleInputFreqMillisec);
-  }
-
-  return consoleInputFreqMillisec;
-}
-
 MainPluginLogic::VoidPromise
   MainPluginLogic::load()
 {
@@ -248,7 +228,7 @@ MainPluginLogic::VoidPromise
     , base::BindOnce(
         &startConsolePeriodicTaskExecutorOnSequence
         , base::TimeDelta::FromMilliseconds(
-            consoleInputFreqMillisec())
+            pluginInterface_->consoleInputFreqMillisec())
       )
   );
 }

@@ -97,8 +97,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , configuration_{REFERENCED(
-      pluginInterface->metadata()->configuration())}
+  , pluginInterface_{REFERENCED(*pluginInterface)}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
@@ -115,12 +114,12 @@ MainPluginLogic::MainPluginLogic(
   , ioc_{REFERENCED(
       mainLoopRegistry_->registry()
         .ctx<::boost::asio::io_context>())}
-  , asioRegistry_{REFERENCED(
+  , netRegistry_{REFERENCED(
       mainLoopRegistry_->registry()
-        .ctx<ECS::AsioRegistry>())}
+        .ctx<ECS::NetworkRegistry>())}
   , networkEntityUpdater_{
       periodicAsioTaskRunner_
-      , REFERENCED(*asioRegistry_)
+      , REFERENCED(*netRegistry_)
       , REFERENCED(*ioc_)}
 {
   LOG_CALL(DVLOG(99));
@@ -133,25 +132,6 @@ MainPluginLogic::~MainPluginLogic()
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
-}
-
-int MainPluginLogic::entityUpdateFreqMillisec() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  int entityUpdateFreqMillisec
-    = kDefaultEntityUpdateFreqMillisec;
-
-  if(configuration_->hasValue(kConfEntityUpdateFreqMillisec))
-  {
-    base::StringToInt(
-      configuration_->value(kConfEntityUpdateFreqMillisec)
-      , &entityUpdateFreqMillisec);
-  }
-
-  return entityUpdateFreqMillisec;
 }
 
 MainPluginLogic::VoidPromise
@@ -179,7 +159,7 @@ MainPluginLogic::VoidPromise
     , base::BindOnce(
         &startNetworkEntityPeriodicTaskExecutorOnSequence
         , base::TimeDelta::FromMilliseconds(
-            entityUpdateFreqMillisec())
+            pluginInterface_->entityUpdateFreqMillisec())
       )
   );
 }

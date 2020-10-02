@@ -37,7 +37,7 @@
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/move_only.hpp>
@@ -158,7 +158,7 @@ void AsioThreadsManager::runIoc(boost::asio::io_context& ioc)
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(runIoc));
+  DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(runIoc);
 
   if(ioc.stopped()) // io_context::stopped is thread-safe
   {

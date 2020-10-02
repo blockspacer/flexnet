@@ -42,7 +42,7 @@ namespace ws {
 Listener::Listener(
   IoContext& ioc
   , EndpointType&& endpoint
-  , ECS::AsioRegistry& asioRegistry
+  , ECS::NetworkRegistry& netRegistry
   , EntityAllocatorCb entityAllocator)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
@@ -51,7 +51,7 @@ Listener::Listener(
         weak_ptr_factory_.GetWeakPtr()))
   , ioc_(REFERENCED(ioc))
   , endpoint_(endpoint)
-  , asioRegistry_(REFERENCED(asioRegistry))
+  , netRegistry_(REFERENCED(netRegistry))
   , acceptorStrand_(
       /// \note `get_executor` returns copy
       ioc.get_executor())
@@ -71,7 +71,7 @@ void Listener::logFailure(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(logFailure));
+  DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(logFailure);
 
   // NOTE: If you got logFailure: accept: Too many open files
   // set ulimit -n 4096, see stackoverflow.com/a/8583083/10904212
@@ -277,7 +277,7 @@ void Listener::doAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
@@ -298,11 +298,12 @@ void Listener::doAccept()
   /// \note resources will be preallocated
   /// BEFORE anyone connected
   /// (before callback of `async_accept`)
-  ::boost::asio::post(
-    asioRegistry_->asioStrand()
-    , ::std::bind(
+
+  netRegistry_->taskRunner()->PostTask(
+    FROM_HERE
+    , base::BindOnce(
         &Listener::allocateTcpResourceAndAccept
-        , this)
+        , base::Unretained(this))
   );
 }
 
@@ -310,16 +311,16 @@ void Listener::allocateTcpResourceAndAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(acceptorStrand_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
-  DCHECK(asioRegistry_->running_in_this_thread());
+  DCHECK(netRegistry_->RunsTasksInCurrentSequence());
 
   /// \todo make configurable
   const size_t kWarnBigRegistrySize = 100000;
   LOG_IF(WARNING
-    , (*asioRegistry_)->size() > kWarnBigRegistrySize)
+    , (*netRegistry_)->size() > kWarnBigRegistrySize)
    << "Asio registry has more than "
    << kWarnBigRegistrySize
    << " entities."
@@ -333,11 +334,11 @@ void Listener::allocateTcpResourceAndAccept()
   DCHECK(entityAllocator_);
   ECS::Entity tcp_entity_id
     = entityAllocator_.Run();
-  DCHECK((*asioRegistry_)->valid(tcp_entity_id));
+  DCHECK((*netRegistry_)->valid(tcp_entity_id));
 
-  DCHECK((*asioRegistry_)->has<ECS::TcpConnection>(tcp_entity_id));
+  DCHECK((*netRegistry_)->has<ECS::TcpConnection>(tcp_entity_id));
   ECS::TcpConnection& tcpComponent
-    = (*asioRegistry_)->get<ECS::TcpConnection>(tcp_entity_id);
+    = (*netRegistry_)->get<ECS::TcpConnection>(tcp_entity_id);
 
   DVLOG(99)
     << "using TcpConnection with id: "
@@ -562,9 +563,9 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(acceptorStrand_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(unownedPerConnectionStrand
@@ -602,23 +603,16 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
 
   // mark connection as newly created
   // (or as failed with error code)
-  ::boost::asio::post(
-    asioRegistry_->asioStrand()
-    /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler([
-      ](
-        base::OnceClosure&& boundTask
-      ){
-        base::rvalue_cast(boundTask).Run();
-      }
-      , base::BindOnce(
-          &Listener::setAcceptConnectionResult
-          , base::Unretained(this)
-          , COPIED(tcp_entity_id)
-          , CAN_COPY_ON_MOVE("moving const") std::move(ec)
-          , base::rvalue_cast(socket)
-        )
-    )
+
+  netRegistry_->taskRunner()->PostTask(
+    FROM_HERE
+    , base::BindOnce(
+        &Listener::setAcceptConnectionResult
+        , base::Unretained(this)
+        , COPIED(tcp_entity_id)
+        , CAN_COPY_ON_MOVE("moving const") std::move(ec)
+        , base::rvalue_cast(socket)
+      )
   );
 
   // Accept another connection
@@ -635,16 +629,17 @@ void Listener::setAcceptConnectionResult(
   , ErrorCode&& ec
   , SocketType&& socket)
 {
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
-  DCHECK(asioRegistry_->running_in_this_thread());
-  DCHECK((*asioRegistry_)->valid(tcp_entity_id));
+  DCHECK(netRegistry_->RunsTasksInCurrentSequence());
+
+  DCHECK((*netRegistry_)->valid(tcp_entity_id));
 
   DVLOG(99)
     << " added new connection";
 
   ECS::TcpConnection& tcpComponent
-    = (*asioRegistry_)->get<ECS::TcpConnection>(tcp_entity_id);
+    = (*netRegistry_)->get<ECS::TcpConnection>(tcp_entity_id);
 
   // `ECS::TcpConnection` must be valid
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
@@ -654,7 +649,7 @@ void Listener::setAcceptConnectionResult(
       = base::Optional<Listener::AcceptConnectionResult>;
 
     // If the value already exists allow it to be re-used
-    (*asioRegistry_)->remove_if_exists<
+    (*netRegistry_)->remove_if_exists<
         ECS::UnusedAcceptResultTag
       >(tcp_entity_id);
 
@@ -668,7 +663,7 @@ void Listener::setAcceptConnectionResult(
       << " forcing close of connection";
 
     UniqueAcceptComponent& acceptResult
-      = (*asioRegistry_).reset_or_create_component<UniqueAcceptComponent>(
+      = (*netRegistry_).reset_or_create_component<UniqueAcceptComponent>(
             "UniqueAcceptComponent_" + base::GenerateGUID() // debug name
             , tcp_entity_id
             , base::rvalue_cast(ec)
@@ -703,10 +698,8 @@ Listener::~Listener()
   // i.e. use check `registry.empty()`
   {
     /// \note (thread-safety) access from destructor when ioc->stopped
-    /// i.e. assume no running asio threads that use |asioRegistry_|
-    DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_->FUNC_GUARD(registry));
-
-    DCHECK(asioRegistry_->registry().empty());
+    /// i.e. assume no running asio threads that use |netRegistry_|
+    DCHECK(netRegistry_->registryUnsafe().empty());
   }
 
   /// \note Callbacks posted on |io_context| can use |this|,
@@ -729,7 +722,7 @@ bool Listener::isAcceptorOpen() const
 
 bool Listener::isAcceptingInThisThread() const NO_EXCEPTION
 {
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(acceptorStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
 
   /// \note `running_in_this_thread()` assumed to be thread-safe
   return acceptorStrand_->running_in_this_thread();

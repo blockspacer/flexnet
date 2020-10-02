@@ -21,7 +21,7 @@
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/move_only.hpp>
@@ -51,32 +51,32 @@ public:
   SET_WEAK_SELF(AsioThreadsManager)
 
   AsioThreadsManager()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   ~AsioThreadsManager()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   // creates |threadsNum| threads that will
   // invoke |run| method from |ioc|
   void startThreads(
     const size_t threadsNum
     , boost::asio::io_context& ioc)
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   void stopThreads()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   const std::vector<
     std::unique_ptr<AsioThreadType>
   >& threads() const
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_)
   {
     return asio_threads_;
   }
 
 private:
   void runIoc(boost::asio::io_context& ioc)
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(runIoc));
+    GUARD_METHOD_ON_UNKNOWN_THREAD(runIoc);
 
 private:
   SET_WEAK_POINTERS(AsioThreadsManager);
@@ -95,7 +95,7 @@ private:
     GUARDED_BY(sequence_checker_);
 
   /// \note can be called from any thread
-  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(runIoc));
+  CREATE_METHOD_GUARD(runIoc);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

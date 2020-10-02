@@ -13,7 +13,7 @@
 
 #include <basis/checked_optional.hpp>
 #include <basis/lock_with_check.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/status/statusor.hpp>
 #include <basis/move_only.hpp>
@@ -151,32 +151,19 @@ public:
     StreamType&& stream
     // Take ownership of the buffer
     , MessageBufferType&& buffer
-    , ECS::AsioRegistry& asioRegistry
+    , ECS::NetworkRegistry& netRegistry
     , const ECS::Entity entity_id);
 
   HttpChannel(
     HttpChannel&& other) = delete;
 
-  /// \note can destruct on any thread
-  ~HttpChannel()
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(HttpChannelDestructor));
+  ~HttpChannel();
 
   /// \todo thread safety
   MUST_USE_RETURN_VALUE
-  bool isOpen();
+  bool isOpen() NO_EXCEPTION;
 
-  void doRead();
-
-  void doReadAsync();
-
-  void handleWebsocketUpgrade(
-    ErrorCode ec
-    , std::size_t bytes_transferred
-    , StreamType&& stream
-    , boost::beast::http::request<
-        RequestBodyType
-      >&& req)
-    RUN_ON(&asioRegistry_->strand);
+  void startReadAsync() NO_EXCEPTION;
 
   template <typename CallbackT>
   MUST_USE_RETURN_VALUE
@@ -184,8 +171,9 @@ public:
     const base::Location& from_here
     , CallbackT&& task
     , base::IsNestedPromise isNestedPromise = base::IsNestedPromise())
+  NO_EXCEPTION
   {
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
     return base::PostPromiseOnAsioExecutor(
       from_here
@@ -200,9 +188,9 @@ public:
   /// \note `stream_` can be moved to websocket session from http session,
   /// so we can't use it here anymore
   MUST_USE_RETURN_VALUE
-  bool isStreamValid() const
+  bool isStreamValid() const NO_EXCEPTION
   {
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
     return is_stream_valid_.load();
   }
 
@@ -211,28 +199,52 @@ public:
   /// so its copy can be read from any thread.
   /// `ECS::Entity` is just number, so can be copied freely.
   MUST_USE_RETURN_VALUE
-  ECS::Entity entityId() const
+  ECS::Entity entityId() const NO_EXCEPTION
   {
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
     return entity_id_;
   }
 
 private:
+  void handleWebsocketUpgrade(
+    ErrorCode ec
+    , std::size_t bytes_transferred
+    , StreamType&& stream
+    , boost::beast::http::request<
+        RequestBodyType
+      >&& req) NO_EXCEPTION
+    PRIVATE_METHOD_RUN_ON(*netRegistry_);
+
+  void doRead() NO_EXCEPTION;
+
+  // Inits resources before first call to `doRead()`
+  void startRead() NO_EXCEPTION;
+
   void onRead(
     ErrorCode ec
-    , std::size_t bytes_transferred);
+    , std::size_t bytes_transferred) NO_EXCEPTION;
 
   void onWrite(
     ErrorCode ec
     , std::size_t bytes_transferred
-    , bool close);
+    , bool close) NO_EXCEPTION;
 
   void onFail(
     ErrorCode ec
-    , char const* what);
+    , char const* what) NO_EXCEPTION;
 
   // calls `stream_.socket().shutdown`
-  void doEof();
+  void doEof() NO_EXCEPTION;
+
+  /// \note static because `this` may be freed
+  /// if user issued `stop` (`stop` usually calls `doEof`)
+  /// i.e. already marked with `ECS::UnusedTag`,
+  /// but we scheduled `doEof`
+  /// (attempted to mark with `ECS::UnusedTag` twice).
+  static void markUnused(
+    /// \note take care of lifetime
+    ECS::NetworkRegistry& netRegistry
+    , ECS::EntityId entity_id) NO_EXCEPTION;
 
 private:
   SET_WEAK_POINTERS(HttpChannel);
@@ -242,7 +254,7 @@ private:
 
   // |stream_| and calls to |async_*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
-    SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
+    SET_THREAD_GUARD_WITH_CHECK(
       MEMBER_GUARD(perConnectionStrand_)
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
@@ -265,20 +277,20 @@ private:
   /// \note `stream_` can be moved to websocket session from http session
   std::atomic<bool> is_stream_valid_
     // assumed to be thread-safe
-    SET_CUSTOM_THREAD_GUARD(MEMBER_GUARD(is_stream_valid_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
 
   // The dynamic buffer to store recieved data
   MessageBufferType buffer_
     GUARDED_BY(perConnectionStrand_);
 
   // used by |entity_id_|
-  util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
+  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(entity_id_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
 
   // The parser is stored in an optional container so we can
   // construct it from scratch at the beginning
@@ -294,9 +306,6 @@ private:
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
-
-  /// \note can destruct on any thread
-  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(HttpChannelDestructor));
 
   DISALLOW_COPY_AND_ASSIGN(HttpChannel);
 };

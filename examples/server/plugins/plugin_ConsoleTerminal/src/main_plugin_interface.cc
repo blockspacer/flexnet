@@ -51,7 +51,7 @@ std::string MainPluginInterface::description() const
   return description_;
 }
 
-PluginInterface::VoidPromise
+MainPluginInterface::VoidPromise
   MainPluginInterface::load()
 {
   DCHECK_RUN_ON(&sequence_checker_);
@@ -97,7 +97,7 @@ PluginInterface::VoidPromise
       );
 }
 
-PluginInterface::VoidPromise MainPluginInterface::unload()
+MainPluginInterface::VoidPromise MainPluginInterface::unload()
 {
   DCHECK_RUN_ON(&sequence_checker_);
 
@@ -146,6 +146,28 @@ PluginInterface::VoidPromise MainPluginInterface::unload()
               << " terminated...";
           })
       );
+}
+
+int MainPluginInterface::consoleInputFreqMillisec() const NO_EXCEPTION
+{
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  LOG_CALL(DVLOG(99));
+
+  const ::Corrade::Utility::ConfigurationGroup& configuration
+    = metadata()->configuration();
+
+  int consoleInputFreqMillisec
+    = kDefaultConsoleInputFreqMillisec;
+
+  if(configuration.hasValue(kConfConsoleInputFreqMillisec))
+  {
+    base::StringToInt(
+      configuration.value(kConfConsoleInputFreqMillisec)
+      , &consoleInputFreqMillisec);
+  }
+
+  return consoleInputFreqMillisec;
 }
 
 } // namespace console_terminal

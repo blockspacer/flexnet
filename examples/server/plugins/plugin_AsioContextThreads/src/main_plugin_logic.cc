@@ -12,8 +12,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , configuration_{REFERENCED(
-      pluginInterface->metadata()->configuration())}
+  , pluginInterface_{REFERENCED(*pluginInterface)}
   , mainLoopRunner_{
       base::MessageLoop::current()->task_runner()}
   , mainLoopRegistry_(
@@ -21,9 +20,9 @@ MainPluginLogic::MainPluginLogic(
   , ioc_(REFERENCED(
       ::backend::MainLoopRegistry::GetInstance()->registry()
         .set<::boost::asio::io_context>()))
-  , asioRegistry_{
+  , netRegistry_{
       REFERENCED(mainLoopRegistry_->registry()
-        .set<ECS::AsioRegistry>(REFERENCED(*ioc_)))}
+        .ctx<ECS::NetworkRegistry>())}
 {
   LOG_CALL(DVLOG(99));
 
@@ -31,28 +30,9 @@ MainPluginLogic::MainPluginLogic(
 
   asioThreadsManager_.startThreads(
     /// \note Crash if out of range.
-    base::checked_cast<size_t>(asioThreads())
+    base::checked_cast<size_t>(pluginInterface_->asioThreads())
     , REFERENCED(*ioc_)
   );
-}
-
-int MainPluginLogic::asioThreads() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  int confAsioThreads
-    = kDefaultAsioThreads;
-
-  if(configuration_->hasValue(kConfAsioThreads))
-  {
-    base::StringToInt(
-      configuration_->value(kConfAsioThreads)
-      , &confAsioThreads);
-  }
-
-  return confAsioThreads;
 }
 
 MainPluginLogic::~MainPluginLogic()

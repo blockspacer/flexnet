@@ -57,7 +57,7 @@ namespace ws {
 
 WsChannel::WsChannel(
   StreamType&& stream
-  , ECS::AsioRegistry& asioRegistry
+  , ECS::NetworkRegistry& netRegistry
   , const ECS::Entity entity_id)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
@@ -68,7 +68,7 @@ WsChannel::WsChannel(
   , perConnectionStrand_(
       /// \note `get_executor` returns copy
       ws_.get_executor())
-  , asioRegistry_(REFERENCED(asioRegistry))
+  , netRegistry_(REFERENCED(netRegistry))
   , entity_id_(entity_id)
   , sendBuffer_{kMaxSendQueueSize}
 {
@@ -160,9 +160,9 @@ WsChannel::WsChannel(
 
 WsChannel::~WsChannel()
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(WsChannelDestructor));
-
   LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   /// \note we assume that reading unused `ws_` is thread-safe here
   /// \note don't call `close()` from destructor, handle `close()` manually
@@ -178,7 +178,7 @@ void WsChannel::onFail(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -241,7 +241,7 @@ void WsChannel::onAccept(ErrorCode ec) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -259,7 +259,7 @@ void WsChannel::doRead() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -288,7 +288,7 @@ void WsChannel::onClose(ErrorCode ec) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -307,9 +307,9 @@ void WsChannel::doEof() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -340,50 +340,35 @@ void WsChannel::doEof() NO_EXCEPTION
       ));
   }
 
-  ECS::Registry* registryPtr = nullptr;
-  {
-    DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_->FUNC_GUARD(registry));
-    registryPtr = &(asioRegistry_->registry());
+  ECS::Registry* registryPtr = &(netRegistry_->registryUnsafe());
+
+  netRegistry_->taskRunner()->PostTask(
+    FROM_HERE
+    , base::BindOnce(
+        &WsChannel::markUnused
+        , REFERENCED(*netRegistry_)
+        , entity_id_
+      )
+  );
+}
+
+void WsChannel::markUnused(
+  ECS::NetworkRegistry& netRegistry
+  , ECS::EntityId entity_id) NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK(netRegistry.RunsTasksInCurrentSequence());
+
+  // If object was freed,
+  // than no need to mark it as unused
+  if(!netRegistry->valid(entity_id)){
+    return;
   }
 
-  // mark SSL detection completed
-  ::boost::asio::post(
-    asioRegistry_->asioStrand()
-    /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler([
-      ](
-        base::OnceClosure&& task
-      ){
-        DCHECK(task);
-        base::rvalue_cast(task).Run();
-      }
-      , base::BindOnce(
-          [
-          ](
-            /// \note copy because `this`
-            /// i.e. `entity_id_` may be freed
-            ECS::EntityId entity_id
-            /// \note copy pointer because `this`
-            /// i.e. `asioRegistry_` may be freed
-            /// \note must control lifetime
-            , ECS::Registry* registryPtr
-          )
-          {
-            LOG_CALL(DVLOG(99));
-
-            if(!registryPtr->valid(entity_id)) {
-              return;
-            }
-
-            if(!registryPtr->has<ECS::UnusedTag>(entity_id)) {
-              registryPtr->emplace<ECS::UnusedTag>(entity_id);
-            }
-          }
-          , entity_id_
-          , registryPtr
-        )
-    )
-  );
+  if(!netRegistry->has<ECS::UnusedTag>(entity_id)) {
+    netRegistry->emplace<ECS::UnusedTag>(entity_id);
+  }
 }
 
 void WsChannel::onRead(
@@ -392,8 +377,8 @@ void WsChannel::onRead(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -423,8 +408,10 @@ void WsChannel::onRead(
     return;
   }
 
+  /// \FIXME \todo
+#if 0
   ::boost::asio::post(
-    asioRegistry_->asioStrand()
+    netRegistry_->asioStrand()
     /// \todo use base::BindFrontWrapper
     , ::boost::beast::bind_front_handler([
       ](
@@ -440,6 +427,7 @@ void WsChannel::onRead(
         )
     )
   );
+#endif // 0
 
   // Clear the buffer
   readBuffer_.consume(readBuffer_.size());
@@ -453,11 +441,11 @@ void WsChannel::setRecievedDataComponents(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
 
-  DCHECK(asioRegistry_->running_in_this_thread());
+  DCHECK(netRegistry_->RunsTasksInCurrentSequence());
 
   DVLOG(99)
     << "WsSession on_read: "
@@ -465,14 +453,14 @@ void WsChannel::setRecievedDataComponents(
 
   // We want to filter recieved messages individually,
   // so each message becomes separate entity.
-  ECS::Entity msg_entity_id = (*asioRegistry_)->create();
+  ECS::Entity msg_entity_id = (*netRegistry_)->create();
 
   {
     using RecievedDataComponent
       = base::Optional<WsChannel::RecievedData>;
 
     RecievedDataComponent& recievedDataComponent
-      = (*asioRegistry_)->emplace<RecievedDataComponent>(
+      = (*netRegistry_)->emplace<RecievedDataComponent>(
             msg_entity_id // assign to entity with that id
             , base::rvalue_cast(message));
   }
@@ -482,7 +470,7 @@ void WsChannel::setRecievedDataComponents(
       = base::Optional<WsChannel::RecievedFrom>;
 
     RecievedFromComponent& recievedFromComponent
-      = (*asioRegistry_)->emplace<RecievedFromComponent>(
+      = (*netRegistry_)->emplace<RecievedFromComponent>(
             msg_entity_id // assign to entity with that id
             , entity_id_);
   }
@@ -492,7 +480,7 @@ bool WsChannel::isOpen() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -505,8 +493,8 @@ void WsChannel::sendAsync(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(send));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(send);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK(message);
 
@@ -560,7 +548,7 @@ void WsChannel::send(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -601,7 +589,7 @@ void WsChannel::writeQueued() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -655,7 +643,7 @@ void WsChannel::onWrite(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -679,8 +667,6 @@ void WsChannel::onWrite(
 
   // Removes message from queue only if it was successfully written
   // (do not process same message twice).
-  /// \note We remove NEWEST message manually (via `popBack`)
-  /// because we use circular buffer.
   /// \note Because we call `writeQueued` sequentially,
   /// `sendBuffer_.backPtr()` expected to be not changed until
   /// `writeQueued` (i.e. `async_write`) completion,

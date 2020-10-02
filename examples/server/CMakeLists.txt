@@ -477,6 +477,20 @@ add_server_plugin(ActionRecorder
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_ActionRecorder/src/main_plugin_constants.hpp
 )
 
+add_server_plugin(NetworkRegistry
+  plugins/plugin_NetworkRegistry
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkRegistry/src/register_plugin.cc
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkRegistry/src/main_plugin_interface.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkRegistry/src/main_plugin_interface.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkRegistry/src/main_plugin_logic.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkRegistry/src/main_plugin_logic.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkRegistry/src/main_plugin_constants.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkRegistry/src/main_plugin_constants.hpp
+)
+
 add_server_plugin(BasicTerminalCommands
   plugins/plugin_BasicTerminalCommands
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_BasicTerminalCommands/src/register_plugin.cc

@@ -49,25 +49,37 @@ class MainPluginInterface
   explicit MainPluginInterface(
     ::plugin::AbstractManager& manager
     , const std::string& pluginName)
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   ~MainPluginInterface()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   std::string title() const override
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   std::string author() const override
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   std::string description() const override
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   VoidPromise load() override
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   VoidPromise unload() override
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
+
+  std::string ipAddr() const NO_EXCEPTION
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
+
+  int portNum() const NO_EXCEPTION
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
+
+  int quitDetectionFreqMillisec() const NO_EXCEPTION
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
+
+  int quitDetectionDebugTimeoutMillisec() const NO_EXCEPTION
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
 private:
   SET_WEAK_POINTERS(MainPluginInterface);

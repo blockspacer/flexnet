@@ -45,7 +45,7 @@
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/move_only.hpp>
@@ -83,13 +83,13 @@ struct DebugComponentIdWithName {
 namespace backend {
 
 TcpEntityAllocator::TcpEntityAllocator(
-  ECS::AsioRegistry& asioRegistry)
+  ECS::NetworkRegistry& netRegistry)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , asioRegistry_(REFERENCED(asioRegistry))
+  , netRegistry_(REFERENCED(netRegistry))
 {
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
@@ -109,9 +109,9 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
-  DCHECK_RUN_ON_STRAND(&asioRegistry_.strand, ECS::AsioRegistry::ExecutorType);
+  DCHECK_RUN_ON_NET_REGISTRY(&(*netRegistry_));
 
   // Avoid extra allocations
   // with memory pool in ECS style using |ECS::UnusedTag|
@@ -121,7 +121,7 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
     /// \todo use `entt::group` instead of `entt::view` here
     /// if it will speed things up
     /// i.e. measure perf. and compare results
-    = asioRegistry_->view<ECS::TcpConnection, ECS::UnusedTag>(
+    = (*netRegistry_)->view<ECS::TcpConnection, ECS::UnusedTag>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -135,16 +135,16 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
 
   if(registry_group.empty())
   {
-    tcp_entity_id = asioRegistry_->create();
+    tcp_entity_id = (*netRegistry_)->create();
     DCHECK(!usedCache);
     DVLOG(99)
       << "allocating new network entity";
-    DCHECK(asioRegistry_->valid(tcp_entity_id));
+    DCHECK((*netRegistry_)->valid(tcp_entity_id));
   } else { // if from `cache`
     // reuse any unused entity (if found)
     for(const ECS::Entity& entity_id : registry_group)
     {
-      if(!asioRegistry_->valid(entity_id)) {
+      if(!(*netRegistry_)->valid(entity_id)) {
         // skip invalid entities
         continue;
       }
@@ -155,30 +155,30 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
 
     /// \note may not find valid entities,
     /// so checks for `ECS::NULL_ENTITY` using `registry.valid`
-    if(asioRegistry_->valid(tcp_entity_id))
+    if((*netRegistry_)->valid(tcp_entity_id))
     {
       usedCache = true;
-      asioRegistry_->remove<ECS::UnusedTag>(tcp_entity_id);
+      (*netRegistry_)->remove<ECS::UnusedTag>(tcp_entity_id);
       DVLOG(99)
         << "using preallocated network entity with id: "
-        << asioRegistry_->get<ECS::TcpConnection>(tcp_entity_id).debug_id;
+        << (*netRegistry_)->get<ECS::TcpConnection>(tcp_entity_id).debug_id;
 
     } else {
-      tcp_entity_id = asioRegistry_->create();
+      tcp_entity_id = (*netRegistry_)->create();
       DCHECK(!usedCache);
       DVLOG(99)
         << "allocating new network entity";
     }
   } // else
 
-  DCHECK(asioRegistry_->valid(tcp_entity_id));
+  DCHECK((*netRegistry_)->valid(tcp_entity_id));
 
   /// \note `tcpComponent.context.empty()` may be false
   /// if unused `tcpComponent` found using `registry.get`
   /// i.e. we do not fully reset `tcpComponent`,
   /// so reset each type stored in context individually.
   ECS::TcpConnection& tcpComponent
-    = asioRegistry_->get_or_emplace<ECS::TcpConnection>(
+    = (*netRegistry_)->get_or_emplace<ECS::TcpConnection>(
         tcp_entity_id
         , "TcpConnection_" + base::GenerateGUID() // debug name
       );
@@ -189,32 +189,32 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
     // Clear cached data.
     // We re-use some old network entity,
     // so need to reset entity state.
-    DCHECK(asioRegistry_->valid(tcp_entity_id));
+    DCHECK((*netRegistry_)->valid(tcp_entity_id));
 
     // sanity check
-    CHECK(asioRegistry_->has<
+    CHECK((*netRegistry_)->has<
         ECS::TcpConnection
       >(tcp_entity_id));
 
     // sanity check
-    CHECK(!asioRegistry_->has<
+    CHECK(!(*netRegistry_)->has<
         ECS::UnusedTag
       >(tcp_entity_id));
 
     // sanity check
-    CHECK(!asioRegistry_->has<
+    CHECK(!(*netRegistry_)->has<
         ECS::NeedToDestroyTag
       >(tcp_entity_id));
 
     // required to process `SSLDetectResult` once
     // (i.e. not handle outdated result)
-    asioRegistry_->emplace_or_replace<
+    (*netRegistry_)->emplace_or_replace<
       ECS::UnusedSSLDetectResultTag
     >(tcp_entity_id);
 
     // required to process `AcceptResult` once
     // (i.e. not handle outdated result)
-    asioRegistry_->emplace_or_replace<
+    (*netRegistry_)->emplace_or_replace<
       ECS::UnusedAcceptResultTag
     >(tcp_entity_id);
 
@@ -247,7 +247,7 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
     };
 
     // visit entity and get the types of components it manages
-    asioRegistry_->visit(tcp_entity_id
+    (*netRegistry_)->visit(tcp_entity_id
       , [this, tcp_entity_id]
       (const entt_type_info_id_type type_id)
       {

@@ -1,7 +1,7 @@
 #include "main_plugin_constants.hpp" // IWYU pragma: associated
 
 namespace plugin {
-namespace action_recorder {
+namespace network_registry {
 
 // extern
 const char kPluginInterfaceVersion[]
@@ -9,7 +9,7 @@ const char kPluginInterfaceVersion[]
 
 // extern
 const char kPluginName[]
-  = "ActionRecorder";
+  = "NetworkRegistry";
 
-} // namespace action_recorder
+} // namespace network_registry
 } // namespace plugin

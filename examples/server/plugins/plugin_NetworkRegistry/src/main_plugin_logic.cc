@@ -2,6 +2,8 @@
 #include "main_plugin_interface.hpp"
 #include "main_plugin_constants.hpp"
 
+#include <base/numerics/safe_conversions.h>
+
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
@@ -19,8 +21,11 @@
 #include <thread>
 #include <iostream>
 
+#include <flexnet/websocket/ws_channel.hpp>
+#include <flexnet/ECS/components/tcp_connection.hpp>
+
 namespace plugin {
-namespace signal_handler {
+namespace network_registry {
 
 MainPluginLogic::MainPluginLogic(
   const MainPluginInterface* pluginInterface)
@@ -29,21 +34,14 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
+  , pluginInterface_{REFERENCED(*pluginInterface)}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
       base::MessageLoop::current()->task_runner()}
-  , signalHandler_(
+  , netRegistry_{
       REFERENCED(mainLoopRegistry_->registry()
-        .ctx<::boost::asio::io_context>())
-      // `bindToTaskRunner` re-routes callback to task runner
-      , basis::bindToTaskRunner(
-          FROM_HERE
-          , base::BindOnce(
-              &MainPluginLogic::handleSigQuit
-              , weakSelf())
-          , mainLoopRunner_)
-    )
+        .set<ECS::NetworkRegistry>())}
 {
   LOG_CALL(DVLOG(99));
 
@@ -64,6 +62,8 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::load()");
 
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(mainLoopRunner_);
+
   return VoidPromise::CreateResolved(FROM_HERE);
 }
 
@@ -74,47 +74,10 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::unload()");
 
-  DCHECK(mainLoopRunner_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(mainLoopRunner_);
 
   return VoidPromise::CreateResolved(FROM_HERE);
 }
 
-void MainPluginLogic::handleSigQuit()
-{
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  TRACE_EVENT0("headless", "plugin::MainPluginLogic::handleSigQuit()");
-
-  LOG_CALL(DVLOG(99));
-
-  DVLOG(9)
-    << "got sigquit";
-
-  DCHECK(mainLoopRunner_);
-  (mainLoopRunner_)->PostTask(FROM_HERE
-    , base::BindOnce(
-        &MainPluginLogic::handleTerminationEvent
-        , weakSelf()));
-}
-
-void MainPluginLogic::handleTerminationEvent()
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  // send termination event
-  ::backend::AppState& appState =
-    mainLoopRegistry_->registry()
-      .ctx<::backend::AppState>();
-
-  ::util::Status result =
-    appState.processStateChange(
-      FROM_HERE
-      , ::backend::AppState::TERMINATE);
-
-  DCHECK(result.ok());
-}
-
-} // namespace signal_handler
+} // namespace network_registry
 } // namespace plugin

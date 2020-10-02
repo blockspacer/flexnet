@@ -53,23 +53,23 @@ class MainPluginLogic
 
   MainPluginLogic(
     const MainPluginInterface* pluginInterface)
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   ~MainPluginLogic()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   VoidPromise load()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   VoidPromise unload()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
  private:
   void handleConsoleInput(const std::string& line);
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
   void handleTerminationEvent();
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
  private:
   SET_WEAK_POINTERS(MainPluginLogic);

@@ -1,9 +1,10 @@
 #pragma once
 
+#include "main_plugin_logic.hpp"
+
 #include "plugin_interface/plugin_interface.hpp"
 #include "state/app_state.hpp"
 #include "registry/main_loop_registry.hpp"
-#include "net/asio_threads_manager.hpp"
 
 #include <base/logging.h>
 #include <base/cpu.h>
@@ -22,9 +23,6 @@
 #include <basis/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
-#include <basis/ECS/ecs.hpp>
-#include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/network_registry.hpp>
 #include <basis/unowned_ref.hpp>
 #include <basis/status/statusor.hpp>
 
@@ -35,68 +33,65 @@
 #include <thread>
 
 namespace plugin {
-namespace asio_context_threads {
+namespace network_registry {
 
-class MainPluginInterface;
-
-// Performs plugin logic based on
-// provided plugin interface (configuration)
-class MainPluginLogic
-{
+// sets plugin metadata (configuration)
+class MainPluginInterface
+  final
+  : public ::plugin::PluginInterface {
  public:
   using VoidPromise
     = base::Promise<void, base::NoReject>;
 
-  using StatusPromise
-    = base::Promise<::util::Status, base::NoReject>;
-
  public:
-  SET_WEAK_SELF(MainPluginLogic)
+  SET_WEAK_SELF(MainPluginInterface)
 
-  MainPluginLogic(
-    const MainPluginInterface* pluginInterface)
+  explicit MainPluginInterface(
+    ::plugin::AbstractManager& manager
+    , const std::string& pluginName)
     PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
-  ~MainPluginLogic()
+  ~MainPluginInterface()
     PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
-  VoidPromise load()
+  std::string title() const override
     PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
-  VoidPromise unload()
+  std::string author() const override
     PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
- private:
-  SET_WEAK_POINTERS(MainPluginLogic);
+  std::string description() const override
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
-  util::UnownedRef<
-    const MainPluginInterface
-  > pluginInterface_
-      GUARDED_BY(sequence_checker_);
+  VoidPromise load() override
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
-  // Same as `base::MessageLoop::current()->task_runner()`
-  // during class construction
+  VoidPromise unload() override
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
+
+private:
+  SET_WEAK_POINTERS(MainPluginInterface);
+
+  std::string title_
+    GUARDED_BY(sequence_checker_);
+
+  std::string author_
+    GUARDED_BY(sequence_checker_);
+
+  std::string description_
+    GUARDED_BY(sequence_checker_);
+
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     GUARDED_BY(sequence_checker_);
 
-  util::UnownedPtr<
-    ::backend::MainLoopRegistry
-  > mainLoopRegistry_
+  // Use `base::Optional` because plugin can be unloaded i.e. `reset()`
+  base::Optional<MainPluginLogic> mainPluginLogic_
     GUARDED_BY(sequence_checker_);
-
-  util::UnownedRef<::boost::asio::io_context> ioc_
-    GUARDED_BY(sequence_checker_);
-
-  ::backend::AsioThreadsManager asioThreadsManager_
-    GUARDED_BY(sequence_checker_);
-
-  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  DISALLOW_COPY_AND_ASSIGN(MainPluginLogic);
+  DISALLOW_COPY_AND_ASSIGN(MainPluginInterface);
 };
 
-} // namespace asio_context_threads
+} // namespace network_registry
 } // namespace plugin

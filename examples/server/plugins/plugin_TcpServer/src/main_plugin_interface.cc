@@ -51,7 +51,7 @@ std::string MainPluginInterface::description() const
   return description_;
 }
 
-PluginInterface::VoidPromise
+MainPluginInterface::VoidPromise
   MainPluginInterface::load()
 {
   DCHECK_RUN_ON(&sequence_checker_);
@@ -97,7 +97,7 @@ PluginInterface::VoidPromise
       );
 }
 
-PluginInterface::VoidPromise MainPluginInterface::unload()
+MainPluginInterface::VoidPromise MainPluginInterface::unload()
 {
   DCHECK_RUN_ON(&sequence_checker_);
 
@@ -146,6 +146,93 @@ PluginInterface::VoidPromise MainPluginInterface::unload()
               << " terminated...";
           })
       );
+}
+
+std::string MainPluginInterface::ipAddr() const NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  std::string ipAddr
+    = kDefaultIpAddr;
+
+  const ::Corrade::Utility::ConfigurationGroup& configuration
+    = metadata()->configuration();
+
+  if(configuration.hasValue(kConfIpAddr))
+  {
+    ipAddr =
+      configuration.value(kConfIpAddr);
+  }
+
+  return ipAddr;
+}
+
+int MainPluginInterface::portNum() const NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  int portNum
+    = kDefaultPortNum;
+
+  const ::Corrade::Utility::ConfigurationGroup& configuration
+    = metadata()->configuration();
+
+  if(configuration.hasValue(kConfPortNum))
+  {
+    base::StringToInt(
+      configuration.value(kConfPortNum)
+      , &portNum);
+  }
+
+  return portNum;
+}
+
+int MainPluginInterface::quitDetectionFreqMillisec() const NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  int quitDetectionFreqMillisec
+    = kDefaultQuitDetectionFreqMillisec;
+
+  const ::Corrade::Utility::ConfigurationGroup& configuration
+    = metadata()->configuration();
+
+  if(configuration.hasValue(kConfQuitDetectionFreqMillisec))
+  {
+    base::StringToInt(
+      configuration.value(kConfQuitDetectionFreqMillisec)
+      , &quitDetectionFreqMillisec);
+  }
+
+  return quitDetectionFreqMillisec;
+}
+
+int MainPluginInterface::quitDetectionDebugTimeoutMillisec() const NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  int quitDetectionDebugTimeoutMillisec
+    = kDefaultQuitDetectionDebugTimeoutMillisec;
+
+  const ::Corrade::Utility::ConfigurationGroup& configuration
+    = metadata()->configuration();
+
+  if(configuration.hasValue(kConfQuitDetectionDebugTimeoutMillisec))
+  {
+    base::StringToInt(
+      configuration.value(kConfQuitDetectionDebugTimeoutMillisec)
+      , &quitDetectionDebugTimeoutMillisec);
+  }
+
+  return quitDetectionDebugTimeoutMillisec;
 }
 
 } // namespace tcp_server

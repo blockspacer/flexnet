@@ -51,7 +51,7 @@ std::string MainPluginInterface::description() const
   return description_;
 }
 
-PluginInterface::VoidPromise
+MainPluginInterface::VoidPromise
   MainPluginInterface::load()
 {
   DCHECK_RUN_ON(&sequence_checker_);
@@ -97,7 +97,7 @@ PluginInterface::VoidPromise
       );
 }
 
-PluginInterface::VoidPromise MainPluginInterface::unload()
+MainPluginInterface::VoidPromise MainPluginInterface::unload()
 {
   DCHECK_RUN_ON(&sequence_checker_);
 

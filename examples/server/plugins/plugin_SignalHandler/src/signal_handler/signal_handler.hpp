@@ -21,7 +21,7 @@
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/move_only.hpp>
@@ -47,14 +47,14 @@ class SignalHandler
   SignalHandler(
     ::boost::asio::io_context& ioc
     , base::OnceClosure&& quitCb)
-    RUN_ON(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   ~SignalHandler()
-    RUN_ON(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
  private:
   void handleQuitSignal(::boost::system::error_code const&, int)
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(handleQuitSignal));
+    GUARD_METHOD_ON_UNKNOWN_THREAD(handleQuitSignal);
 
  private:
   // Capture SIGINT and SIGTERM to perform a clean shutdown
@@ -62,13 +62,13 @@ class SignalHandler
     GUARDED_BY(sequence_checker_);
 
   base::OnceClosure quitCb_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(quitCb_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(quitCb_);
 
   std::atomic<size_t> signalsRecievedCount_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(signalsRecievedCount_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(signalsRecievedCount_);
 
   /// \note can be called from any thread
-  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(handleQuitSignal));
+  CREATE_METHOD_GUARD(handleQuitSignal);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

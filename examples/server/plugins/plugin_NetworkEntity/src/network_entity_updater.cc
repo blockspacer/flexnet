@@ -50,7 +50,7 @@
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
@@ -73,14 +73,14 @@ namespace backend {
 
 NetworkEntityUpdater::NetworkEntityUpdater(
   scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner
-  , ECS::AsioRegistry& asioRegistry
+  , ECS::NetworkRegistry& netRegistry
   , boost::asio::io_context& ioc)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , asioRegistry_(REFERENCED(asioRegistry))
+  , netRegistry_(REFERENCED(netRegistry))
   , ioc_(REFERENCED(ioc))
   , periodicAsioTaskRunner_(periodicAsioTaskRunner)
   , periodicTaskExecutor_(
@@ -105,9 +105,9 @@ NetworkEntityUpdater::~NetworkEntityUpdater()
 
 void NetworkEntityUpdater::update() NO_EXCEPTION
 {
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicAsioTaskRunner_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(periodicAsioTaskRunner_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
   DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
 
@@ -124,35 +124,33 @@ void NetworkEntityUpdater::update() NO_EXCEPTION
     // i.e. use check `registry.empty()`
     {
       /// \note (thread-safety) access when ioc->stopped
-      /// i.e. assume no running asio threads that use |asioRegistry_|
-      DCHECK_RUN_ON_ANY_THREAD_SCOPE(asioRegistry_->FUNC_GUARD(registry));
-      DCHECK(asioRegistry_->registry().empty());
+      /// i.e. assume no running asio threads that use |netRegistry_|
+      DCHECK(netRegistry_->registryUnsafe().empty());
     }
 
     return;
   }
 
-  ::boost::asio::post(
-    asioRegistry_->asioStrand()
-    /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler([
+  netRegistry_->taskRunner()->PostTask(
+    FROM_HERE
+    , base::BindOnce([
       ](
-        ECS::AsioRegistry& asio_registry
+        ECS::NetworkRegistry& net_registry
       ){
         DCHECK(
-          asio_registry.running_in_this_thread());
+          net_registry.RunsTasksInCurrentSequence());
 
-        ECS::updateNewConnections(asio_registry);
+        ECS::updateNewConnections(net_registry);
 
-        ECS::updateSSLDetection(asio_registry);
-
-        /// \todo cutomizable cleanup period
-        ECS::updateUnusedSystem(asio_registry);
+        ECS::updateSSLDetection(net_registry);
 
         /// \todo cutomizable cleanup period
-        ECS::updateCleanupSystem(asio_registry);
+        ECS::updateUnusedSystem(net_registry);
+
+        /// \todo cutomizable cleanup period
+        ECS::updateCleanupSystem(net_registry);
       }
-      , REFERENCED(*asioRegistry_)
+      , REFERENCED(*netRegistry_)
     )
   );
 }
@@ -161,9 +159,9 @@ MUST_USE_RETURN_VALUE
 basis::PeriodicTaskExecutor&
   NetworkEntityUpdater::periodicTaskExecutor() NO_EXCEPTION
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(periodicTaskExecutor));
+  DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(periodicTaskExecutor);
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicTaskExecutor_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(periodicTaskExecutor_);
   return periodicTaskExecutor_;
 }
 

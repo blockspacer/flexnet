@@ -17,12 +17,12 @@
 namespace ECS {
 
 void updateUnusedSystem(
-  ECS::AsioRegistry& asio_registry)
+  ECS::NetworkRegistry& net_registry)
 {
-  DCHECK_RUN_ON_STRAND(&asio_registry.strand, ECS::AsioRegistry::ExecutorType);
+  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
 
   auto registry_group
-    = asio_registry->view<ECS::UnusedTag>(
+    = net_registry->view<ECS::UnusedTag>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -44,12 +44,12 @@ void updateUnusedSystem(
 
   registry_group
     .each(
-      [&asio_registry]
+      [&net_registry]
       (const auto& entity_id)
     {
-      DCHECK(asio_registry->valid(entity_id));
-      DCHECK(!asio_registry->has<ECS::NeedToDestroyTag>(entity_id));
-      asio_registry->emplace<ECS::NeedToDestroyTag>(entity_id);
+      DCHECK(net_registry->valid(entity_id));
+      DCHECK(!net_registry->has<ECS::NeedToDestroyTag>(entity_id));
+      net_registry->emplace<ECS::NeedToDestroyTag>(entity_id);
     });
 }
 

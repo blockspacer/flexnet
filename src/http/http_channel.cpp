@@ -305,7 +305,7 @@ namespace http {
 HttpChannel::HttpChannel(
   StreamType&& stream
   , MessageBufferType&& buffer
-  , ECS::AsioRegistry& asioRegistry
+  , ECS::NetworkRegistry& netRegistry
   , const ECS::Entity entity_id)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
@@ -317,7 +317,7 @@ HttpChannel::HttpChannel(
       stream_.get_executor())
   , is_stream_valid_(true)
   , buffer_(base::rvalue_cast(buffer))
-  , asioRegistry_(REFERENCED(asioRegistry))
+  , netRegistry_(REFERENCED(netRegistry))
   , entity_id_(entity_id)
 {
   LOG_CALL(DVLOG(99));
@@ -345,7 +345,7 @@ HttpChannel::~HttpChannel()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(HttpChannelDestructor));
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   /// \note do not call `close()` from destructor
   /// i.e. call `close()` manually
@@ -357,12 +357,12 @@ HttpChannel::~HttpChannel()
   }
 }
 
-bool HttpChannel::isOpen()
+bool HttpChannel::isOpen() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -370,11 +370,11 @@ bool HttpChannel::isOpen()
   return stream_.socket().is_open();
 }
 
-void HttpChannel::doReadAsync()
+void HttpChannel::startReadAsync() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK(!perConnectionStrand_->running_in_this_thread())
     << "use HttpChannel::doRead()";
@@ -390,12 +390,25 @@ void HttpChannel::doReadAsync()
   );
 }
 
-void HttpChannel::doRead()
+void HttpChannel::startRead() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+
+  DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
+
+  /// \todo Init resources here before first call to `doRead()`
+
+  doRead();
+}
+
+void HttpChannel::doRead() NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -444,17 +457,18 @@ void HttpChannel::doRead()
   );
 }
 
-void HttpChannel::doEof()
+void HttpChannel::doEof() NO_EXCEPTION
 {
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
   DCHECK(is_stream_valid_.load());
 
-  auto& socket
+  StreamType::socket_type& socket
     = beast::get_lowest_layer(stream_).socket();
 
   if(socket.is_open())
@@ -469,41 +483,45 @@ void HttpChannel::doEof()
       .expires_after(std::chrono::seconds(kCloseTimeoutSec));
   }
 
-  auto markUnused
-    = [this, &socket]()
-  {
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
-
-    DCHECK(asioRegistry_->running_in_this_thread());
-
-    DCHECK((*asioRegistry_)->valid(entity_id_));
-
-    if(!(*asioRegistry_)->has<ECS::UnusedTag>(entity_id_)) {
-      (*asioRegistry_)->emplace<ECS::UnusedTag>(entity_id_);
-    }
-  };
-
   util::closeSocketUnsafe(
     REFERENCED(socket));
 
-  // mark SSL detection completed
-  ::boost::asio::post(
-    asioRegistry_->asioStrand()
-    /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler(
-        base::rvalue_cast(markUnused)
+  netRegistry_->taskRunner()->PostTask(
+    FROM_HERE
+    , base::BindOnce(
+        &HttpChannel::markUnused
+        , REFERENCED(*netRegistry_)
+        , entity_id_
       )
   );
 }
 
-void HttpChannel::onFail(
-  ErrorCode ec
-  , char const* what)
+void HttpChannel::markUnused(
+  ECS::NetworkRegistry& netRegistry
+  , ECS::EntityId entity_id) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
+  DCHECK(netRegistry.RunsTasksInCurrentSequence());
+
+  // If object was freed,
+  // than no need to mark it as unused
+  if(!netRegistry->valid(entity_id)){
+    return;
+  }
+
+  if(!netRegistry->has<ECS::UnusedTag>(entity_id)) {
+    netRegistry->emplace<ECS::UnusedTag>(entity_id);
+  }
+}
+
+void HttpChannel::onFail(
+  ErrorCode ec
+  , char const* what) NO_EXCEPTION
+{
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
 
   DCHECK(is_stream_valid_.load());
 
@@ -564,14 +582,13 @@ void HttpChannel::onFail(
 
 void HttpChannel::onRead(
   ErrorCode ec
-  , std::size_t bytes_transferred)
+  , std::size_t bytes_transferred) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  /// \note `is_stream_valid_` may become invalid on scope exit
-  DCHECK_THREAD_GUARD_SCOPE_ENTER(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
   // This means they closed the connection
@@ -611,30 +628,18 @@ void HttpChannel::onRead(
     // The websocket::stream uses its own timeout settings.
     beast::get_lowest_layer(stream_).expires_never();
 
-#if 1
     // create websocket connection
-    ::boost::asio::post(
-      asioRegistry_->asioStrand()
-      /// \todo use base::BindFrontWrapper
-      , ::boost::beast::bind_front_handler([
-        ](
-          base::OnceClosure&& boundTask
-        ){
-          base::rvalue_cast(boundTask).Run();
-        }
-        , base::BindOnce(
-            &HttpChannel::handleWebsocketUpgrade
-            , base::Unretained(this)
-            , ec
-            , bytes_transferred
-            , base::rvalue_cast(stream_)
-            , base::Passed(base::rvalue_cast(parser_->release()))
-          )
-      )
+    netRegistry_->taskRunner()->PostTask(
+      FROM_HERE
+      , base::BindOnce(
+          &HttpChannel::handleWebsocketUpgrade
+          , base::Unretained(this)
+          , ec
+          , bytes_transferred
+          , base::rvalue_cast(stream_)
+          , base::Passed(base::rvalue_cast(parser_->release()))
+        )
     );
-#else
-   doEof();
-#endif
 
     /// \note `stream_` can be moved to websocket session from http session,
     // so we can't use it here anymore
@@ -661,8 +666,8 @@ void HttpChannel::onRead(
     std::nullopt, // optional custom response
     [this](auto&& response)
     {
-      DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
-      DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+      DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+      DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
       DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -714,18 +719,18 @@ void HttpChannel::handleWebsocketUpgrade(
   , StreamType&& stream
   , boost::beast::http::request<
       RequestBodyType
-    >&& req)
+    >&& req) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
 
-  DCHECK(asioRegistry_->running_in_this_thread());
+  DCHECK(netRegistry_->RunsTasksInCurrentSequence());
 
   ECS::TcpConnection& tcpComponent
-    = (*asioRegistry_)->get<ECS::TcpConnection>(entity_id_);
+    = (*netRegistry_)->get<ECS::TcpConnection>(entity_id_);
 
   DVLOG(99)
     << "using TcpConnection with id: "
@@ -740,7 +745,7 @@ void HttpChannel::handleWebsocketUpgrade(
     = &tcpComponent->reset_or_create_var<WsChannelComponent>(
         "Ctx_WsChannelComponent_" + base::GenerateGUID() // debug name
         , base::rvalue_cast(stream)
-        , REFERENCED(*asioRegistry_)
+        , REFERENCED(*netRegistry_)
         , entity_id_);
 
   // we moved `stream_` out
@@ -762,12 +767,12 @@ void HttpChannel::handleWebsocketUpgrade(
 void HttpChannel::onWrite(
   ErrorCode ec
   , std::size_t bytes_transferred
-  , bool closeInResponse)
+  , bool closeInResponse) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 

@@ -46,7 +46,7 @@
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/move_only.hpp>
@@ -97,12 +97,12 @@ void SignalHandler::handleQuitSignal(
   ::boost::system::error_code const&
   , int)
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(handleQuitSignal));
+  DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(handleQuitSignal);
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(quitCb_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(signalsRecievedCount_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(quitCb_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(signalsRecievedCount_);
 
   DVLOG(9)
     << "got stop signal";

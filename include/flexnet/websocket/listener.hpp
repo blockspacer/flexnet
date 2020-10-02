@@ -1,6 +1,6 @@
 #pragma once
 
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/bitmask.h>
 
 #include <base/rvalue_cast.h>
@@ -217,7 +217,7 @@ public:
    IoContext& ioc
     , EndpointType&& endpoint
     // ECS registry used to create `per-connection entity`
-    , ECS::AsioRegistry& asioRegistry
+    , ECS::NetworkRegistry& netRegistry
     , EntityAllocatorCb entityAllocator);
 
   Listener(
@@ -236,8 +236,8 @@ public:
     , CallbackT&& task
     , base::IsNestedPromise isNestedPromise = base::IsNestedPromise())
   {
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(acceptorStrand_));
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
     // unable to `::boost::asio::post` on stopped ioc
     DCHECK(!ioc_->stopped());
@@ -300,7 +300,7 @@ private:
     , ECS::Entity tcp_entity_id);
 
   void allocateTcpResourceAndAccept()
-    RUN_ON(&asioRegistry_->strand);
+    PRIVATE_METHOD_RUN_ON(*netRegistry_);
 
   // store result of |acceptor_.async_accept(...)|
   // in `per-connection entity`
@@ -309,12 +309,12 @@ private:
     ECS::Entity tcp_entity_id
     , ErrorCode&& ec
     , SocketType&& socket)
-    RUN_ON(&asioRegistry_->strand);
+    PRIVATE_METHOD_RUN_ON(*netRegistry_);
 
   // Report a failure
   /// \note not thread-safe, so keep it for logging purposes only
   void logFailure(const ErrorCode& ec, char const* what)
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(logFailure));
+    GUARD_METHOD_ON_UNKNOWN_THREAD(logFailure);
 
   MUST_USE_RETURN_VALUE
     ::util::Status configureAcceptor();
@@ -381,22 +381,22 @@ private:
 
   // Provides I/O functionality
   const util::UnownedRef<IoContext> ioc_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
   // acceptor will listen that address
   const EndpointType endpoint_
     GUARDED_BY(acceptorStrand_);
 
   // used to create `per-connection entity`
-  util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
+  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
   /// \note Do not destruct |Listener| while |acceptorStrand_|
   /// has scheduled or execting tasks.
   const basis::AnnotatedStrand<ExecutorType> acceptorStrand_
-    SET_CUSTOM_THREAD_GUARD_WITH_CHECK(
+    SET_THREAD_GUARD_WITH_CHECK(
       MEMBER_GUARD(acceptorStrand_)
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
@@ -428,7 +428,7 @@ private:
   EntityAllocatorCb entityAllocator_;
 
   /// \note can be called from any thread
-  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(logFailure));
+  CREATE_METHOD_GUARD(logFailure);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

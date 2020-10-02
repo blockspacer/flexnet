@@ -43,7 +43,7 @@
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/move_only.hpp>
@@ -109,25 +109,25 @@ class MainPluginLogic
 
   MainPluginLogic(
     const MainPluginInterface* pluginInterface)
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   ~MainPluginLogic()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   VoidPromise load()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   VoidPromise unload()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
  private:
   void startAcceptors() NO_EXCEPTION
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
   // Allow creation of new connections.
   MUST_USE_RETURN_VALUE
   VoidPromise configureAndRunAcceptor() NO_EXCEPTION
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
   // Call during server termination to make sure
   // that connections recieved `stop` message
@@ -137,12 +137,12 @@ class MainPluginLogic
   /// We assume that empty ECS registry means that network resources were freed.
   MUST_USE_RETURN_VALUE
   VoidPromise promiseNetworkResourcesFreed() NO_EXCEPTION
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
   // send async-close for each connection
   // (used on app termination)
   void closeNetworkResources() NO_EXCEPTION
-    RUN_ON(periodicValidateUntil_.taskRunner().get());
+    PRIVATE_METHOD_RUN_ON(periodicValidateUntil_.taskRunner().get());
 
   // Posts task to strand associated with registry
   // that performs periodic check if `registry.empty()`.
@@ -150,36 +150,24 @@ class MainPluginLogic
   // We assume that empty ECS registry means that network resources were freed.
   void validateAndFreeNetworkResources(
     base::RepeatingClosure resolveCallback) NO_EXCEPTION
-    RUN_ON(periodicValidateUntil_.taskRunner().get());
-
-  // Used to free network resources.
-  basis::PeriodicValidateUntil periodicValidateUntil_
-    SET_THREAD_COLLISION_GUARD(MEMBER_GUARD(periodicValidateUntil_));
+    PRIVATE_METHOD_RUN_ON(periodicValidateUntil_.taskRunner().get());
 
   // Stop the `io_context`. This will cause `io_context.run()`
   // to return immediately, eventually destroying the
   // io_context and any remaining handlers in it.
   void stopIOContext() NO_EXCEPTION
-    RUN_ON(&sequence_checker_);
-
-  std::string ipAddr() NO_EXCEPTION
-    RUN_ON(&sequence_checker_);
-
-  int portNum() NO_EXCEPTION
-    RUN_ON(&sequence_checker_);
-
-  int quitDetectionFreqMillisec() NO_EXCEPTION
-    RUN_ON(&sequence_checker_);
-
-  int quitDetectionDebugTimeoutMillisec() NO_EXCEPTION
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
  private:
   SET_WEAK_POINTERS(MainPluginLogic);
 
+  // Used to free network resources.
+  basis::PeriodicValidateUntil periodicValidateUntil_
+    GUARD_MEMBER_DISALLOW_THREAD_COLLISION(periodicValidateUntil_);
+
   util::UnownedRef<
-    const ::Corrade::Utility::ConfigurationGroup
-  > configuration_
+    const MainPluginInterface
+  > pluginInterface_
       GUARDED_BY(sequence_checker_);
 
   util::UnownedPtr<
@@ -190,19 +178,19 @@ class MainPluginLogic
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(mainLoopRunner_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(mainLoopRunner_);
 
   util::UnownedRef<::boost::asio::io_context> ioc_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(ioc_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
   const EndpointType tcpEndpoint_
     GUARDED_BY(sequence_checker_);
 
-  util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
+  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   ::backend::TcpEntityAllocator tcpEntityAllocator_;
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(tcpEntityAllocator_));
+    GUARD_MEMBER_DISALLOW_THREAD_COLLISION(tcpEntityAllocator_);
 
   // Listens for tcp connections.
   flexnet::ws::Listener listener_

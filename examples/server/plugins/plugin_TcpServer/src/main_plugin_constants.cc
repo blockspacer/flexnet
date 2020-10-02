@@ -4,6 +4,14 @@ namespace plugin {
 namespace tcp_server {
 
 // extern
+const char kPluginInterfaceVersion[]
+  = "plugin.PluginInterface/1.0";
+
+// extern
+const char kPluginName[]
+  = "TcpServer";
+
+// extern
 const char kDefaultIpAddr[]
   = "127.0.0.1";
 
@@ -18,14 +26,6 @@ const int kDefaultPortNum
 // extern
 const char kConfPortNum[]
   = "portNum";
-
-// extern
-const char kPluginInterfaceVersion[]
-  = "plugin.PluginInterface/1.0";
-
-// extern
-const char kPluginName[]
-  = "TcpServer";
 
 // extern
 const int kDefaultQuitDetectionFreqMillisec

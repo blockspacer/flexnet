@@ -66,16 +66,16 @@ class MainPluginLogic
 
   MainPluginLogic(
     const MainPluginInterface* pluginInterface)
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   ~MainPluginLogic()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   VoidPromise load()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   VoidPromise unload()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
  private:
   // init with provided settings
@@ -85,22 +85,22 @@ class MainPluginLogic
   VoidPromise setRecordActionTaskRunner(
     // |task_runner| will be used by |base::SetRecordActionTaskRunner|
     scoped_refptr<base::SingleThreadTaskRunner> task_runner)
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
   MUST_USE_RESULT
   VoidPromise removeActionCallback()
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
   // used by |base::RecordAction|
   void onUserAction(
     const std::string& action_name)
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
   void setCustomCallback()
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
   void unsetCustomCallback()
-    RUN_ON(&sequence_checker_);
+    PRIVATE_METHOD_RUN_ON(&sequence_checker_);
 
  private:
   SET_WEAK_POINTERS(MainPluginLogic);

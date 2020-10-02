@@ -34,8 +34,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , configuration_{REFERENCED(
-      pluginInterface->metadata()->configuration())}
+  , pluginInterface_{REFERENCED(*pluginInterface)}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
@@ -44,17 +43,19 @@ MainPluginLogic::MainPluginLogic(
       mainLoopRegistry_->registry()
         .ctx<::boost::asio::io_context>())}
   , tcpEndpoint_{
-    ::boost::asio::ip::make_address(ipAddr())
+    ::boost::asio::ip::make_address(
+        pluginInterface->ipAddr())
     , /// \note Crash if out of range.
-      base::checked_cast<unsigned short>(portNum())}
-  , asioRegistry_{
+      ::base::checked_cast<unsigned short>(
+          pluginInterface->portNum())}
+  , netRegistry_{
       REFERENCED(mainLoopRegistry_->registry()
-        .ctx<ECS::AsioRegistry>())}
-  , tcpEntityAllocator_(REFERENCED(*asioRegistry_))
+        .ctx<ECS::NetworkRegistry>())}
+  , tcpEntityAllocator_(REFERENCED(*netRegistry_))
   , listener_{
       *ioc_
       , EndpointType{tcpEndpoint_}
-      , REFERENCED(*asioRegistry_)
+      , REFERENCED(*netRegistry_)
       // Callback will be called per each connected client
       // to create ECS entity
       , base::BindRepeating(
@@ -82,7 +83,7 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::load()");
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(mainLoopRunner_);
 
   return VoidPromise::CreateResolved(FROM_HERE)
   .ThenOn(mainLoopRunner_
@@ -101,7 +102,7 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::unload()");
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(mainLoopRunner_);
 
   return VoidPromise::CreateResolved(FROM_HERE)
   .ThenOn(mainLoopRunner_
@@ -178,9 +179,9 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicValidateUntil_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(periodicValidateUntil_);
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -188,17 +189,15 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
   /// if `ioc_->stopped()`
   DCHECK(!ioc_->stopped()); // io_context::stopped is thread-safe
 
-  // redirect task to strand
-  ::boost::asio::post(
-    asioRegistry_->asioStrand()
-    , std::bind(
-      []
-      (
-        ECS::AsioRegistry& asioRegistry)
-      {
+  netRegistry_->taskRunner()->PostTask(
+    FROM_HERE
+    , base::BindOnce([
+      ](
+        ECS::NetworkRegistry& netRegistry
+      ){
         LOG_CALL(DVLOG(99));
 
-        DCHECK(asioRegistry.running_in_this_thread());
+        DCHECK(netRegistry.RunsTasksInCurrentSequence());
 
         /// \note it is not ordinary ECS component,
         /// it is stored in entity context (not in ECS registry)
@@ -206,7 +205,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
           = base::Optional<::flexnet::ws::WsChannel>;
 
         auto ecsView
-          = asioRegistry->view<ECS::TcpConnection>(
+          = netRegistry->view<ECS::TcpConnection>(
               entt::exclude<
                 // entity in destruction
                 ECS::NeedToDestroyTag
@@ -218,7 +217,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
         base::RepeatingCallback<void(ECS::Entity, ECS::Registry&)> doEofWebsocket
           = base::BindRepeating(
               []
-              (ECS::AsioRegistry& asioRegistry
+              (ECS::NetworkRegistry& netRegistry
                , ECS::Entity entity
                , ECS::Registry& registry)
         {
@@ -228,14 +227,14 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
 
           LOG_CALL(DVLOG(99));
 
-          DCHECK(asioRegistry.running_in_this_thread());
+          DCHECK(netRegistry.RunsTasksInCurrentSequence());
 
-          DCHECK(asioRegistry->valid(entity));
+          DCHECK(netRegistry->valid(entity));
 
           // each entity representing tcp connection
           // must have that component
           ECS::TcpConnection& tcpComponent
-            = asioRegistry->get<ECS::TcpConnection>(entity);
+            = netRegistry->get<ECS::TcpConnection>(entity);
 
           LOG_CALL(DVLOG(99))
             << " for TcpConnection with id: "
@@ -266,7 +265,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
               << tcpComponent.debug_id;
           }
         }
-        , REFERENCED(asioRegistry));
+        , REFERENCED(netRegistry));
 
         if(ecsView.empty()) {
           DVLOG(99)
@@ -276,15 +275,15 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
           // execute callback `doEofWebsocket` per each entity,
           ecsView
           .each(
-            [&doEofWebsocket, &asioRegistry]
+            [&doEofWebsocket, &netRegistry]
             (const auto& entity
              , const auto& component)
           {
-            doEofWebsocket.Run(entity, (*asioRegistry));
+            doEofWebsocket.Run(entity, (*netRegistry));
           });
         }
       }
-      , REFERENCED(*asioRegistry_)
+      , REFERENCED(*netRegistry_)
     )
   );
 }
@@ -294,9 +293,9 @@ void MainPluginLogic::validateAndFreeNetworkResources(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicValidateUntil_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(periodicValidateUntil_);
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -315,20 +314,19 @@ void MainPluginLogic::validateAndFreeNetworkResources(
   /// we wait for scheduled tasks that will fully create entities.
   closeNetworkResources();
 
-  // redirect task to strand
-  ::boost::asio::post(
-    asioRegistry_->asioStrand()
-    , std::bind(
+   netRegistry_->taskRunner()->PostTask(
+    FROM_HERE
+    , base::BindOnce(
       []
       (
-        ECS::AsioRegistry& asioRegistry
+        ECS::NetworkRegistry& netRegistry
         , COPIED() base::RepeatingClosure resolveCallback)
       {
         LOG_CALL(DVLOG(99));
 
-        DCHECK(asioRegistry.running_in_this_thread());
+        DCHECK(netRegistry.RunsTasksInCurrentSequence());
 
-        if(asioRegistry->empty()) {
+        if(netRegistry->empty()) {
           DVLOG(9)
             << "registry is empty";
           DCHECK(resolveCallback);
@@ -337,10 +335,10 @@ void MainPluginLogic::validateAndFreeNetworkResources(
         } else {
           DVLOG(9)
             << "registry is NOT empty with size:"
-            << asioRegistry->size();
+            << netRegistry->size();
         }
       }
-      , REFERENCED(*asioRegistry_)
+      , REFERENCED(*netRegistry_)
       , COPIED(resolveCallback)
     )
   );
@@ -351,8 +349,8 @@ MainPluginLogic::VoidPromise
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(periodicValidateUntil_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(periodicValidateUntil_);
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -360,9 +358,9 @@ MainPluginLogic::VoidPromise
   /// if `ioc_->stopped()`
   DCHECK(!ioc_->stopped()); // io_context::stopped is thread-safe
 
-  // Will check periodically if `asioRegistry->empty()` and if true,
+  // Will check periodically if `netRegistry->empty()` and if true,
   // than promise will be resolved.
-  // Periodic task will be redirected to `asio_registry.asioStrand()`.
+  // Periodic task will be redirected to `net_registry`.
   basis::PeriodicValidateUntil::ValidationTaskType validationTask
     = base::BindRepeating(
         &MainPluginLogic::validateAndFreeNetworkResources
@@ -372,10 +370,10 @@ MainPluginLogic::VoidPromise
   return periodicValidateUntil_.runPromise(FROM_HERE
     , basis::EndingTimeout{
         base::TimeDelta::FromMilliseconds(
-          quitDetectionDebugTimeoutMillisec())} // debug-only expiration time
+          pluginInterface_->quitDetectionDebugTimeoutMillisec())} // debug-only expiration time
     , basis::PeriodicCheckUntil::CheckPeriod{
         base::TimeDelta::FromMilliseconds(
-          quitDetectionFreqMillisec())}
+          pluginInterface_->quitDetectionFreqMillisec())}
       // debug-only error
     , "Destruction of allocated connections hanged."
       "ECS registry must become empty after some time (during app termination)."
@@ -400,7 +398,7 @@ MainPluginLogic::VoidPromise
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(mainLoopRunner_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(mainLoopRunner_);
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -421,7 +419,7 @@ void MainPluginLogic::stopIOContext() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(ioc_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -435,81 +433,6 @@ void MainPluginLogic::stopIOContext() NO_EXCEPTION
     ioc_->stop(); // io_context::stop is thread-safe
     DCHECK(ioc_->stopped()); // io_context::stopped is thread-safe
   }
-}
-
-std::string MainPluginLogic::ipAddr() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  std::string ipAddr
-    = kDefaultIpAddr;
-
-  if(configuration_->hasValue(kConfIpAddr))
-  {
-    ipAddr =
-      configuration_->value(kConfIpAddr);
-  }
-
-  return ipAddr;
-}
-
-int MainPluginLogic::portNum() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  int portNum
-    = kDefaultPortNum;
-
-  if(configuration_->hasValue(kConfPortNum))
-  {
-    base::StringToInt(
-      configuration_->value(kConfPortNum)
-      , &portNum);
-  }
-
-  return portNum;
-}
-
-int MainPluginLogic::quitDetectionFreqMillisec() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  int quitDetectionFreqMillisec
-    = kDefaultQuitDetectionFreqMillisec;
-
-  if(configuration_->hasValue(kConfQuitDetectionFreqMillisec))
-  {
-    base::StringToInt(
-      configuration_->value(kConfQuitDetectionFreqMillisec)
-      , &quitDetectionFreqMillisec);
-  }
-
-  return quitDetectionFreqMillisec;
-}
-
-int MainPluginLogic::quitDetectionDebugTimeoutMillisec() NO_EXCEPTION
-{
-  LOG_CALL(DVLOG(99));
-
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  int quitDetectionDebugTimeoutMillisec
-    = kDefaultQuitDetectionDebugTimeoutMillisec;
-
-  if(configuration_->hasValue(kConfQuitDetectionDebugTimeoutMillisec))
-  {
-    base::StringToInt(
-      configuration_->value(kConfQuitDetectionDebugTimeoutMillisec)
-      , &quitDetectionDebugTimeoutMillisec);
-  }
-
-  return quitDetectionDebugTimeoutMillisec;
 }
 
 } // namespace tcp_server

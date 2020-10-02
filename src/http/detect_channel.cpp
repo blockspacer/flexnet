@@ -32,7 +32,7 @@ namespace http {
 
 DetectChannel::DetectChannel(
   AsioTcp::socket&& socket
-  , ECS::AsioRegistry& asioRegistry
+  , ECS::NetworkRegistry& netRegistry
   , const ECS::Entity entity_id)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
@@ -45,7 +45,7 @@ DetectChannel::DetectChannel(
       /// \note `get_executor` returns copy
       stream_.value().get_executor())
   , atomicDetectDoneFlag_(false)
-  , asioRegistry_(REFERENCED(asioRegistry))
+  , netRegistry_(REFERENCED(netRegistry))
   , entity_id_(entity_id)
 {
   LOG_CALL(DVLOG(99));
@@ -55,7 +55,7 @@ DetectChannel::DetectChannel(
 
 DetectChannel::~DetectChannel()
 {
-  DCHECK_RUN_ON_ANY_THREAD_SCOPE(FUNC_GUARD(DetectChannelDestructor));
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   LOG_CALL(DVLOG(99));
 }
@@ -65,7 +65,7 @@ void DetectChannel::configureDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(stream_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(stream_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -93,11 +93,11 @@ void DetectChannel::runDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(stream_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(buffer_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_buffer_valid_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(stream_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(buffer_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_buffer_valid_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -216,12 +216,12 @@ void DetectChannel::onDetected(
 
   DCHECK(isDetectingInThisThread());
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_stream_valid_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(is_buffer_valid_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(stream_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(buffer_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(atomicDetectDoneFlag_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_buffer_valid_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(stream_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(buffer_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(atomicDetectDoneFlag_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   DCHECK(is_stream_valid_.load());
   DCHECK(is_buffer_valid_.load());
@@ -258,27 +258,19 @@ void DetectChannel::onDetected(
     << " forcing close of connection";
 
   // mark SSL detection completed
-  ::boost::asio::post(
-    asioRegistry_->asioStrand()
-    /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler([
-      ](
-        base::OnceClosure&& boundTask
-      ){
-        base::rvalue_cast(boundTask).Run();
-      }
-      , base::BindOnce(
-          &DetectChannel::setSSLDetectResult
-          , base::Unretained(this)
-          /// \note do not forget to free allocated resources
-          /// in case of error code
-          , CAN_COPY_ON_MOVE("moving const") std::move(ec)
-          , handshakeResult
-          , MAKES_INVALID(stream_) base::rvalue_cast(stream_.value())
-          , MAKES_INVALID(buffer_) base::rvalue_cast(buffer_)
-          , forceClosing
-        )
-    )
+  netRegistry_->taskRunner()->PostTask(
+    FROM_HERE
+    , base::BindOnce(
+        &DetectChannel::setSSLDetectResult
+        , base::Unretained(this)
+        /// \note do not forget to free allocated resources
+        /// in case of error code
+        , CAN_COPY_ON_MOVE("moving const") std::move(ec)
+        , handshakeResult
+        , MAKES_INVALID(stream_) base::rvalue_cast(stream_.value())
+        , MAKES_INVALID(buffer_) base::rvalue_cast(buffer_)
+        , forceClosing
+      )
   );
 
   // we moved `stream_` out
@@ -299,10 +291,10 @@ void DetectChannel::setSSLDetectResult(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(asioRegistry_));
-  DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
 
-  DCHECK(asioRegistry_->running_in_this_thread());
+  DCHECK(netRegistry_->RunsTasksInCurrentSequence());
 
   DVLOG(99)
     << " detected connection as "
@@ -313,12 +305,12 @@ void DetectChannel::setSSLDetectResult(
       = base::Optional<DetectChannel::SSLDetectResult>;
 
     // If the value already exists allow it to be re-used
-    (*asioRegistry_)->remove_if_exists<
+    (*netRegistry_)->remove_if_exists<
         ECS::UnusedSSLDetectResultTag
       >(entity_id_);
 
     UniqueSSLDetectComponent& detectResult
-      = (*asioRegistry_).reset_or_create_component<UniqueSSLDetectComponent>(
+      = (*netRegistry_).reset_or_create_component<UniqueSSLDetectComponent>(
             "UniqueSSLDetectComponent_" + base::GenerateGUID() // debug name
             , entity_id_
             , base::rvalue_cast(ec)

@@ -64,7 +64,7 @@
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/move_only.hpp>
@@ -135,27 +135,23 @@ class MainPluginLogic
 
   MainPluginLogic(
     const MainPluginInterface* pluginInterface)
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   ~MainPluginLogic()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   VoidPromise load()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   VoidPromise unload()
-    RUN_ON_LOCKS_EXCLUDED(&sequence_checker_);
-
- private:
-  int entityUpdateFreqMillisec() NO_EXCEPTION
-    RUN_ON(&sequence_checker_);
+    PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
  private:
   SET_WEAK_POINTERS(MainPluginLogic);
 
   util::UnownedRef<
-    const ::Corrade::Utility::ConfigurationGroup
-  > configuration_
+    const MainPluginInterface
+  > pluginInterface_
       GUARDED_BY(sequence_checker_);
 
   util::UnownedPtr<
@@ -175,7 +171,7 @@ class MainPluginLogic
   util::UnownedRef<::boost::asio::io_context> ioc_
     GUARDED_BY(&sequence_checker_);
 
-  util::UnownedRef<ECS::AsioRegistry> asioRegistry_
+  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
     GUARDED_BY(&sequence_checker_);
 
   ::backend::NetworkEntityUpdater networkEntityUpdater_

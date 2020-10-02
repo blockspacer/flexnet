@@ -14,7 +14,7 @@
 
 #include <basis/checked_optional.hpp>
 #include <basis/lock_with_check.hpp>
-#include <basis/ECS/asio_registry.hpp>
+#include <basis/ECS/network_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/status/statusor.hpp>
 #include <basis/move_only.hpp>
@@ -180,21 +180,21 @@ public:
 
    public:
     CircularMessageBuffer(uint32_t size)
-      RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+      PUBLIC_METHOD_RUN_ON(&sequence_checker_)
       : storage_(size)
     {
       DETACH_FROM_SEQUENCE(sequence_checker_);
     }
 
    ~CircularMessageBuffer()
-     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+     PUBLIC_METHOD_RUN_ON(&sequence_checker_)
    {
      DCHECK_RUN_ON(&sequence_checker_);
    }
 
    template <class... Args>
    void writeBack(Args&&... args) NO_EXCEPTION
-     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+     PUBLIC_METHOD_RUN_ON(&sequence_checker_)
    {
      DCHECK_RUN_ON(&sequence_checker_);
 
@@ -203,7 +203,7 @@ public:
 
    MUST_USE_RESULT
    ValueType* frontPtr() NO_EXCEPTION
-     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+     PUBLIC_METHOD_RUN_ON(&sequence_checker_)
    {
      DCHECK_RUN_ON(&sequence_checker_);
 
@@ -212,7 +212,7 @@ public:
 
    MUST_USE_RESULT
    ValueType* backPtr() NO_EXCEPTION
-     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+     PUBLIC_METHOD_RUN_ON(&sequence_checker_)
    {
      DCHECK_RUN_ON(&sequence_checker_);
 
@@ -220,7 +220,7 @@ public:
    }
 
    void popFront() NO_EXCEPTION
-     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+     PUBLIC_METHOD_RUN_ON(&sequence_checker_)
    {
      DCHECK_RUN_ON(&sequence_checker_);
 
@@ -228,7 +228,7 @@ public:
    }
 
    void popBack() NO_EXCEPTION
-     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+     PUBLIC_METHOD_RUN_ON(&sequence_checker_)
    {
      DCHECK_RUN_ON(&sequence_checker_);
 
@@ -237,7 +237,7 @@ public:
 
    MUST_USE_RESULT
    size_t isEmpty() const NO_EXCEPTION
-     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+     PUBLIC_METHOD_RUN_ON(&sequence_checker_)
    {
      DCHECK_RUN_ON(&sequence_checker_);
 
@@ -246,7 +246,7 @@ public:
 
    MUST_USE_RESULT
    size_t isFull() const NO_EXCEPTION
-     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+     PUBLIC_METHOD_RUN_ON(&sequence_checker_)
    {
      DCHECK_RUN_ON(&sequence_checker_);
 
@@ -255,7 +255,7 @@ public:
 
    MUST_USE_RESULT
    size_t size() const NO_EXCEPTION
-     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+     PUBLIC_METHOD_RUN_ON(&sequence_checker_)
    {
      DCHECK_RUN_ON(&sequence_checker_);
 
@@ -265,7 +265,7 @@ public:
    // maximum number of items in the queue.
    MUST_USE_RESULT
    size_t capacity() const NO_EXCEPTION
-     RUN_ON_LOCKS_EXCLUDED(&sequence_checker_)
+     PUBLIC_METHOD_RUN_ON(&sequence_checker_)
    {
      DCHECK_RUN_ON(&sequence_checker_);
 
@@ -364,58 +364,15 @@ public:
   WsChannel(
     // Take ownership of the stream
     StreamType&& stream
-    , ECS::AsioRegistry& asioRegistry
+    , ECS::NetworkRegistry& netRegistry
     , const ECS::Entity entity_id);
 
   WsChannel(
     WsChannel&& other) = delete;
 
-  /// \note can destruct on any thread
-  ~WsChannel()
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(WsChannelDestructor));
+  ~WsChannel();
 
   SET_WEAK_SELF(WsChannel)
-
-  // Start the asynchronous operation
-  template<class Body, class Allocator>
-  void startAccept(
-    // Clients sends the HTTP request
-    // asking for a WebSocket connection
-    UpgradeRequestType<Body, Allocator>&& req) NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_)
-  {
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
-
-    DCHECK(perConnectionStrand_->running_in_this_thread());
-
-    // Accept the websocket handshake
-    ws_.async_accept(
-      req,
-      /// \todo use base::BindFrontWrapper
-      /*::boost::beast::bind_front_handler([
-        ](
-          base::OnceCallback<void(ErrorCode)>&& task
-          , ErrorCode ec
-        ){
-          DCHECK(task);
-          base::rvalue_cast(task).Run(ec);
-        }
-        , base::BindOnce(
-          &WsChannel::onAccept
-          , base::Unretained(this)
-        )
-      )*/
-      boost::asio::bind_executor(
-        *perConnectionStrand_
-        , ::std::bind(
-            &WsChannel::onAccept,
-            UNOWNED_LIFETIME(
-              this)
-            , std::placeholders::_1
-          )
-      )
-    );
-  }
 
   // Start the asynchronous operation
   template<class Body, class Allocator>
@@ -424,7 +381,7 @@ public:
     // asking for a WebSocket connection
     UpgradeRequestType<Body, Allocator>&& req) NO_EXCEPTION
   {
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
     ::boost::asio::post(
       *perConnectionStrand_
@@ -460,7 +417,7 @@ public:
   void sendAsync(
     SharedMessageData message
     , bool is_binary = true) NO_EXCEPTION
-    RUN_ON_ANY_THREAD_LOCKS_EXCLUDED(FUNC_GUARD(send));
+    GUARD_METHOD_ON_UNKNOWN_THREAD(send);
 
   template <typename CallbackT>
   MUST_USE_RETURN_VALUE
@@ -470,7 +427,7 @@ public:
     , base::IsNestedPromise isNestedPromise
         = base::IsNestedPromise()) NO_EXCEPTION
   {
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(perConnectionStrand_));
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
     return base::PostPromiseOnAsioExecutor(
       from_here
@@ -482,7 +439,7 @@ public:
 
   // calls `ws_.socket().shutdown`
   void doEof() NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_);
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_);
 
   /// \note returns COPY because of thread safety reasons:
   /// `entity_id_` assumed to be NOT changed,
@@ -491,18 +448,62 @@ public:
   MUST_USE_RETURN_VALUE
   ECS::Entity entityId() const NO_EXCEPTION
   {
-    DCHECK_THREAD_GUARD_SCOPE(MEMBER_GUARD(entity_id_));
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
     return entity_id_;
   }
 
   MUST_USE_RETURN_VALUE
   bool isOpen() NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_);
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_);
 
 private:
+  // Start the asynchronous operation
+  // Inits resources before first call to `onAccept()`
+  template<class Body, class Allocator>
+  void startAccept(
+    // Clients sends the HTTP request
+    // asking for a WebSocket connection
+    UpgradeRequestType<Body, Allocator>&& req) NO_EXCEPTION
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_)
+  {
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+
+    DCHECK(perConnectionStrand_->running_in_this_thread());
+
+    /// \todo Init resources here before first call to `onAccept()`
+
+    // Accept the websocket handshake
+    ws_.async_accept(
+      req,
+      /// \todo use base::BindFrontWrapper
+      /*::boost::beast::bind_front_handler([
+        ](
+          base::OnceCallback<void(ErrorCode)>&& task
+          , ErrorCode ec
+        ){
+          DCHECK(task);
+          base::rvalue_cast(task).Run(ec);
+        }
+        , base::BindOnce(
+          &WsChannel::onAccept
+          , base::Unretained(this)
+        )
+      )*/
+      boost::asio::bind_executor(
+        *perConnectionStrand_
+        , ::std::bind(
+            &WsChannel::onAccept,
+            UNOWNED_LIFETIME(
+              this)
+            , std::placeholders::_1
+          )
+      )
+    );
+  }
+
   void setRecievedDataComponents(
     std::string&& message) NO_EXCEPTION
-    RUN_ON(&asioRegistry_->strand);
+    PRIVATE_METHOD_RUN_ON(*netRegistry_);
 
   /**
   * @brief starts async writing to client
@@ -510,13 +511,13 @@ private:
   void send(
     SharedMessageData message
     , bool is_binary = true) NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_);
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_);
 
   // Used as callback in `async_write`.
   void onWrite(
     ErrorCode ec
     , std::size_t bytes_transferred) NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_);
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_);
 
   /// \note Only one asynchronous operation
   /// can be active at once,
@@ -527,25 +528,37 @@ private:
   // So only after `async_write` finished we need can
   // `async_write` again using data scheduled in queue.
   void writeQueued() NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_);
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_);
 
   void doRead() NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_);
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_);
 
   // Used as callback in `async_close`.
   void onClose(ErrorCode ec) NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_);
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_);
 
   void onAccept(ErrorCode ec) NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_);
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_);
 
-  void onRead(ErrorCode ec, std::size_t bytes_transferred) NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_);
+  void onRead(
+    ErrorCode ec
+    , std::size_t bytes_transferred) NO_EXCEPTION
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_);
 
   void onFail(
     ErrorCode ec
     , char const* what) NO_EXCEPTION
-    RUN_ON(&perConnectionStrand_);
+    PRIVATE_METHOD_RUN_ON(&perConnectionStrand_);
+
+  /// \note static because `this` may be freed
+  /// if user issued `stop` (`stop` usually calls `doEof`)
+  /// i.e. already marked with `ECS::UnusedTag`,
+  /// but we scheduled `doEof`
+  /// (attempted to mark with `ECS::UnusedTag` twice).
+  static void markUnused(
+    /// \note take care of lifetime
+    ECS::NetworkRegistry& netRegistry
+    , ECS::EntityId entity_id) NO_EXCEPTION;
 
 private:
   SET_WEAK_POINTERS(WsChannel);
@@ -569,20 +582,20 @@ private:
 
   // |stream_| and calls to |async_*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(perConnectionStrand_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   // The dynamic buffer to store recieved data
   MessageBufferType readBuffer_
     GUARDED_BY(perConnectionStrand_);
 
   // used by |entity_id_|
-  util::UnownedRef<ECS::AsioRegistry> asioRegistry_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(asioRegistry_));
+  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
-    SET_STORAGE_THREAD_GUARD(MEMBER_GUARD(entity_id_));
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
 
   /// \todo SSL support
   /// ::boost::asio::ssl::context
@@ -602,10 +615,7 @@ private:
   SEQUENCE_CHECKER(sequence_checker_);
 
   /// \note can by called on any thread
-  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(send));
-
-  /// \note can destruct on any thread
-  CREATE_CUSTOM_THREAD_GUARD(FUNC_GUARD(WsChannelDestructor));
+  CREATE_METHOD_GUARD(send);
 
   DISALLOW_COPY_AND_ASSIGN(WsChannel);
 };
