@@ -307,6 +307,15 @@ private:
   void configureDetector
     (const std::chrono::seconds& expire_timeout);
 
+  /// \note `stream_` can be moved,
+  /// so we can't use it here anymore
+  MUST_USE_RETURN_VALUE
+  bool isStreamValid() const NO_EXCEPTION
+  {
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+    return is_stream_valid_.load();
+  }
+
 private:
   SET_WEAK_POINTERS(DetectChannel);
 
@@ -335,24 +344,21 @@ private:
 
   // |stream_| and calls to |async_detect*| are guarded by strand
   basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
-    SET_THREAD_GUARD_WITH_CHECK(
-      MEMBER_GUARD(perConnectionStrand_)
+    GUARD_MEMBER_WITH_CHECK(
+      perConnectionStrand_
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
       // 2. On each access to strand check that stream valid
       // otherwise `::boost::asio::post` may fail.
       , base::BindRepeating(
-        [
-        ](DetectChannel* self) -> bool {
-          DCHECK_THREAD_GUARD_SCOPE(self->MEMBER_GUARD(is_stream_valid_));
-          /// \note |perConnectionStrand_|
-          /// is valid as long as |stream_| valid
-          /// i.e. valid util |stream_| moved out
-          /// (it uses executor from stream).
-          return self->is_stream_valid_.load();
-        }
+        /// \note |perConnectionStrand_|
+        /// is valid as long as |stream_| valid
+        /// i.e. valid util |stream_| moved out
+        /// (it uses executor from stream).
+        &DetectChannel::isStreamValid
         , base::Unretained(this)
-      ));
+      )
+    );
 
   // will be set by |onDetected|
   std::atomic<bool> atomicDetectDoneFlag_
