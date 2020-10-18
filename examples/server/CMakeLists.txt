@@ -611,6 +611,9 @@ add_server_plugin(NetworkEntity
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/cleanup.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/cleanup.hpp
   #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/unused_child_list.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/unused_child_list.hpp
+  #
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/unused.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/unused.hpp
   #

@@ -63,7 +63,7 @@ class TcpEntityAllocator
   // We prohibit any `unknown` types of entities that can be re-used.
   MUST_USE_RETURN_VALUE
   ECS::Entity allocateTcpEntity() NO_EXCEPTION
-    PUBLIC_METHOD_RUN_ON(&netRegistry_->taskRunner());
+    PUBLIC_METHOD_RUN_ON(&netRegistryRef_->taskRunner());
 
   SET_WEAK_SELF(TcpEntityAllocator)
 
@@ -71,8 +71,8 @@ class TcpEntityAllocator
   SET_WEAK_POINTERS(TcpEntityAllocator);
 
 private:
-  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  util::UnownedRef<ECS::NetworkRegistry> netRegistryRef_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistryRef_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

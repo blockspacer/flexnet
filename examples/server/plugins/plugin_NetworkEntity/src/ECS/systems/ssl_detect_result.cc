@@ -163,7 +163,7 @@ void updateSSLDetection(
   registry_group
     .each(
       [&net_registry]
-      (const auto& entity
+      (const ECS::Entity& entity
        , const auto& component)
     {
       DCHECK(net_registry->valid(entity));

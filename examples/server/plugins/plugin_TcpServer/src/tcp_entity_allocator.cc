@@ -1,4 +1,4 @@
-#include "tcp_entity_allocator.hpp" // IWYU pragma: associated
+﻿#include "tcp_entity_allocator.hpp" // IWYU pragma: associated
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/websocket/ws_channel.hpp>
@@ -82,6 +82,87 @@ struct DebugComponentIdWithName {
 
 namespace backend {
 
+// see `createOrReuseCached(...)`
+struct CreateOrReuseCachedResult
+{
+  // true if re-used existing entity WITH desired component
+  bool usedCache{
+    false
+  };
+
+  ECS::Entity entity_id{
+    ECS::NULL_ENTITY
+  };
+};
+
+// Will create new entity WITHOUT desired component
+// or re-use existing one WITH desired component.
+/// @param `ComponentType`
+/// Component to create or re-use.
+/// @param `UnusedCacheTag`
+/// Assume that entity can be re-used from cache (memory pool)
+/// only if it was marked with `UnusedCacheTag` (i.e. marked as unused).
+/// @param `ExcludeArg`
+/// `ExcludeArg` can be used to skip entity with specific tags.
+/// For example, entity marked as `NeedToDestroyTag`
+/// (i.e. currently deallocating entity) may be ignored.
+template<
+  typename ComponentType
+  , typename UnusedCacheTag
+  , class... ExcludeArgs
+>
+static CreateOrReuseCachedResult createOrReuseCached(
+  ECS::Registry& registry)
+{
+  CreateOrReuseCachedResult result{};
+
+  // Avoid extra allocations
+  // with memory pool in ECS style using |UnusedCacheTag|
+  // (objects that are no more in use can return into pool)
+  /// \note do not forget to free some memory in pool periodically
+  auto registry_group
+    /// \todo use `entt::group` instead of `entt::view` here
+    /// if it will speed things up
+    /// i.e. measure perf. and compare results
+    = registry.view<ComponentType, UnusedCacheTag>(
+        entt::exclude<
+          ExcludeArgs...
+        >
+      );
+
+  if(registry_group.empty())
+  {
+    result.entity_id = registry.create();
+    DCHECK(!result.usedCache);
+    DCHECK(registry.valid(result.entity_id));
+  } else { // if from `cache`
+    // try to reuse unused entity (if valid)
+    for(const ECS::Entity& entity_id : registry_group)
+    {
+      if(!registry.valid(entity_id)) {
+        // skip invalid entities
+        continue;
+      }
+      result.entity_id = entity_id;
+      // need only first valid entity
+      break;
+    }
+
+    /// \note may not find valid entities,
+    /// so check for `ECS::NULL_ENTITY` using `registry.valid`
+    if(registry.valid(result.entity_id))
+    {
+      result.usedCache = true;
+      registry.remove<UnusedCacheTag>(result.entity_id);
+    } else {
+      result.entity_id = registry.create();
+      DCHECK(!result.usedCache);
+    }
+  } // else
+
+  return result;
+}
+
 TcpEntityAllocator::TcpEntityAllocator(
   ECS::NetworkRegistry& netRegistry)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -89,7 +170,7 @@ TcpEntityAllocator::TcpEntityAllocator(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , netRegistry_(REFERENCED(netRegistry))
+  , netRegistryRef_(REFERENCED(netRegistry))
 {
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
@@ -109,114 +190,81 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistryRef_);
 
-  DCHECK_RUN_ON_NET_REGISTRY(&(*netRegistry_));
-
-  // Avoid extra allocations
-  // with memory pool in ECS style using |ECS::UnusedTag|
-  // (objects that are no more in use can return into pool)
-  /// \note do not forget to free some memory in pool periodically
-  auto registry_group
-    /// \todo use `entt::group` instead of `entt::view` here
-    /// if it will speed things up
-    /// i.e. measure perf. and compare results
-    = (*netRegistry_)->view<ECS::TcpConnection, ECS::UnusedTag>(
-        entt::exclude<
-          // entity in destruction
-          ECS::NeedToDestroyTag
-        >
-      );
-
-  ECS::Entity tcp_entity_id
-    = ECS::NULL_ENTITY;
+  DCHECK_RUN_ON_NET_REGISTRY(&(*netRegistryRef_));
 
   bool usedCache = false;
 
-  if(registry_group.empty())
-  {
-    tcp_entity_id = (*netRegistry_)->create();
-    DCHECK(!usedCache);
-    DVLOG(99)
-      << "allocating new network entity";
-    DCHECK((*netRegistry_)->valid(tcp_entity_id));
-  } else { // if from `cache`
-    // reuse any unused entity (if found)
-    for(const ECS::Entity& entity_id : registry_group)
-    {
-      if(!(*netRegistry_)->valid(entity_id)) {
-        // skip invalid entities
-        continue;
-      }
-      tcp_entity_id = entity_id;
-      // need only first valid entity
-      break;
-    }
+  CreateOrReuseCachedResult allocateResult
+    = createOrReuseCached<
+        ECS::TcpConnection // component to create or re-use
+        , ECS::UnusedTag // only unused entity can be re-used
+        , ECS::NeedToDestroyTag // ignore entity in destruction
+      >(
+        (*netRegistryRef_).registryUnsafe()
+      );
 
-    /// \note may not find valid entities,
-    /// so checks for `ECS::NULL_ENTITY` using `registry.valid`
-    if((*netRegistry_)->valid(tcp_entity_id))
-    {
-      usedCache = true;
-      (*netRegistry_)->remove<ECS::UnusedTag>(tcp_entity_id);
-      DVLOG(99)
-        << "using preallocated network entity with id: "
-        << (*netRegistry_)->get<ECS::TcpConnection>(tcp_entity_id).debug_id;
-
-    } else {
-      tcp_entity_id = (*netRegistry_)->create();
-      DCHECK(!usedCache);
-      DVLOG(99)
-        << "allocating new network entity";
-    }
-  } // else
-
-  DCHECK((*netRegistry_)->valid(tcp_entity_id));
+  DCHECK((*netRegistryRef_)->valid(allocateResult.entity_id));
 
   /// \note `tcpComponent.context.empty()` may be false
   /// if unused `tcpComponent` found using `registry.get`
   /// i.e. we do not fully reset `tcpComponent`,
   /// so reset each type stored in context individually.
   ECS::TcpConnection& tcpComponent
-    = (*netRegistry_)->get_or_emplace<ECS::TcpConnection>(
-        tcp_entity_id
+    = (*netRegistryRef_)->get_or_emplace<ECS::TcpConnection>(
+        allocateResult.entity_id
         , "TcpConnection_" + base::GenerateGUID() // debug name
       );
 
   if(usedCache)
   {
+    DVLOG(99)
+      << "using preallocated network entity with id: "
+      << (*netRegistryRef_)->get<ECS::TcpConnection>(allocateResult.entity_id).debug_id;
+
     /// \todo move `cached entity usage validator` to separate callback
     // Clear cached data.
     // We re-use some old network entity,
     // so need to reset entity state.
-    DCHECK((*netRegistry_)->valid(tcp_entity_id));
+    DCHECK((*netRegistryRef_)->valid(allocateResult.entity_id));
 
     // sanity check
-    CHECK((*netRegistry_)->has<
+    CHECK((*netRegistryRef_)->has<
         ECS::TcpConnection
-      >(tcp_entity_id));
+      >(allocateResult.entity_id));
 
     // sanity check
-    CHECK(!(*netRegistry_)->has<
+    CHECK(!(*netRegistryRef_)->has<
         ECS::UnusedTag
-      >(tcp_entity_id));
+      >(allocateResult.entity_id));
 
     // sanity check
-    CHECK(!(*netRegistry_)->has<
+    CHECK(!(*netRegistryRef_)->has<
         ECS::NeedToDestroyTag
-      >(tcp_entity_id));
+      >(allocateResult.entity_id));
 
-    // required to process `SSLDetectResult` once
-    // (i.e. not handle outdated result)
-    (*netRegistry_)->emplace_or_replace<
-      ECS::UnusedSSLDetectResultTag
-    >(tcp_entity_id);
+    // sanity check
+    if((*netRegistryRef_)->has<
+         base::Optional<DetectChannel::SSLDetectResult>
+        >(allocateResult.entity_id))
+    {
+      // process result once (i.e. do not handle outdated result)
+      CHECK((*netRegistryRef_)->has<
+          ECS::UnusedSSLDetectResultTag
+        >(allocateResult.entity_id));
+    }
 
-    // required to process `AcceptResult` once
-    // (i.e. not handle outdated result)
-    (*netRegistry_)->emplace_or_replace<
-      ECS::UnusedAcceptResultTag
-    >(tcp_entity_id);
+    // sanity check
+    if((*netRegistryRef_)->has<
+         base::Optional<Listener::AcceptConnectionResult>
+        >(allocateResult.entity_id))
+    {
+      // process result once (i.e. do not handle outdated result)
+      CHECK((*netRegistryRef_)->has<
+          ECS::UnusedAcceptResultTag
+        >(allocateResult.entity_id));
+    }
 
 #if DCHECK_IS_ON()
     /// \note place here only types that can be re-used
@@ -247,8 +295,8 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
     };
 
     // visit entity and get the types of components it manages
-    (*netRegistry_)->visit(tcp_entity_id
-      , [this, tcp_entity_id]
+    (*netRegistryRef_)->visit(allocateResult.entity_id
+      , [this, &allocateResult]
       (const entt_type_info_id_type type_id)
       {
         const auto it
@@ -272,14 +320,14 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
         {
           DLOG(ERROR)
             << " cached entity with id = "
-            << tcp_entity_id
+            << allocateResult.entity_id
             << " is NOT allowed to contain component with id = "
             << type_id;
           NOTREACHED();
         } else {
           DVLOG(99)
             << " cached entity with id = "
-            << tcp_entity_id
+            << allocateResult.entity_id
             << " re-uses component with name ="
             << it->debugName
             << " component with id = "
@@ -342,14 +390,14 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
       {
         DLOG(ERROR)
           << " cached context var with id = "
-          << tcp_entity_id
+          << allocateResult.entity_id
           << " is NOT allowed to contain context var with id = "
           << type_id;
         NOTREACHED();
       } else {
         DVLOG(99)
           << " cached entity with id = "
-          << tcp_entity_id
+          << allocateResult.entity_id
           << " re-uses context var with name ="
           << it->debugName
           << " context var with id = "
@@ -357,9 +405,12 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
       }
     }
 #endif // DCHECK_IS_ON()
-  } // if
+  } else {
+    DVLOG(99)
+      << "allocating new network entity";
+  }
 
-  return tcp_entity_id;
+  return allocateResult.entity_id;
 }
 
 } // namespace backend

@@ -45,7 +45,7 @@ void updateUnusedSystem(
   registry_group
     .each(
       [&net_registry]
-      (const auto& entity_id)
+      (const ECS::Entity& entity_id)
     {
       DCHECK(net_registry->valid(entity_id));
       DCHECK(!net_registry->has<ECS::NeedToDestroyTag>(entity_id));

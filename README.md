@@ -12,7 +12,13 @@ cmake -E time conan config install conan/remotes/
 # cmake -E time conan config install conan/remotes_disabled_ssl/
 ```
 
-## Installation
+## Before installation
+
+- [Installation Guide](https://blockspacer.github.io/flex_docs/download/)
+
+- conan packages
+
+NOTE: cling with LLVM build may take couple of hours.
 
 Command below uses `--profile clang`.
 
@@ -38,7 +44,50 @@ CXX=/usr/bin/clang++-6.0
 cmake_installer/3.15.5@conan/stable
 ```
 
-Before creation of conan profile file see https://docs.conan.io/en/latest/using_packages/using_profiles.html
+Before creation of conan profile file, see: https://docs.conan.io/en/latest/using_packages/using_profiles.html.
+
+We use `buildConanThirdparty.cmake` script to download and install conan packages.
+
+```bash
+# NOTE: don't forget to re-run `conan install` or `conan create` after command below
+# NOTE: change `build_type=Debug` to `build_type=Release` in production
+cmake \
+  -DEXTRA_CONAN_OPTS=\
+"--profile;clang\
+;-s;build_type=Debug\
+;-s;cling_conan:build_type=Release\
+;-s;llvm_tools:build_type=Release\
+;--build;missing" \
+  -DENABLE_LLVM_TOOLS=FALSE \
+  -DENABLE_CLING=FALSE \
+  -P tools/buildConanThirdparty.cmake
+```
+
+- llvm_tools package
+
+NOTE: `llvm_tools` package is optional; you can skip it using `enable_llvm_tools=False` like so: `-e flextool:enable_llvm_tools=False -e basis:enable_llvm_tools=False -e chromium_base:enable_llvm_tools=False`
+
+NOTE: LLVM build may take couple of hours.
+
+NOTE: `-DENABLE_LLVM_TOOLS=TRUE` does the same (using `buildConanThirdparty.cmake`)
+
+Command below uses `--profile clang`. Before creation of conan profile file, see: https://docs.conan.io/en/latest/using_packages/using_profiles.html.
+
+You can install `llvm_tools` like so:
+
+```bash
+git clone https://github.com/blockspacer/llvm_tools.git
+cd llvm_tools
+conan create . \
+  conan/stable \
+  -s build_type=Release \
+  --profile clang \
+  --build missing
+```
+
+Up-to-date instructions are found here: [https://github.com/blockspacer/llvm_tools](https://github.com/blockspacer/llvm_tools)
+
+## Installation
 
 ```bash
 export CXX=clang++-6.0

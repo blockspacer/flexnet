@@ -321,7 +321,7 @@ public:
     std::string data;
   };
 
-  // result of |acceptor_.async_accept(...)|
+  /*// result of |acceptor_.async_accept(...)|
   // i.e. stores created socket
   struct RecievedFrom {
     RecievedFrom(
@@ -358,7 +358,7 @@ public:
     }
 
     ECS::EntityId entity_id;
-  };
+  };*/
 
 public:
   WsChannel(
@@ -501,7 +501,7 @@ private:
     );
   }
 
-  void setRecievedDataComponents(
+  void allocateRecievedDataComponent(
     std::string&& message) NO_EXCEPTION
     PRIVATE_METHOD_RUN_ON(*netRegistry_);
 

@@ -1,3 +1,3 @@
 ﻿# About
 
-Basic console terminal
+Basic console terminal that gets line from `std::cin`

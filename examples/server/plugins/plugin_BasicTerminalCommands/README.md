@@ -1,3 +1,3 @@
 ﻿# About
 
-Basic console commands
+Basic console commands like "stop"

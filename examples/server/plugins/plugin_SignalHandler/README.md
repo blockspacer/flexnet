@@ -1,3 +1,3 @@
 ﻿# About
 
-Basic signals, like SIGQUIT
+Handles signals, like SIGQUIT (changes app. state to "TERMINATE" on SIGQUIT)

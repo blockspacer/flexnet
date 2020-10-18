@@ -276,7 +276,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
           ecsView
           .each(
             [&doEofWebsocket, &netRegistry]
-            (const auto& entity
+            (const ECS::Entity& entity
              , const auto& component)
           {
             doEofWebsocket.Run(entity, (*netRegistry));

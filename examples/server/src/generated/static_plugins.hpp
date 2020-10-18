@@ -26,7 +26,7 @@ automatic call
 */
 inline void loadStaticPlugins()
 {
-  ${GENERATE_CORRADE_PLUGIN_IMPORT}
+  ;CORRADE_PLUGIN_IMPORT(ExtraLogging);;CORRADE_PLUGIN_IMPORT(ActionRecorder);;CORRADE_PLUGIN_IMPORT(NetworkRegistry);;CORRADE_PLUGIN_IMPORT(BasicTerminalCommands);;CORRADE_PLUGIN_IMPORT(BasicCmdArgs);;CORRADE_PLUGIN_IMPORT(ConsoleTerminal);;CORRADE_PLUGIN_IMPORT(AsioContextThreads);;CORRADE_PLUGIN_IMPORT(SignalHandler);;CORRADE_PLUGIN_IMPORT(TcpServer);;CORRADE_PLUGIN_IMPORT(NetworkEntity);
 }
 
 /** Eject a previously imported static plugins
@@ -43,5 +43,5 @@ of application exection. It's also safe to call this macro more than once.
 */
 inline void unloadStaticPlugins()
 {
-  ${GENERATE_CORRADE_PLUGIN_EJECT}
+  ;CORRADE_PLUGIN_EJECT(ExtraLogging);;CORRADE_PLUGIN_EJECT(ActionRecorder);;CORRADE_PLUGIN_EJECT(NetworkRegistry);;CORRADE_PLUGIN_EJECT(BasicTerminalCommands);;CORRADE_PLUGIN_EJECT(BasicCmdArgs);;CORRADE_PLUGIN_EJECT(ConsoleTerminal);;CORRADE_PLUGIN_EJECT(AsioContextThreads);;CORRADE_PLUGIN_EJECT(SignalHandler);;CORRADE_PLUGIN_EJECT(TcpServer);;CORRADE_PLUGIN_EJECT(NetworkEntity);
 }

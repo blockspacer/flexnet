@@ -4,6 +4,7 @@
 #include "ECS/systems/cleanup.hpp"
 #include "ECS/systems/ssl_detect_result.hpp"
 #include "ECS/systems/unused.hpp"
+#include "ECS/systems/unused_child_list.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/websocket/ws_channel.hpp>
@@ -143,6 +144,13 @@ void NetworkEntityUpdater::update() NO_EXCEPTION
         ECS::updateNewConnections(net_registry);
 
         ECS::updateSSLDetection(net_registry);
+
+        /// \todo cutomizable cleanup period
+        ECS::updateUnusedChildList<
+          // drop recieved messages
+          // if websocket session is unused i.e. closed
+          ::flexnet::ws::WsChannel::RecievedData
+        >(net_registry);
 
         /// \todo cutomizable cleanup period
         ECS::updateUnusedSystem(net_registry);

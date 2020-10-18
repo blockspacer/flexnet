@@ -3,6 +3,7 @@
 #include "flexnet/ECS/tags.hpp"
 #include "flexnet/ECS/components/tcp_connection.hpp"
 #include "flexnet/util/close_socket_unsafe.hpp"
+#include "flexnet/ECS/helpers/add_child_entity.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/optional.h>
@@ -408,26 +409,14 @@ void WsChannel::onRead(
     return;
   }
 
-  /// \FIXME \todo
-#if 0
-  ::boost::asio::post(
-    netRegistry_->asioStrand()
-    /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler([
-      ](
-        base::OnceClosure&& task
-      ){
-        DCHECK(task);
-        base::rvalue_cast(task).Run();
-      }
-      , base::BindOnce(
-          &WsChannel::setRecievedDataComponents
-          , base::Unretained(this)
-          , beast::buffers_to_string(readBuffer_.data())
-        )
-    )
+  netRegistry_->taskRunner()->PostTask(
+    FROM_HERE
+    , base::BindOnce(
+        &WsChannel::allocateRecievedDataComponent
+        , base::Unretained(this)
+        , beast::buffers_to_string(readBuffer_.data())
+      )
   );
-#endif // 0
 
   // Clear the buffer
   readBuffer_.consume(readBuffer_.size());
@@ -436,7 +425,7 @@ void WsChannel::onRead(
   doRead();
 }
 
-void WsChannel::setRecievedDataComponents(
+void WsChannel::allocateRecievedDataComponent(
   std::string&& message) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
@@ -447,13 +436,15 @@ void WsChannel::setRecievedDataComponents(
 
   DCHECK(netRegistry_->RunsTasksInCurrentSequence());
 
-  DVLOG(99)
-    << "WsSession on_read: "
-    << message.substr(0, 1024);
-
   // We want to filter recieved messages individually,
   // so each message becomes separate entity.
   ECS::Entity msg_entity_id = (*netRegistry_)->create();
+
+  DVLOG(99)
+    << "Websocket message was read with id = "
+    << msg_entity_id
+    << " and data (only first 1024 chars shown) = "
+    << message.substr(0, 1024);
 
   {
     using RecievedDataComponent
@@ -463,16 +454,14 @@ void WsChannel::setRecievedDataComponents(
       = (*netRegistry_)->emplace<RecievedDataComponent>(
             msg_entity_id // assign to entity with that id
             , base::rvalue_cast(message));
-  }
 
-  {
-    using RecievedFromComponent
-      = base::Optional<WsChannel::RecievedFrom>;
-
-    RecievedFromComponent& recievedFromComponent
-      = (*netRegistry_)->emplace<RecievedFromComponent>(
-            msg_entity_id // assign to entity with that id
-            , entity_id_);
+    ECS::prependChildEntity<
+        WsChannel::RecievedData // unique type tag for all children
+    >(
+      REFERENCED(netRegistry_->registryUnsafe())
+      , entity_id_ // parent
+      , msg_entity_id // child
+    );
   }
 }
 

@@ -1,3 +1,3 @@
 ﻿# About
 
-Basic console arguments
+Basic console arguments like `--help`

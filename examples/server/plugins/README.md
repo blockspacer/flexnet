@@ -11,6 +11,7 @@ To avaid symbol collision - avoid global AND anonymous namespace, even for stati
 ```cpp
 
 // BEFORE, WRONG
+// `::kGlobalBad` and `::foo()` may exist in other plugins (!!!)
 
 namepace {
 const int kGlobalBad = 1;
@@ -21,7 +22,7 @@ void foo()
 } // namepace
 
 // AFTER, GOOD
-// Use unique namespace for ALL plugin code.
+// Use unique namespace for ALL plugin code to prevent any collisions.
 
 namepace MyPlugin {
 const int kGlobalBad = 1;
