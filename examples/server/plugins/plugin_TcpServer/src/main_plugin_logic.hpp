@@ -42,6 +42,7 @@
 #include <basis/lock_with_check.hpp>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
+#include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
@@ -60,7 +61,6 @@
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
-#include <flexnet/ECS/tags.hpp>
 
 #include <thread>
 #include <memory>

@@ -1,12 +1,12 @@
 #include "basis/ECS/network_registry.hpp"
 
-#include <flexnet/ECS/tags.hpp>
-#include <flexnet/ECS/helpers/foreach_child_entity.hpp>
-#include <flexnet/ECS/helpers/remove_child_entity.hpp>
-#include <flexnet/ECS/components/child_linked_list.hpp>
-#include <flexnet/ECS/components/child_linked_list_size.hpp>
-#include <flexnet/ECS/components/first_child_in_linked_list.hpp>
-#include <flexnet/ECS/components/parent_entity.hpp>
+#include <basis/ECS/tags.hpp>
+#include <basis/ECS/helpers/foreach_child_entity.hpp>
+#include <basis/ECS/helpers/remove_child_entity.hpp>
+#include <basis/ECS/components/child_linked_list.hpp>
+#include <basis/ECS/components/child_linked_list_size.hpp>
+#include <basis/ECS/components/first_child_in_linked_list.hpp>
+#include <basis/ECS/components/parent_entity.hpp>
 
 #include <base/metrics/histogram.h>
 #include <base/metrics/histogram_macros.h>

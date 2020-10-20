@@ -4,7 +4,6 @@
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
-#include <flexnet/ECS/tags.hpp>
 
 #include <base/memory/singleton.h>
 #include <base/rvalue_cast.h>

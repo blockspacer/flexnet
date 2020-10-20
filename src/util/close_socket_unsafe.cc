@@ -1,6 +1,8 @@
 #include <flexnet/util/close_socket_unsafe.hpp> // IWYU pragma: associated
-#include <flexnet/ECS/tags.hpp>
+
 #include <flexnet/ECS/components/tcp_connection.hpp>
+
+#include <basis/ECS/tags.hpp>
 
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>

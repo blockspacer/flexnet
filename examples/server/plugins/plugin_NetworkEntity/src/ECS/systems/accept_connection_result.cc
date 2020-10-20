@@ -1,7 +1,8 @@
 #include "ECS/systems/accept_connection_result.hpp" // IWYU pragma: associated
 
+#include <basis/ECS/tags.hpp>
+
 #include <flexnet/util/close_socket_unsafe.hpp>
-#include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
 #include <flexnet/util/close_socket_unsafe.hpp>
 

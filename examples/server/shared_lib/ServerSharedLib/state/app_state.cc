@@ -1,5 +1,4 @@
 #include "state/app_state.hpp" // IWYU pragma: associated
-#include "flexnet/ECS/tags.hpp"
 #include "flexnet/ECS/components/tcp_connection.hpp"
 
 #include <base/rvalue_cast.h>
@@ -12,6 +11,7 @@
 #include <base/threading/thread.h>
 #include <base/task/thread_pool/thread_pool.h>
 
+#include <basis/ECS/tags.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/scoped_cleanup.hpp>

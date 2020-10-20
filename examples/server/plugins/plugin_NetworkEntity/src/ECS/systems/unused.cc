@@ -1,6 +1,6 @@
 #include "ECS/systems/unused.hpp" // IWYU pragma: associated
 
-#include <flexnet/ECS/tags.hpp>
+#include <basis/ECS/tags.hpp>
 
 #include <base/metrics/histogram.h>
 #include <base/metrics/histogram_macros.h>

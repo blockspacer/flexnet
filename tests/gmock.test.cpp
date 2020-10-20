@@ -147,12 +147,12 @@
 #include <base/metrics/user_metrics_action.h>
 #include <base/threading/platform_thread.h>
 
-#include <flexnet/ECS/tags.hpp>
-#include <flexnet/ECS/components/tcp_connection.hpp>
+#include <basis/ECS/tags.hpp>
+#include <basis/ECS/helpers/add_child_entity.hpp>
+#include <basis/ECS/helpers/foreach_child_entity.hpp>
+#include <basis/ECS/helpers/remove_child_entity.hpp>
+
 #include <flexnet/util/close_socket_unsafe.hpp>
-#include <flexnet/ECS/helpers/add_child_entity.hpp>
-#include <flexnet/ECS/helpers/foreach_child_entity.hpp>
-#include <flexnet/ECS/helpers/remove_child_entity.hpp>
 
 TEST(DummyTest, Links)
 {

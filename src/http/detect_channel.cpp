@@ -1,7 +1,5 @@
 #include "flexnet/http/detect_channel.hpp" // IWYU pragma: associated
 
-#include "flexnet/ECS/tags.hpp"
-
 #include <base/rvalue_cast.h>
 #include <base/optional.h>
 #include <base/location.h>
@@ -11,6 +9,7 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/guid.h>
 
+#include <basis/ECS/tags.hpp>
 #include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/task/periodic_check.hpp>

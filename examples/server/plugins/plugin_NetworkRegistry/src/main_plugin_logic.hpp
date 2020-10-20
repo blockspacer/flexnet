@@ -45,6 +45,7 @@
 #include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
+#include <basis/ECS/tags.hpp>
 #include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
@@ -56,7 +57,6 @@
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
-#include <flexnet/ECS/tags.hpp>
 
 #include <thread>
 #include <memory>

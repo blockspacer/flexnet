@@ -11,7 +11,6 @@
 #include <flexnet/http/http_channel.hpp>
 #include <flexnet/http/detect_channel.hpp>
 #include <flexnet/websocket/ws_channel.hpp>
-#include <flexnet/ECS/tags.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
 
 #include <base/rvalue_cast.h>
@@ -50,6 +49,7 @@
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/ECS/ecs.hpp>
+#include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>

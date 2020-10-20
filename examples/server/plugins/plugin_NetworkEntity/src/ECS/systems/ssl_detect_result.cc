@@ -1,6 +1,7 @@
 #include "ECS/systems/ssl_detect_result.hpp" // IWYU pragma: associated
 
-#include <flexnet/ECS/tags.hpp>
+#include <basis/ECS/tags.hpp>
+
 #include <flexnet/ECS/components/tcp_connection.hpp>
 #include <flexnet/http/http_channel.hpp>
 #include <flexnet/util/close_socket_unsafe.hpp>
