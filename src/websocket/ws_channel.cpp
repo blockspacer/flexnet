@@ -180,6 +180,10 @@ void WsChannel::onFail(
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
+  /// prevent infinite recursion
+  /// onFail -> doEof -> async_close -> onClose -> onFail
+  DCHECK_FUNCTION_RECURSION(onFail);
+
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
   // log errors with different log levels
@@ -294,8 +298,6 @@ void WsChannel::onClose(ErrorCode ec) NO_EXCEPTION
 
   if(ec)
   {
-    /// \todo prevent infinite recursion
-    /// onFail -> doEof -> async_close -> onClose -> onFail
     onFail(ec, "close");
     return;
   }
@@ -310,6 +312,10 @@ void WsChannel::doEof() NO_EXCEPTION
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
+
+  /// prevent infinite recursion
+  /// onFail -> doEof -> async_close -> onClose -> onFail
+  DCHECK_FUNCTION_RECURSION(doEof);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 

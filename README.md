@@ -224,6 +224,8 @@ export build_type=Debug
 # remove old CMakeCache
 (rm CMakeCache.txt || true)
 
+(rm -rf generated || true)
+
 # NOTE: -DENABLE_TSAN=ON
 cmake -E time cmake .. \
   -DCMAKE_VERBOSE_MAKEFILE=TRUE \
@@ -489,6 +491,7 @@ export build_type=Debug
 # optional
 # remove old CMakeCache
 (rm CMakeCache.txt || true)
+(rm -rf generated || true)
 
 # NOTE: -DENABLE_MSAN=ON
 cmake -E time cmake . \
@@ -504,7 +507,7 @@ cmake -E time cmake . \
 
 # remove generated files
 # change paths to yours
-# rm ~/flex_typeclass_plugin/build/Debug/*generated*
+# rm ~/flexnet/build/Debug/*generated*
 
 # build code
 cmake -E time cmake --build . \
@@ -569,6 +572,8 @@ conan workspace install \
 # optional
 # remove old CMakeCache
 (rm CMakeCache.txt || true)
+
+(rm -rf generated || true)
 
 # NOTE: -DENABLE_TSAN=ON
 cmake -E time cmake . \

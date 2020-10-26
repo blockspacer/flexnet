@@ -11,6 +11,7 @@
 #include <base/synchronization/atomic_flag.h>
 #include <base/threading/thread_collision_warner.h>
 #include <base/containers/circular_deque.h>
+#include <base/recursion_checker.h>
 
 #include <basis/checked_optional.hpp>
 #include <basis/lock_with_check.hpp>
@@ -610,6 +611,12 @@ private:
   /// (if circular buffer is full).
   CircularMessageBuffer sendBuffer_
     GUARDED_BY(perConnectionStrand_);
+
+  // detect infinite recursion
+  FUNCTION_RECURSION_CHECKER_999(doEof);
+
+  // detect infinite recursion
+  FUNCTION_RECURSION_CHECKER_999(onFail);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
