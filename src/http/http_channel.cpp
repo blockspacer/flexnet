@@ -18,6 +18,7 @@
 #include <basis/unowned_ptr.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/promise/post_promise.h>
+#include <basis/task/task_util.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/buffer.hpp>
@@ -385,8 +386,8 @@ void HttpChannel::startReadAsync() NO_EXCEPTION
     postTaskOnConnectionStrand(
       FROM_HERE
       , base::BindOnce(
-        &HttpChannel::doRead,
-        base::Unretained(this)))
+          &HttpChannel::doRead,
+          base::Unretained(this)))
   );
 }
 
@@ -446,13 +447,16 @@ void HttpChannel::doRead() NO_EXCEPTION
     /// \todo use base::BindFrontWrapper
     , boost::asio::bind_executor(
         *perConnectionStrand_
-        , ::std::bind(
-            &HttpChannel::onRead,
-            UNOWNED_LIFETIME(
-              this)
-            , std::placeholders::_1
-            , std::placeholders::_2
+        , basis::bindFrontOnceCallback(
+            base::BindOnce(
+              &HttpChannel::onRead
+              , base::Unretained(this)
+            )
           )
+        /*, basis::bindFrontOnceCallback(
+            base::BindOnce(
+              &HttpChannel::onRead
+              , base::Unretained(this)))*/
       )
   );
 }
@@ -671,10 +675,12 @@ void HttpChannel::onRead(
 
       DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
-      using response_type
+      // `ResponseType` may be `ResponseFileType`, `ResponseToRequestType`, etc.
+      using ResponseType
         = typename std::decay<decltype(response)>::type;
+
       /// \todo remove shared_ptr
-      auto sp = std::make_shared<response_type>(
+      auto sp = std::make_shared<ResponseType>(
         std::forward<decltype(response)>(response));
 
       // Write the response
@@ -685,33 +691,19 @@ void HttpChannel::onRead(
         , *sp
         , boost::asio::bind_executor(
             *perConnectionStrand_
-            /// \todo use base::BindFrontWrapper
-            /*, ::std::bind(
-                &HttpChannel::onWrite,
-                UNOWNED_LIFETIME(
-                  this)
-                , std::placeholders::_1
-                , std::placeholders::_2
-                , sp->need_eof()
-              )*/
-            , [
-                this
-                // extend lifetime of the message
-                , sp
-              ](
-               ErrorCode ec
-               , std::size_t bytes)
-              {
-                DCHECK(sp);
-
-                onWrite(ec, bytes, sp->need_eof());
-              }
+            , basis::bindFrontOnceCallback(
+                base::BindOnce(
+                  &HttpChannel::processWrittenResponse<ResponseType>
+                  , base::Unretained(this)
+                  // extend lifetime of the message (shared_ptr)
+                  , sp
+                )
+              )
           )
       );
     }
   );
 }
-
 
 void HttpChannel::handleWebsocketUpgrade(
   HttpChannel::ErrorCode ec

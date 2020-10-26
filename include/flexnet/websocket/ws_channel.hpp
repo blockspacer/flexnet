@@ -19,6 +19,7 @@
 #include <basis/promise/post_promise.h>
 #include <basis/status/statusor.hpp>
 #include <basis/move_only.hpp>
+#include <basis/task/task_util.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 
@@ -386,29 +387,12 @@ public:
 
     ::boost::asio::post(
       *perConnectionStrand_
-      /// \todo use base::BindFrontWrapper
-      , ::boost::beast::bind_front_handler([
-          ](
-            base::OnceClosure&& task
-          ){
-            DCHECK(task);
-            base::rvalue_cast(task).Run();
-          }
-          , base::BindOnce(
+      , basis::bindFrontOnceClosure(
+          base::BindOnce(
             &WsChannel::startAccept<Body, Allocator>
             , base::Unretained(this)
             , base::Passed(base::rvalue_cast(req))
-          )
-        )
-      /*, boost::asio::bind_executor(
-        *perConnectionStrand_
-        , ::std::bind(
-            &WsChannel::startAccept<Body, Allocator>,
-            UNOWNED_LIFETIME(
-              this)
-            , base::rvalue_cast(req)
-          )
-      )*/
+          ))
     );
   }
 
@@ -476,28 +460,13 @@ private:
     // Accept the websocket handshake
     ws_.async_accept(
       req,
-      /// \todo use base::BindFrontWrapper
-      /*::boost::beast::bind_front_handler([
-        ](
-          base::OnceCallback<void(ErrorCode)>&& task
-          , ErrorCode ec
-        ){
-          DCHECK(task);
-          base::rvalue_cast(task).Run(ec);
-        }
-        , base::BindOnce(
-          &WsChannel::onAccept
-          , base::Unretained(this)
-        )
-      )*/
       boost::asio::bind_executor(
         *perConnectionStrand_
-        , ::std::bind(
-            &WsChannel::onAccept,
-            UNOWNED_LIFETIME(
-              this)
-            , std::placeholders::_1
-          )
+        , basis::bindFrontOnceCallback(
+            base::BindOnce(
+              &WsChannel::onAccept
+              , base::Unretained(this)
+            ))
       )
     );
   }

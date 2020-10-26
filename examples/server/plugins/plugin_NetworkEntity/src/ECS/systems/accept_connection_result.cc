@@ -1,6 +1,7 @@
 #include "ECS/systems/accept_connection_result.hpp" // IWYU pragma: associated
 
 #include <basis/ECS/tags.hpp>
+#include <basis/task/task_util.hpp>
 
 #include <flexnet/util/close_socket_unsafe.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
@@ -117,21 +118,12 @@ void handleAcceptResult(
   // working executor required by |::boost::asio::post|
   ::boost::asio::post(
     detectChannelCtx->value().perConnectionStrand()
-    /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler([
-      ](
-        base::OnceClosure&& task
-      ){
-        DCHECK(task);
-        base::rvalue_cast(task).Run();
-      }
-      , base::BindOnce(
-        &::flexnet::http::DetectChannel::runDetector
-        , base::Unretained(&detectChannelCtx->value())
-        // expire timeout for SSL detection
-        , std::chrono::seconds(3)
-      )
-    )
+    , basis::bindFrontOnceClosure(
+        base::BindOnce(
+          &::flexnet::http::DetectChannel::runDetector
+          , base::Unretained(&detectChannelCtx->value())
+          // expire timeout for SSL detection
+          , std::chrono::seconds(3)))
   );
 }
 

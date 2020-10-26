@@ -206,6 +206,30 @@ public:
   }
 
 private:
+  template<
+    // `ResponseType` may be `ResponseFileType`, `ResponseToRequestType`, etc.
+    typename ResponseType
+  >
+  void processWrittenResponse(
+    std::shared_ptr<
+      ResponseType
+    > shared_resp
+    , ErrorCode ec
+    , std::size_t bytes)
+  {
+    LOG_CALL(DVLOG(99));
+
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+
+    DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
+
+    DCHECK(is_stream_valid_.load());
+
+    DCHECK(shared_resp);
+
+    onWrite(ec, bytes, shared_resp->need_eof());
+  }
+
   void handleWebsocketUpgrade(
     ErrorCode ec
     , std::size_t bytes_transferred

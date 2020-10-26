@@ -16,6 +16,7 @@
 #include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/task/periodic_check.hpp>
+#include <basis/task/task_util.hpp>
 #include <basis/promise/post_promise.h>
 
 #include <boost/asio.hpp>
@@ -509,30 +510,12 @@ void WsChannel::sendAsync(
 
   ::boost::asio::post(
     *perConnectionStrand_
-    /// \todo use base::BindFrontWrapper
-    , ::boost::beast::bind_front_handler([
-        ](
-          base::OnceClosure&& task
-        ){
-          DCHECK(task);
-          base::rvalue_cast(task).Run();
-        }
-        , base::BindOnce(
+    , basis::bindFrontOnceClosure(
+        base::BindOnce(
           &WsChannel::send
           , base::Unretained(this)
           , message
-          , is_binary
-        )
-      )
-    /*, boost::asio::bind_executor(
-      *perConnectionStrand_
-      , ::std::bind(
-          &WsChannel::startAccept<Body, Allocator>,
-          UNOWNED_LIFETIME(
-            this)
-          , base::rvalue_cast(req)
-        )
-    )*/
+          , is_binary))
   );
 }
 
@@ -601,6 +584,7 @@ void WsChannel::writeQueued() NO_EXCEPTION
   dp
     /// \note performs copy,
     /// take care of performance
+    /// i.e. use `shared_ptr` for `SharedMessageData`
     = (*sendBuffer_.backPtr());
 
   /// \note we don't allow sending empty messages
@@ -615,19 +599,22 @@ void WsChannel::writeQueued() NO_EXCEPTION
 
   ws_.async_write(
     ::boost::asio::buffer(
-      /// \todo performs copy
-      *(dp.data)),
-    /// \todo use base::BindFrontWrapper
-    ::boost::asio::bind_executor(
-      *perConnectionStrand_
-      , ::std::bind(
-          &WsChannel::onWrite,
-          UNOWNED_LIFETIME(
-            this)
-          , std::placeholders::_1
-          , std::placeholders::_2
-        )
-    )
+      /// \note The buffer is a simple reference (pointer+size tuple).
+      /// It can be cheaply copied by value.
+      /// Ensure that the lifetime of the buffer data
+      /// is at least as long as the completion handler exists.
+      /// \note performs copy,
+      /// (buffer is reference, so no actual copy here)
+      /// take care of performance
+      /// i.e. use `shared_ptr` for `SharedMessageData`
+      *(dp.data))
+    , ::boost::asio::bind_executor(
+        *perConnectionStrand_
+        , basis::bindFrontOnceCallback(
+            base::BindOnce(
+              &WsChannel::onWrite
+              , base::Unretained(this)))
+      )
   );
 }
 
