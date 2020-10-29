@@ -19,15 +19,28 @@
 #include <thread>
 #include <iostream>
 
+#include <stdio.h>
+#include <string.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#if defined (_POSIX)
+#include <termios.h>
+#if defined (__APPLE__)
+#include <sys/ioctl.h>
+#endif // __APPLE__
+#endif // _POSIX
+
+#if defined (_WIN)
+#include <windows.h>
+#endif // _WIN
+
 namespace plugin {
 namespace console_terminal {
 
 // UNIQUE type to store in sequence-local-context
-using ConsolePeriodicTaskExecutor
-  = util::StrongAlias<
-      class ConsolePeriodicTaskExecutorTag
-      , basis::PeriodicTaskExecutor
-    >;
+STRONGLY_TYPED(basis::PeriodicTaskExecutor, ConsolePeriodicTaskExecutor);
 
 template<
   typename EventType
@@ -124,6 +137,44 @@ static void unsetConsolePeriodicTaskExecutorOnSequence()
   sequenceLocalContext->unset<ConsolePeriodicTaskExecutor>(FROM_HERE);
 }
 
+#if defined (__linux__) || defined(OS_LINUX) || defined(OS_CHROMEOS)
+// if != 0, then there is data to be read on stdin
+// see https://stackoverflow.com/a/7012354
+int kbhit()
+{
+  // timeout structure passed into select
+  struct timeval tv;
+  // fd_set passed into select
+  fd_set fds;
+  // Set up the timeout.  here we can wait for 1 second
+  tv.tv_sec = 1;
+  tv.tv_usec = 0;
+
+  // Zero out the fd_set - make sure it's pristine
+  FD_ZERO(&fds);
+  // Set the FD that we want to read
+  FD_SET(STDIN_FILENO, &fds); //STDIN_FILENO is 0
+  // select takes the last file descriptor value + 1 in the fdset to check,
+  // the fdset for reads, writes, and errors.  We are only passing in reads.
+  // the last parameter is the timeout.  select will return if an FD is ready or
+  // the timeout has occurred
+  select(STDIN_FILENO+1, &fds, NULL, NULL, &tv);
+  // return 0 if STDIN is not ready to be read.
+  return FD_ISSET(STDIN_FILENO, &fds);
+}
+#endif
+
+/// \note std::getline blocks without timeout, so prefer to use version with timeout like in
+/// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
+/// or stackoverflow.com/a/34994150
+/// https://github.com/mjdehaydu/HashCatClone/blob/bea228dabe79dfce0d657ad0cc8fb49c259ab46d/src/terminal.c#L363
+/// i.e. use STDIN_FILENO and poll in Linux
+/// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
+/// or need the GetStdHandle function to obtain a handle
+/// to the console, then you can use WaitForSingleObject
+/// to wait for an event to happen on that handle, with a timeout
+/// see stackoverflow.com/a/21749034
+/// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
 static void updateConsoleInput(
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner
   , scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner) NO_EXCEPTION
@@ -134,20 +185,36 @@ static void updateConsoleInput(
 
   std::string line;
 
-  // use cin.peek to check if there is anything to read,
-  // to exit if no input
+  /// \todo Read from standard input without blocking the thread.
+  /// libuv is a cross-platform C library for asynchronous I/O.
+  /// It uses an event loop to do things like read from standard input
+  /// without blocking the thread. libuv is what powers Node.JS and others.
+  /// see `uv_tty_init`, `uv_read_start`, `uv_read_stop`
+#if defined (__linux__) || defined(OS_LINUX) || defined(OS_CHROMEOS) \
+   || defined(OS_WIN)
+  // Check if there is anything in the input
+  // using a non-blocking read (kbhit()).
+  // This is used for cases where we do not need too much
+  // of a fine-grained control over time.
+  /// \note depending on the delta, the approach may consume a lot of CPU
+  /// and may be inefficient. For example, if delta=10ms, the thread
+  /// will be woken up 100 times every second
+  /// and it will be not efficient, especially
+  /// when users do not type characters on their keyboard that fast.
+  /// see https://stackoverflow.com/a/40812107
+  /// \problem: thats just a hack,
+  /// _kbhit() returns only true if you use your hardware keyboard.
+  /// If the input to your program comes from another process then _kbhit() blocks.
+  if (!kbhit()) {
+    DVLOG(99)
+      << "no data in input stream";
+  }
+  else
+#else
+#warning "no kbhit defined for platform"
+#endif
   if(!std::cin.eof())
   {
-    /// \todo std::getline blocks without timeout, so add timeout like in
-    /// github.com/throwaway-github-account-alex/coding-exercise/blob/9ccd3d04ffa5569a2004ee195171b643d252514b/main.cpp#L12
-    /// or stackoverflow.com/a/34994150
-    /// i.e. use STDIN_FILENO and poll in Linux
-    /// In Windows, you will need to use timeSetEvent or WaitForMultipleEvents
-    /// or need the GetStdHandle function to obtain a handle
-    /// to the console, then you can use WaitForSingleObject
-    /// to wait for an event to happen on that handle, with a timeout
-    /// see stackoverflow.com/a/21749034
-    /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
     std::getline(std::cin, line);
 
     DVLOG(99)

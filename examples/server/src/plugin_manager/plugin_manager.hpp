@@ -199,7 +199,8 @@ public:
     {
       /// \todo support per-plugin config,
       /// not only global config
-      const bool parseOk = parsePluginsConfig(REFERENCED(conf)
+      const bool parseOk = parsePluginsConfig(
+        REFERENCED(conf)
         , REFERENCED(plugin_groups)
         , REFERENCED(is_plugin_filtering_enabled)
       );

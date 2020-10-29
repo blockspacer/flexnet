@@ -5,6 +5,8 @@
 #include "ECS/systems/ssl_detect_result.hpp"
 #include "ECS/systems/unused.hpp"
 #include "ECS/systems/unused_child_list.hpp"
+#include "ECS/systems/delayed_construction.hpp"
+#include "ECS/systems/delayed_construction_just_done.hpp"
 
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/websocket/ws_channel.hpp>
@@ -145,17 +147,24 @@ void NetworkEntityUpdater::update() NO_EXCEPTION
 
         ECS::updateSSLDetection(net_registry);
 
-        /// \todo cutomizable cleanup period
+        /// \todo customizable cleanup period
         ECS::updateUnusedChildList<
           // drop recieved messages
           // if websocket session is unused i.e. closed
           ::flexnet::ws::WsChannel::RecievedData
         >(net_registry);
 
-        /// \todo cutomizable cleanup period
+        /// \note Removes `DelayedConstructionJustDone` component from any entity.
+        ECS::updateDelayedConstructionJustDone(net_registry);
+
+        /// \note Removes `DelayedConstruction` component from any entity
+        /// and adds `DelayedConstructionJustDone` component.
+        ECS::updateDelayedConstruction(net_registry);
+
+        /// \todo customizable cleanup period
         ECS::updateUnusedSystem(net_registry);
 
-        /// \todo cutomizable cleanup period
+        /// \todo customizable cleanup period
         ECS::updateCleanupSystem(net_registry);
       }
       , REFERENCED(*netRegistry_)

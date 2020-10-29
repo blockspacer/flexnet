@@ -5,6 +5,8 @@
 #include <base/macros.h>
 #include <base/sequence_checker.h>
 
+#include <basis/task/task_util.hpp>
+
 #include <functional>
 #include <map>
 #include <string>

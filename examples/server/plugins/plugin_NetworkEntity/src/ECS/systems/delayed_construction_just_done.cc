@@ -1,4 +1,4 @@
-#include "ECS/systems/unused.hpp" // IWYU pragma: associated
+#include "ECS/systems/delayed_construction_just_done.hpp" // IWYU pragma: associated
 
 #include <basis/ECS/tags.hpp>
 
@@ -16,19 +16,13 @@
 
 namespace ECS {
 
-void updateUnusedSystem(
+void updateDelayedConstructionJustDone(
   ECS::NetworkRegistry& net_registry)
 {
   DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
 
-  /// \note Also processes entities
-  /// that were not fully created (see `ECS::DelayedConstruction`).
-  /// \note Make sure that not fully created entities are properly freed
-  /// (usually that means that they must have some relationship component
-  /// like `FirstChildComponent`, `ChildLinkedList` etc.
-  /// that will allow them to be freed upon parent entity destruction).
   auto registry_group
-    = net_registry->view<ECS::UnusedTag>(
+    = net_registry->view<ECS::DelayedConstructionJustDone>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -54,8 +48,9 @@ void updateUnusedSystem(
       (const ECS::Entity& entity_id)
     {
       DCHECK(net_registry->valid(entity_id));
-      DCHECK(!net_registry->has<ECS::NeedToDestroyTag>(entity_id));
-      net_registry->emplace<ECS::NeedToDestroyTag>(entity_id);
+      DCHECK(!net_registry->has<ECS::DelayedConstruction>(entity_id));
+      DCHECK(net_registry->has<ECS::DelayedConstructionJustDone>(entity_id));
+      net_registry->remove<ECS::DelayedConstructionJustDone>(entity_id);
     });
 }
 

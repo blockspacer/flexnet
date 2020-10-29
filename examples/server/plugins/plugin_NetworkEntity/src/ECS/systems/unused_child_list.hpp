@@ -54,6 +54,8 @@ void updateUnusedChildList(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
+          // entity not fully created
+          , ECS::DelayedConstruction
         >
       );
 

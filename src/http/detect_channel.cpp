@@ -157,16 +157,14 @@ void DetectChannel::runDetector(
   /// all its callbacks finished (or failed to schedule).
   /// i.e. API user must wait for |destruction_promise_|
   auto onDetectedCb
-    = std::bind(
-        &DetectChannel::onDetected
-        , UNOWNED_LIFETIME(
-          COPIED(this))
+    = basis::bindFrontOnceCallback(
+        base::BindOnce(
+          &DetectChannel::onDetected
+          , base::Unretained(this)
 #if DCHECK_IS_ON()
-        , timeoutPromiseResolver.GetRepeatingResolveCallback()
+         , timeoutPromiseResolver.GetRepeatingResolveCallback()
 #endif // DCHECK_IS_ON()
-        , std::placeholders::_1
-        , std::placeholders::_2
-        );
+      ));
 
   /** Detect a TLS/SSL handshake asynchronously on a stream.
 

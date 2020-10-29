@@ -77,6 +77,8 @@ WsChannel::WsChannel(
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
+  SET_DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
+
   /// \note we assume that configuring stream
   /// is thread-safe here
   /// \note you must set stream options
@@ -265,6 +267,7 @@ void WsChannel::doRead() NO_EXCEPTION
   LOG_CALL(DVLOG(99));
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -272,21 +275,16 @@ void WsChannel::doRead() NO_EXCEPTION
   readBuffer_.consume(readBuffer_.size());
 
   // Read a message into our buffer
+  DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
   ws_.async_read(
       readBuffer_,
       boost::asio::bind_executor(
         *perConnectionStrand_
-        , ::std::bind(
-            &WsChannel::onRead,
-            UNOWNED_LIFETIME(
-              this)
-            , std::placeholders::_1
-            , std::placeholders::_2
-          )
-      )
-      /*beast::bind_front_handler(
-          &WsChannel::onRead,
-          this)*/);
+        , basis::bindFrontOnceCallback(
+            base::BindOnce(
+              &WsChannel::onRead
+              , base::Unretained(this)))
+      ));
 }
 
 void WsChannel::onClose(ErrorCode ec) NO_EXCEPTION
@@ -313,6 +311,10 @@ void WsChannel::doEof() NO_EXCEPTION
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+
+  // prohibit callback execution while performing object invalidation.
+  UNSET_DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
 
   /// prevent infinite recursion
   /// onFail -> doEof -> async_close -> onClose -> onFail
@@ -335,20 +337,20 @@ void WsChannel::doEof() NO_EXCEPTION
       /// \note Transport endpoint must be connected i.e. `is_open()`
       << socket.remote_endpoint();
 
+    DCHECK_NO_ATOMIC_FLAG(can_schedule_callbacks_);
     ws_.async_close(websocket::close_code::normal,
       boost::asio::bind_executor(
         *perConnectionStrand_
-        , ::std::bind(
-            &WsChannel::onClose,
-            UNOWNED_LIFETIME(
-              this)
-            , std::placeholders::_1
-          )
+        , basis::bindFrontOnceCallback(
+            base::BindOnce(
+              &WsChannel::onClose
+              , base::Unretained(this)))
       ));
   }
 
   ECS::Registry* registryPtr = &(netRegistry_->registryUnsafe());
 
+  DCHECK_NO_ATOMIC_FLAG(can_schedule_callbacks_);
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
     , base::BindOnce(
@@ -386,6 +388,7 @@ void WsChannel::onRead(
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -415,6 +418,7 @@ void WsChannel::onRead(
     return;
   }
 
+  DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
     , base::BindOnce(
@@ -490,6 +494,7 @@ void WsChannel::sendAsync(
 
   DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(send);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
   DCHECK(message);
 
@@ -508,6 +513,7 @@ void WsChannel::sendAsync(
     return;
   }
 
+  DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
   ::boost::asio::post(
     *perConnectionStrand_
     , basis::bindFrontOnceClosure(
@@ -567,6 +573,7 @@ void WsChannel::writeQueued() NO_EXCEPTION
   LOG_CALL(DVLOG(99));
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -597,6 +604,7 @@ void WsChannel::writeQueued() NO_EXCEPTION
   /// `writeQueued` (i.e. `async_write`) completion.
   ws_.binary(dp.is_binary);
 
+  DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
   ws_.async_write(
     ::boost::asio::buffer(
       /// \note The buffer is a simple reference (pointer+size tuple).

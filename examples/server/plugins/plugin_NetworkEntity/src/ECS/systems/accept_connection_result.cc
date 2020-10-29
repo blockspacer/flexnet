@@ -146,6 +146,8 @@ void updateNewConnections(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
+          // entity not fully created
+          , ECS::DelayedConstruction
           // entity is unused
           , ECS::UnusedTag
           // components related to acceptor are unused

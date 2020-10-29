@@ -65,7 +65,69 @@
 #include <memory>
 #include <chrono>
 
-namespace backend {
+namespace plugin {
+namespace signal_handler {
+
+static const int kSigMin = 1;
+
+#if !defined(SIGSYS)
+  #error "SIGSYS not defined"
+#endif // defined(SIGQUIT)
+
+static const int kSigMax = SIGSYS;
+
+#define SIGNAL_NAME_PAIR(X) \
+  X,#X
+
+static std::map<int, std::string> gSignalToName{
+  {SIGNAL_NAME_PAIR(SIGHUP)}
+  , {SIGNAL_NAME_PAIR(SIGINT)}
+  , {SIGNAL_NAME_PAIR(SIGQUIT)}
+  , {SIGNAL_NAME_PAIR(SIGILL)}
+  , {SIGNAL_NAME_PAIR(SIGTRAP)}
+  , {SIGNAL_NAME_PAIR(SIGABRT)}
+  , {SIGNAL_NAME_PAIR(SIGBUS)}
+  , {SIGNAL_NAME_PAIR(SIGFPE)}
+  , {SIGNAL_NAME_PAIR(SIGKILL)}
+  , {SIGNAL_NAME_PAIR(SIGUSR1)}
+  , {SIGNAL_NAME_PAIR(SIGSEGV)}
+  , {SIGNAL_NAME_PAIR(SIGUSR2)}
+  , {SIGNAL_NAME_PAIR(SIGPIPE)}
+  , {SIGNAL_NAME_PAIR(SIGALRM)}
+  , {SIGNAL_NAME_PAIR(SIGTERM)}
+  , {SIGNAL_NAME_PAIR(SIGSTKFLT)}
+  , {SIGNAL_NAME_PAIR(SIGCHLD)}
+  , {SIGNAL_NAME_PAIR(SIGCONT)}
+  , {SIGNAL_NAME_PAIR(SIGSTOP)}
+  , {SIGNAL_NAME_PAIR(SIGTSTP)}
+  , {SIGNAL_NAME_PAIR(SIGTTIN)}
+  , {SIGNAL_NAME_PAIR(SIGTTOU)}
+  , {SIGNAL_NAME_PAIR(SIGURG)}
+  , {SIGNAL_NAME_PAIR(SIGXCPU)}
+  , {SIGNAL_NAME_PAIR(SIGXFSZ)}
+  , {SIGNAL_NAME_PAIR(SIGVTALRM)}
+  , {SIGNAL_NAME_PAIR(SIGPROF)}
+  , {SIGNAL_NAME_PAIR(SIGWINCH)}
+  , {SIGNAL_NAME_PAIR(SIGIO)}
+  , {SIGNAL_NAME_PAIR(SIGPWR)}
+  , {SIGNAL_NAME_PAIR(SIGSYS)}
+};
+
+static std::string getSignalName(int signum)
+{
+  if (signum >= kSigMin && signum <= kSigMax)
+  {
+    // make sure you registered all basic signals in `gSignalToName`
+    DCHECK(gSignalToName.find(signum) != gSignalToName.end());
+  }
+
+  if(gSignalToName.find(signum) != gSignalToName.end())
+  {
+    return gSignalToName[signum];
+  }
+
+  return std::string{"Unknown signal "} + std::to_string(signum);
+}
 
 SignalHandler::SignalHandler(
   ::boost::asio::io_context& ioc
@@ -84,18 +146,80 @@ SignalHandler::SignalHandler(
   #error "SIGQUIT not defined"
 #endif // defined(SIGQUIT)
 
+  signalCallbacks_[SIGQUIT]
+    = base::BindRepeating(
+        &SignalHandler::handleQuitSignal
+        , base::Unretained(this)
+    );
+
+#if defined(SIGINT)
+  signals_set_.add(SIGINT);
+#else
+  #error "SIGINT not defined"
+#endif // defined(SIGQUIT)
+
+  signalCallbacks_[SIGINT]
+    = base::BindRepeating(
+        &SignalHandler::handleQuitSignal
+        , base::Unretained(this)
+    );
+
+#if defined(SIGQUIT)
+  signals_set_.add(SIGTERM);
+#else
+  #error "SIGTERM not defined"
+#endif // defined(SIGTERM)
+
+  signalCallbacks_[SIGTERM]
+    = base::BindRepeating(
+        &SignalHandler::handleQuitSignal
+        , base::Unretained(this)
+    );
+
   signals_set_.async_wait(
     ::std::bind(
-      &SignalHandler::handleQuitSignal
+      &SignalHandler::handleSignal
       , this
       , std::placeholders::_1
       , std::placeholders::_2)
   );
 }
 
+void SignalHandler::handleSignal(
+  ::boost::system::error_code const& errorCode
+  , int signum)
+{
+  DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(handleSignal);
+
+  LOG_CALL(DVLOG(99));
+
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(quitCb_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(signalsRecievedCount_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(signalCallbacks_);
+
+  DVLOG(9)
+    << "got signum "
+    << std::to_string(signum)
+    << " ("
+    << getSignalName(signum)
+    << ")";
+
+  if(auto it = signalCallbacks_.find(signum); it != signalCallbacks_.end())
+  {
+    it->second.Run(errorCode, signum);
+  } else {
+    LOG(WARNING)
+    << "Unknown signum "
+    << std::to_string(signum)
+    << " ("
+    << getSignalName(signum)
+    << ")";
+  }
+}
+
 void SignalHandler::handleQuitSignal(
-  ::boost::system::error_code const&
-  , int)
+  ::boost::system::error_code const& errorCode
+  , int signum)
 {
   DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(handleQuitSignal);
 
@@ -103,9 +227,7 @@ void SignalHandler::handleQuitSignal(
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(quitCb_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(signalsRecievedCount_);
-
-  DVLOG(9)
-    << "got stop signal";
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(signalCallbacks_);
 
   signalsRecievedCount_.store(
     signalsRecievedCount_.load() + 1);
@@ -139,4 +261,5 @@ SignalHandler::~SignalHandler()
   DCHECK_RUN_ON(&sequence_checker_);
 }
 
-} // namespace backend
+} // namespace signal_handler
+} // namespace plugin

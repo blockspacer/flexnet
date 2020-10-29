@@ -372,12 +372,13 @@ void Listener::allocateTcpResourceAndAccept()
   // Accept connection
   ::boost::asio::post(
     *acceptorStrand_
-    , ::std::bind(
-        &Listener::asyncAccept
-        , this
-        , COPIED(
-            util::UnownedPtr<StrandType>(&asioStrandCtx->value()))
-        , COPIED(tcp_entity_id))
+    , basis::bindFrontOnceCallback(
+        base::BindOnce(
+          &Listener::asyncAccept
+          , base::Unretained(this)
+          , COPIED(
+              util::UnownedPtr<StrandType>(&asioStrandCtx->value()))
+          , COPIED(tcp_entity_id)))
   );
 }
 
@@ -423,15 +424,12 @@ void Listener::asyncAccept(
     *unownedPerConnectionStrand.Get()
     , boost::asio::bind_executor(
         *unownedPerConnectionStrand.Get()
-        , ::std::bind(
-          &Listener::onAccept,
-          UNOWNED_LIFETIME(
-            this)
-          , COPIED(unownedPerConnectionStrand)
-          , COPIED(tcp_entity_id)
-          , std::placeholders::_1
-          , std::placeholders::_2
-          )
+        , basis::bindFrontOnceCallback(
+            base::BindOnce(
+              &Listener::onAccept
+              , base::Unretained(this)
+              , COPIED(unownedPerConnectionStrand)
+              , COPIED(tcp_entity_id)))
       )
     );
 }
@@ -447,7 +445,7 @@ void Listener::asyncAccept(
     processStateChange(FROM_HERE, PAUSE));
 #endif // DCHECK_IS_ON()
 
-  /// \todo IMPLEMENT
+  /// \todo IMPLEMENT server pause
   NOTIMPLEMENTED();
 
   return ::util::OkStatus();
@@ -618,9 +616,10 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
   // Accept another connection
   ::boost::asio::post(
     *acceptorStrand_
-    , ::std::bind(
-        &Listener::doAccept
-        , this)
+    , basis::bindFrontOnceCallback(
+        base::BindOnce(
+          &Listener::doAccept
+          , base::Unretained(this)))
   );
 }
 

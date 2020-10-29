@@ -325,6 +325,8 @@ HttpChannel::HttpChannel(
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
+  SET_DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
+
   /// \note we assume that configuring `stream_`
   /// is thread-safe here
   {
@@ -376,12 +378,14 @@ void HttpChannel::startReadAsync() NO_EXCEPTION
   LOG_CALL(DVLOG(99));
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
   DCHECK(!perConnectionStrand_->running_in_this_thread())
     << "use HttpChannel::doRead()";
 
   /// \note it is not hot code path,
   /// so it is ok to use `base::Promise` here
+  DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
   ignore_result(
     postTaskOnConnectionStrand(
       FROM_HERE
@@ -410,6 +414,7 @@ void HttpChannel::doRead() NO_EXCEPTION
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -440,6 +445,7 @@ void HttpChannel::doRead() NO_EXCEPTION
     .expires_after(std::chrono::seconds(kExpireTimeoutSec));
 
   // Read a request
+  DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
   beast::http::async_read(
     stream_
     , buffer_
@@ -453,10 +459,6 @@ void HttpChannel::doRead() NO_EXCEPTION
               , base::Unretained(this)
             )
           )
-        /*, basis::bindFrontOnceCallback(
-            base::BindOnce(
-              &HttpChannel::onRead
-              , base::Unretained(this)))*/
       )
   );
 }
@@ -467,8 +469,12 @@ void HttpChannel::doEof() NO_EXCEPTION
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
+
+  // prohibit callback execution while performing object invalidation.
+  UNSET_DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
 
   DCHECK(is_stream_valid_.load());
 
@@ -490,6 +496,7 @@ void HttpChannel::doEof() NO_EXCEPTION
   util::closeSocketUnsafe(
     REFERENCED(socket));
 
+  DCHECK_NO_ATOMIC_FLAG(can_schedule_callbacks_);
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
     , base::BindOnce(
@@ -593,6 +600,8 @@ void HttpChannel::onRead(
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
   // This means they closed the connection
@@ -633,6 +642,7 @@ void HttpChannel::onRead(
     beast::get_lowest_layer(stream_).expires_never();
 
     // create websocket connection
+    DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
     netRegistry_->taskRunner()->PostTask(
       FROM_HERE
       , base::BindOnce(
@@ -672,6 +682,7 @@ void HttpChannel::onRead(
     {
       DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
       DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+      DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
       DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -687,6 +698,7 @@ void HttpChannel::onRead(
       // The lifetime of the message `response` has to extend
       // for the duration of the async operation
       // (you can use a shared_ptr to manage it).
+      DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
       beast::http::async_write(stream_
         , *sp
         , boost::asio::bind_executor(

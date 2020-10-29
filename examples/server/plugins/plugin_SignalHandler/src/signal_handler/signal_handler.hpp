@@ -38,8 +38,18 @@
 
 #include <memory>
 #include <chrono>
+#include <map>
+#include <string>
 
-namespace backend {
+namespace plugin {
+namespace signal_handler {
+
+using SignalHandlerCb
+  = base::RepeatingCallback<
+      void(::boost::system::error_code const& errorCode, int signum)
+    >;
+
+using SignalHandlerMap = std::map<int, SignalHandlerCb> ;
 
 class SignalHandler
 {
@@ -53,6 +63,9 @@ class SignalHandler
     PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
  private:
+  void handleSignal(::boost::system::error_code const&, int)
+    GUARD_METHOD_ON_UNKNOWN_THREAD(handleSignal);
+
   void handleQuitSignal(::boost::system::error_code const&, int)
     GUARD_METHOD_ON_UNKNOWN_THREAD(handleQuitSignal);
 
@@ -67,6 +80,12 @@ class SignalHandler
   std::atomic<size_t> signalsRecievedCount_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(signalsRecievedCount_);
 
+  SignalHandlerMap signalCallbacks_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(signalCallbacks_);
+
+  /// \note can be called from any thread
+  CREATE_METHOD_GUARD(handleSignal);
+
   /// \note can be called from any thread
   CREATE_METHOD_GUARD(handleQuitSignal);
 
@@ -75,4 +94,5 @@ class SignalHandler
   DISALLOW_COPY_AND_ASSIGN(SignalHandler);
 };
 
-} // namespace backend
+} // namespace signal_handler
+} // namespace plugin

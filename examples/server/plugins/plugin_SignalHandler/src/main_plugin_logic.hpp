@@ -84,10 +84,14 @@ class MainPluginLogic
   scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
     GUARDED_BY(sequence_checker_);
 
+  /// \todo use `uv_signal_t` instead.
+  /// \todo (ONLY _WIN32) SIGHUP: // Reload config/data
+  /// \todo (ONLY _WIN32) SIGUSR1: // Saves state
+  /// \todo (NOT _WIN32) SIGBREAK: // clean shutdown
   // Captures SIGINT and SIGTERM to perform a clean shutdown
   /// \note `boost::asio::signal_set` will NOT
   /// handle signals if ioc stopped
-  ::backend::SignalHandler signalHandler_
+  plugin::signal_handler::SignalHandler signalHandler_
     GUARDED_BY(sequence_checker_);
 
   SEQUENCE_CHECKER(sequence_checker_);

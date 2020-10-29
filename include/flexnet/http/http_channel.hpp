@@ -11,12 +11,14 @@
 #include <base/synchronization/atomic_flag.h>
 #include <base/threading/thread_collision_warner.h>
 
+#include <basis/task/task_util.hpp>
 #include <basis/checked_optional.hpp>
 #include <basis/lock_with_check.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/status/statusor.hpp>
 #include <basis/move_only.hpp>
+#include <basis/atomic_flag_macros.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 
@@ -293,6 +295,13 @@ private:
           , base::Unretained(this)
         )
     );
+
+  /// \note Object invalidation split between threads (see `markUnused`),
+  /// so we want to prohibit callback execution
+  /// while performing object invalidation.
+  DEBUG_ATOMIC_FLAG(can_schedule_callbacks_)
+    // assumed to be thread-safe
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
   /// \note `stream_` can be moved to websocket session from http session
   std::atomic<bool> is_stream_valid_

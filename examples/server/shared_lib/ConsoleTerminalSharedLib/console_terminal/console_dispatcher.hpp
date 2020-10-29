@@ -9,10 +9,6 @@
 namespace backend {
 
 // UNIQUE type to store in sequence-local-context
-using ConsoleTerminalEventDispatcher
-  = util::StrongAlias<
-      class ConsoleTerminalEventDispatcherTag
-      , entt::dispatcher
-    >;
+STRONGLY_TYPED(entt::dispatcher, ConsoleTerminalEventDispatcher);
 
 } // namespace backend

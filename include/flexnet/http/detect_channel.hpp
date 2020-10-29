@@ -11,6 +11,7 @@
 #include <base/synchronization/atomic_flag.h>
 #include <base/threading/thread_collision_warner.h>
 
+#include <basis/task/task_util.hpp>
 #include <basis/lock_with_check.hpp>
 #include <basis/checked_optional.hpp>
 #include <basis/ECS/network_registry.hpp>

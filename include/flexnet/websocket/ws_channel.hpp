@@ -14,6 +14,7 @@
 #include <base/recursion_checker.h>
 
 #include <basis/checked_optional.hpp>
+#include <basis/atomic_flag_macros.hpp>
 #include <basis/lock_with_check.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/promise/post_promise.h>
@@ -384,7 +385,9 @@ public:
     UpgradeRequestType<Body, Allocator>&& req) NO_EXCEPTION
   {
     DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
+    DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
     ::boost::asio::post(
       *perConnectionStrand_
       , basis::bindFrontOnceClosure(
@@ -452,12 +455,14 @@ private:
     PRIVATE_METHOD_RUN_ON(&perConnectionStrand_)
   {
     DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+    DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
     DCHECK(perConnectionStrand_->running_in_this_thread());
 
     /// \todo Init resources here before first call to `onAccept()`
 
     // Accept the websocket handshake
+    DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
     ws_.async_accept(
       req,
       boost::asio::bind_executor(
@@ -581,11 +586,18 @@ private:
   CircularMessageBuffer sendBuffer_
     GUARDED_BY(perConnectionStrand_);
 
-  // detect infinite recursion
-  FUNCTION_RECURSION_CHECKER_999(doEof);
+  /// \note Object invalidation split between threads (see `markUnused`),
+  /// so we want to prohibit callback execution
+  /// while performing object invalidation.
+  DEBUG_ATOMIC_FLAG(can_schedule_callbacks_)
+    // assumed to be thread-safe
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
   // detect infinite recursion
-  FUNCTION_RECURSION_CHECKER_999(onFail);
+  FUNCTION_RECURSION_CHECKER_LIMIT_999(doEof);
+
+  // detect infinite recursion
+  FUNCTION_RECURSION_CHECKER_LIMIT_999(onFail);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

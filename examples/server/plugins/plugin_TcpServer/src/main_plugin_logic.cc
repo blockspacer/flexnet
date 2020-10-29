@@ -209,6 +209,8 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
               entt::exclude<
                 // entity in destruction
                 ECS::NeedToDestroyTag
+                // entity not fully created
+                , ECS::DelayedConstruction
                 // entity is unused
                 , ECS::UnusedTag
               >

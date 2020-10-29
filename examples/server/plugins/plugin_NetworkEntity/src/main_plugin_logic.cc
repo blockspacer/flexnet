@@ -26,11 +26,7 @@ namespace plugin {
 namespace network_entity {
 
 // UNIQUE type to store in sequence-local-context
-using NetworkEntityPeriodicTaskExecutor
-  = util::StrongAlias<
-      class NetworkEntityPeriodicTaskExecutorTag
-      , basis::PeriodicTaskExecutor
-    >;
+STRONGLY_TYPED(basis::PeriodicTaskExecutor, NetworkEntityPeriodicTaskExecutor);
 
 static void setNetworkEntityPeriodicTaskExecutorOnSequence(
   const base::Location& from_here

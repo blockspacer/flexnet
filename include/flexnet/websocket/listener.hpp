@@ -10,6 +10,7 @@
 #include <base/memory/weak_ptr.h>
 #include <base/sequence_checker.h>
 
+#include <basis/task/task_util.hpp>
 #include <basis/checked_optional.hpp>
 #include <basis/state_machine/unsafe_state_machine.hpp>
 #include <basis/lock_with_check.hpp>

@@ -622,6 +622,12 @@ add_server_plugin(NetworkEntity
   #
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/accept_connection_result.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/accept_connection_result.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/delayed_construction.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/delayed_construction.hpp
+  #
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/delayed_construction_just_done.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/plugins/plugin_NetworkEntity/src/ECS/systems/delayed_construction_just_done.hpp
 )
 
 message(STATUS

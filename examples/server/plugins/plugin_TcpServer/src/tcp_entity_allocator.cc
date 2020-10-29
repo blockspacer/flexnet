@@ -196,10 +196,19 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
 
   bool usedCache = false;
 
+  /// \note Also processes entities
+  /// that were not fully created (see `ECS::DelayedConstruction`).
+  /// \note Make sure that not fully created entities are properly freed
+  /// (usually that means that they must have some relationship component
+  /// like `FirstChildComponent`, `ChildLinkedList` etc.
+  /// that will allow them to be freed upon parent entity destruction).
   CreateOrReuseCachedResult allocateResult
     = createOrReuseCached<
-        ECS::TcpConnection // component to create or re-use
+        // components to create or re-use
+        ECS::TcpConnection
+        // components that are not ignored by filter
         , ECS::UnusedTag // only unused entity can be re-used
+        // components that must be ignored by filter
         , ECS::NeedToDestroyTag // ignore entity in destruction
       >(
         (*netRegistryRef_).registryUnsafe()
@@ -216,6 +225,31 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
         allocateResult.entity_id
         , "TcpConnection_" + base::GenerateGUID() // debug name
       );
+
+  /// We want to add custom components to entity from plugins.
+  /// So upon construction, entity must have `ECS::DelayedConstruction` component.
+  /// We assume that `entity` will be constructed within 1 tick,
+  /// then delete `ECS::DelayedConstruction` component
+  /// \note Do not forget to skip entity updates
+  /// if it has `ECS::DelayedConstruction` component.
+  /// \note Do not forget to properly free entity during termination
+  /// if it has `ECS::DelayedConstruction` component
+  /// (i.e. app closes while some entity still not constructed).
+  /// \note Make sure that not fully created entities are properly freed
+  /// (usually that means that they must have some relationship component
+  /// like `FirstChildComponent`, `ChildLinkedList` etc.
+  /// that will allow them to be freed upon parent entity destruction).
+  {
+    // mark entity as not fully created
+    (*netRegistryRef_)->emplace_or_replace<
+        ECS::DelayedConstruction
+      >(allocateResult.entity_id);
+
+    // mark entity as not fully created
+    (*netRegistryRef_)->remove_if_exists<
+        ECS::DelayedConstructionJustDone
+      >(allocateResult.entity_id);
+  }
 
   if(usedCache)
   {

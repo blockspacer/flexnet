@@ -57,11 +57,15 @@
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
 #include <basis/scoped_sequence_context_var.hpp>
+#include <basis/typed_enum.h>
+#include <basis/strong_alias.hpp>
+
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 
 #include <memory>
 #include <chrono>
+#include <string>
 
 using namespace flexnet;
 using namespace backend;
