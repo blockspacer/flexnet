@@ -15,7 +15,7 @@
 
 #include <basis/checked_optional.hpp>
 #include <basis/atomic_flag_macros.hpp>
-#include <basis/lock_with_check.hpp>
+#include <basis/scoped_checks.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/status/statusor.hpp>

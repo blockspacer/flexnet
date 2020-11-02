@@ -465,6 +465,9 @@ void WsChannel::allocateRecievedDataComponent(
             msg_entity_id // assign to entity with that id
             , base::rvalue_cast(message));
 
+    DCHECK((*netRegistry_)->valid(entity_id_));
+    DCHECK((*netRegistry_)->valid(msg_entity_id));
+
     ECS::prependChildEntity<
         WsChannel::RecievedData // unique type tag for all children
     >(

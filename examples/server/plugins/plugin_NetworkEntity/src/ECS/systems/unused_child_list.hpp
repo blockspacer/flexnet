@@ -73,6 +73,9 @@ void updateUnusedChildList(
   }
 #endif // NDEBUG
 
+  std::vector<ChildEntitiesThatCanBeRemoved> allChildrenToRemove;
+  std::vector<ECS::Entity> allChildrenToDestroy;
+
   for(const ECS::Entity& entity_id: registry_group)
   {
     DCHECK(net_registry->valid(entity_id));
@@ -93,37 +96,70 @@ void updateUnusedChildList(
       , base::BindRepeating(
         [
         ](
-          ECS::Registry& registry
+          std::vector<ChildEntitiesThatCanBeRemoved>& allChildrenToRemove
+          , std::vector<ECS::Entity>& allChildrenToDestroy
+          , ECS::Registry& registry
           , ECS::Entity parentId
           , ECS::Entity childId
         ){
-          DCHECK(!registry.has<ECS::NeedToDestroyTag>(childId));
-          registry.emplace<ECS::NeedToDestroyTag>(childId);
-
-          DVLOG(99)
-            << " removed child entity "
-            << childId
-            << " from parent entity "
-            << parentId;
-
-          DCHECK(registry.has<ChildrenComponent>(childId));
-
-          bool removedOk
-            = ECS::removeChildEntity<TagT>(
+          allChildrenToRemove.push_back(
+            childEntitiesThatCanBeRemoved<TagT>(
               REFERENCED(registry)
               , parentId
               , childId
-            );
-          DCHECK(removedOk);
+            )
+          );
 
-          DCHECK(!registry.has<ParentComponent>(childId));
+          allChildrenToDestroy.push_back(childId);
         }
+        , REFERENCED(allChildrenToRemove)
+        , REFERENCED(allChildrenToDestroy)
       )
     );
+  };
 
+  for(const ChildEntitiesThatCanBeRemoved& childrenToRemove: allChildrenToRemove)
+  {
+    DCHECK(childrenToRemove.parent != ECS::NULL_ENTITY);
+
+    for(const ECS::Entity& childId: childrenToRemove.children)
+    {
+      DCHECK(net_registry->valid(childId));
+      DCHECK(childId != ECS::NULL_ENTITY);
+      DCHECK(net_registry->valid(childrenToRemove.parent));
+
+      DVLOG(99)
+        << " removed child entity "
+        << childId
+        << " from parent entity "
+        << childrenToRemove.parent;
+
+      DCHECK(!net_registry->has<ChildrenComponent>(childId));
+      DCHECK(!net_registry->has<ParentComponent>(childId));
+    }
+
+    DCHECK(net_registry->valid(childrenToRemove.parent));
+    net_registry->remove<FirstChildComponent>(childrenToRemove.parent);
+    net_registry->remove<ChildrenSizeComponent>(childrenToRemove.parent);
+  }
+
+  for(const ECS::Entity& childId: allChildrenToDestroy)
+  {
+    DCHECK(net_registry->valid(childId));
+    DCHECK(childId != ECS::NULL_ENTITY);
+
+    DCHECK(!registry.has<ECS::NeedToDestroyTag>(childId));
+    registry.emplace<ECS::NeedToDestroyTag>(childId);
+  }
+
+#if DCHECK_IS_ON()
+  for(const ECS::Entity& entity_id: registry_group)
+  {
+    DCHECK(net_registry->valid(entity_id));
     DCHECK(!net_registry->has<FirstChildComponent>(entity_id));
     DCHECK(!net_registry->has<ChildrenSizeComponent>(entity_id));
-  };
+  }
+#endif // DCHECK_IS_ON()
 }
 
 } // namespace ECS

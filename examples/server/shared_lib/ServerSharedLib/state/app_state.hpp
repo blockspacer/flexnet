@@ -12,7 +12,7 @@
 
 #include <basis/checked_optional.hpp>
 #include <basis/state_machine/unsafe_state_machine.hpp>
-#include <basis/lock_with_check.hpp>
+#include <basis/scoped_checks.hpp>
 #include <basis/promise/promise.h>
 #include <basis/promise/post_promise.h>
 #include <basis/status/status.hpp>

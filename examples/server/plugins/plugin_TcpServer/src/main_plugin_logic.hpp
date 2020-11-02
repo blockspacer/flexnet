@@ -39,7 +39,7 @@
 #include <basis/strong_alias.hpp>
 #include <basis/task/task_util.hpp>
 #include <basis/checked_optional.hpp>
-#include <basis/lock_with_check.hpp>
+#include <basis/scoped_checks.hpp>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/tags.hpp>

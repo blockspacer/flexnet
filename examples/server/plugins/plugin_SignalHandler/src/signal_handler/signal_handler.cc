@@ -41,7 +41,7 @@
 #include <base/trace_event/process_memory_dump.h>
 #include <base/trace_event/trace_event.h>
 
-#include <basis/lock_with_check.hpp>
+#include <basis/scoped_checks.hpp>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/ECS/ecs.hpp>
