@@ -12,7 +12,7 @@
 #include <base/guid.h>
 #include <base/task/thread_pool/thread_pool.h>
 #include <basis/ECS/tags.hpp>
-#include <basis/ECS/helpers/add_child_entity.hpp>
+#include <basis/ECS/helpers/prepend_child_entity.hpp>
 #include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/task/periodic_check.hpp>

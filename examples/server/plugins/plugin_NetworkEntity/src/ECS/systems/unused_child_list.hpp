@@ -2,7 +2,10 @@
 
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/helpers/foreach_child_entity.hpp>
-#include <basis/ECS/helpers/remove_child_entity.hpp>
+#include <basis/ECS/helpers/view_child_entities.hpp>
+#include <basis/ECS/helpers/remove_all_children_from_view.hpp>
+#include <basis/ECS/helpers/remove_parent_components.hpp>
+#include <basis/ECS/helpers/remove_child_components.hpp>
 #include <basis/ECS/components/child_linked_list.hpp>
 #include <basis/ECS/components/child_linked_list_size.hpp>
 #include <basis/ECS/components/first_child_in_linked_list.hpp>
@@ -22,6 +25,30 @@
 
 namespace ECS {
 
+template <typename TagT>
+auto groupParentsWithUnusedChilds(
+  ECS::NetworkRegistry& net_registry)
+{
+  using FirstChildComponent = ECS::FirstChildInLinkedList<TagT>;
+
+  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
+
+  return
+    net_registry->view<
+      // unused entities
+      ECS::UnusedTag
+      // entities that have children
+      , FirstChildComponent
+    >(
+      entt::exclude<
+        // entity in destruction
+        ECS::NeedToDestroyTag
+        // entity not fully created
+        , ECS::DelayedConstruction
+      >
+    );
+}
+
 // For each unused entity that have children:
 // 1. Marks all children with `ECS::NeedToDestroyTag`
 // 2. Removes all children from entity.
@@ -31,33 +58,20 @@ namespace ECS {
 // Use plain callbacks (do not use `base::Promise` etc.)
 // and avoid heap memory allocations
 // because performance is critical here.
-
-template <typename TagT>
+template <typename TagType>
 void updateUnusedChildList(
   ECS::NetworkRegistry& net_registry)
 {
-  using FirstChildComponent = ECS::FirstChildInLinkedList<TagT>;
-  using ChildrenComponent = ECS::ChildLinkedList<TagT>;
+  using FirstChildComponent = ECS::FirstChildInLinkedList<TagType>;
+  using ChildrenComponent = ECS::ChildLinkedList<TagType>;
   /// \note we assume that size of all children can be stored in `size_t`
-  using ChildrenSizeComponent = ECS::ChildLinkedListSize<TagT, size_t>;
-  using ParentComponent = ECS::ParentEntity<TagT>;
+  using ChildrenSizeComponent = ECS::ChildLinkedListSize<TagType, size_t>;
+  using ParentComponent = ECS::ParentEntity<TagType>;
 
   DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
 
   auto registry_group
-    = net_registry->view<
-        // unused entities
-        ECS::UnusedTag
-        // entities that have children
-        , FirstChildComponent
-      >(
-        entt::exclude<
-          // entity in destruction
-          ECS::NeedToDestroyTag
-          // entity not fully created
-          , ECS::DelayedConstruction
-        >
-      );
+    = groupParentsWithUnusedChilds<TagType>(net_registry);
 
   if(registry_group.size()) {
     UMA_HISTOGRAM_COUNTS_1000("ECS.unusedChildListBatches",
@@ -73,93 +87,65 @@ void updateUnusedChildList(
   }
 #endif // NDEBUG
 
-  std::vector<ChildEntitiesThatCanBeRemoved> allChildrenToRemove;
-  std::vector<ECS::Entity> allChildrenToDestroy;
+  // To work around issues during iterations we store aside
+  // the entities and the components to be removed
+  // and perform the operations at the end of the iteration.
+  CREATE_ECS_TAG(Internal_ChildrenToDestroy);
 
-  for(const ECS::Entity& entity_id: registry_group)
+  for(const ECS::Entity& parentEntityId: registry_group)
   {
-    DCHECK(net_registry->valid(entity_id));
-
     DVLOG(99)
       << " found unused entity with children. Entity id: "
-      << entity_id;
+      << parentEntityId;
 
-    DCHECK(net_registry->has<FirstChildComponent>(entity_id));
-    DCHECK(net_registry->has<ChildrenSizeComponent>(entity_id));
-
-    // destroy children of unused entities
-    /// \todo Now children may be freed before parents.
-    /// How to preserve order without affecting performance?
-    ECS::foreachChildEntity<TagT>(
+    ECS::foreachChildEntity<TagType>(
       REFERENCED(net_registry.registryUnsafe())
-      , entity_id
+      , parentEntityId
       , base::BindRepeating(
         [
         ](
-          std::vector<ChildEntitiesThatCanBeRemoved>& allChildrenToRemove
-          , std::vector<ECS::Entity>& allChildrenToDestroy
-          , ECS::Registry& registry
+          ECS::Registry& registry
           , ECS::Entity parentId
           , ECS::Entity childId
         ){
-          allChildrenToRemove.push_back(
-            childEntitiesThatCanBeRemoved<TagT>(
-              REFERENCED(registry)
-              , parentId
-              , childId
-            )
-          );
+          DVLOG(99)
+            << " removed child entity "
+            << childId
+            << " from parent entity "
+            << parentId;
 
-          allChildrenToDestroy.push_back(childId);
+          DCHECK(!registry.has<Internal_ChildrenToDestroy>(childId));
+          registry.emplace<Internal_ChildrenToDestroy>(childId);
         }
-        , REFERENCED(allChildrenToRemove)
-        , REFERENCED(allChildrenToDestroy)
       )
     );
   };
 
-  for(const ChildEntitiesThatCanBeRemoved& childrenToRemove: allChildrenToRemove)
+  /// \note create new group to avoid iterator invalidation
+  for(const ECS::Entity& childId:
+    net_registry->view<Internal_ChildrenToDestroy>())
   {
-    DCHECK(childrenToRemove.parent != ECS::NULL_ENTITY);
+    DCHECK(!net_registry->has<ECS::NeedToDestroyTag>(childId));
+    net_registry->emplace<ECS::NeedToDestroyTag>(childId);
 
-    for(const ECS::Entity& childId: childrenToRemove.children)
-    {
-      DCHECK(net_registry->valid(childId));
-      DCHECK(childId != ECS::NULL_ENTITY);
-      DCHECK(net_registry->valid(childrenToRemove.parent));
-
-      DVLOG(99)
-        << " removed child entity "
-        << childId
-        << " from parent entity "
-        << childrenToRemove.parent;
-
-      DCHECK(!net_registry->has<ChildrenComponent>(childId));
-      DCHECK(!net_registry->has<ParentComponent>(childId));
-    }
-
-    DCHECK(net_registry->valid(childrenToRemove.parent));
-    net_registry->remove<FirstChildComponent>(childrenToRemove.parent);
-    net_registry->remove<ChildrenSizeComponent>(childrenToRemove.parent);
+    net_registry->remove<Internal_ChildrenToDestroy>(childId);
   }
 
-  for(const ECS::Entity& childId: allChildrenToDestroy)
-  {
-    DCHECK(net_registry->valid(childId));
-    DCHECK(childId != ECS::NULL_ENTITY);
-
-    DCHECK(!registry.has<ECS::NeedToDestroyTag>(childId));
-    registry.emplace<ECS::NeedToDestroyTag>(childId);
-  }
-
-#if DCHECK_IS_ON()
-  for(const ECS::Entity& entity_id: registry_group)
-  {
-    DCHECK(net_registry->valid(entity_id));
-    DCHECK(!net_registry->has<FirstChildComponent>(entity_id));
-    DCHECK(!net_registry->has<ChildrenSizeComponent>(entity_id));
-  }
-#endif // DCHECK_IS_ON()
+  removeAllChildrenFromView<
+    TagType
+  >(
+    REFERENCED(net_registry.registryUnsafe())
+    , ECS::include<
+        ECS::UnusedTag
+        , FirstChildComponent
+      >
+    , ECS::exclude<
+        // entity in destruction
+        ECS::NeedToDestroyTag
+        // entity not fully created
+        , ECS::DelayedConstruction
+      >
+  );
 }
 
 } // namespace ECS
