@@ -153,7 +153,7 @@
 #include <basis/ECS/helpers/view_child_entities.hpp>
 #include <basis/ECS/helpers/remove_all_children_from_view.hpp>
 #include <basis/ECS/helpers/remove_child_entity.hpp>
-#include <basis/ECS/helpers/has_child.hpp>
+#include <basis/ECS/helpers/has_child_in_linked_list.hpp>
 
 #include <flexnet/util/close_socket_unsafe.hpp>
 
@@ -175,10 +175,10 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
 
   ECS::Entity childId = registry.create();
 
-  DCHECK(!isChildEntity<TagType>(registry, parentId));
-  DCHECK(!isParentEntity<TagType>(registry, childId));
-  DCHECK(!isChildEntity<TagType>(registry, childId));
-  DCHECK(!isParentEntity<TagType>(registry, parentId));
+  DCHECK(!hasChildComponents<TagType>(registry, parentId));
+  DCHECK(!hasParentComponents<TagType>(registry, childId));
+  DCHECK(!hasChildComponents<TagType>(registry, childId));
+  DCHECK(!hasParentComponents<TagType>(registry, parentId));
 
   {
     ECS::prependChildEntity<
@@ -189,16 +189,16 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
       , childId
     );
 
-    DCHECK(isChildEntity<TagType>(registry, childId));
-    DCHECK(isParentEntity<TagType>(registry, parentId));
-    DCHECK(!isChildEntity<TagType>(registry, parentId));
-    DCHECK(!isParentEntity<TagType>(registry, childId));
+    DCHECK(hasChildComponents<TagType>(registry, childId));
+    DCHECK(hasParentComponents<TagType>(registry, parentId));
+    DCHECK(!hasChildComponents<TagType>(registry, parentId));
+    DCHECK(!hasParentComponents<TagType>(registry, childId));
 
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 1);
 
-    DCHECK(hasChild<TagType>(registry, parentId, childId));
-    DCHECK(!hasChild<TagType>(registry, parentId, registry.create()));
+    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childId));
+    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, registry.create()));
 
     DCHECK_EQ(registry.get<ParentComponent>(childId).parentId, parentId);
     DCHECK_EQ(registry.get<ChildrenComponent>(childId).nextId, ECS::NULL_ENTITY);
@@ -245,9 +245,9 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childTwoId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 2);
 
-    DCHECK(hasChild<TagType>(registry, parentId, childId));
-    DCHECK(hasChild<TagType>(registry, parentId, childTwoId));
-    DCHECK(!hasChild<TagType>(registry, parentId, registry.create()));
+    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childId));
+    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childTwoId));
+    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, registry.create()));
 
     DCHECK_EQ(registry.get<ParentComponent>(childId).parentId, parentId);
     DCHECK_EQ(registry.get<ChildrenComponent>(childId).nextId, ECS::NULL_ENTITY);
@@ -299,10 +299,10 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childThreeId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 3);
 
-    DCHECK(hasChild<TagType>(registry, parentId, childId));
-    DCHECK(hasChild<TagType>(registry, parentId, childTwoId));
-    DCHECK(hasChild<TagType>(registry, parentId, childThreeId));
-    DCHECK(!hasChild<TagType>(registry, parentId, registry.create()));
+    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childId));
+    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childTwoId));
+    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childThreeId));
+    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, registry.create()));
 
     DCHECK_EQ(registry.get<ParentComponent>(childId).parentId, parentId);
     DCHECK_EQ(registry.get<ChildrenComponent>(childId).nextId, ECS::NULL_ENTITY);
@@ -363,10 +363,10 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childThreeId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 2);
 
-    DCHECK(hasChild<TagType>(registry, parentId, childId));
-    DCHECK(hasChild<TagType>(registry, parentId, childThreeId));
-    DCHECK(!hasChild<TagType>(registry, parentId, childTwoId));
-    DCHECK(!hasChild<TagType>(registry, parentId, registry.create()));
+    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childId));
+    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childThreeId));
+    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, childTwoId));
+    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, registry.create()));
 
     DCHECK_EQ(registry.get<ParentComponent>(childId).parentId, parentId);
     DCHECK_EQ(registry.get<ChildrenComponent>(childId).nextId, ECS::NULL_ENTITY);
@@ -417,6 +417,20 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
   }
 
   {
+    ECS::Entity tmpId = registry.create();
+
+    bool removeOk
+      = ECS::removeChildEntity<
+        TagType
+      >(
+        REFERENCED(registry)
+        , parentId
+        , tmpId
+      );
+    DCHECK(!removeOk);
+  }
+
+  {
     bool removeOk
       = ECS::removeChildEntity<
         TagType
@@ -435,10 +449,10 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK(!registry.has<ChildrenComponent>(childThreeId));
     DCHECK(!registry.has<ChildrenComponent>(childThreeId));
 
-    DCHECK(hasChild<TagType>(registry, parentId, childId));
-    DCHECK(!hasChild<TagType>(registry, parentId, childTwoId));
-    DCHECK(!hasChild<TagType>(registry, parentId, childThreeId));
-    DCHECK(!hasChild<TagType>(registry, parentId, registry.create()));
+    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childId));
+    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, childTwoId));
+    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, childThreeId));
+    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, registry.create()));
 
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 1);
@@ -446,6 +460,52 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<ParentComponent>(childId).parentId, parentId);
     DCHECK_EQ(registry.get<ChildrenComponent>(childId).nextId, ECS::NULL_ENTITY);
     DCHECK_EQ(registry.get<ChildrenComponent>(childId).prevId, ECS::NULL_ENTITY);
+  }
+
+  {
+    ECS::Entity tmpParentId = registry.create();
+    ECS::Entity tmpChildId = registry.create();
+
+    bool removeOk1
+      = ECS::removeChildEntity<
+        TagType
+      >(
+        REFERENCED(registry)
+        , tmpParentId
+        , tmpChildId
+      );
+    DCHECK(!removeOk1);
+
+    bool removeOk2
+      = ECS::removeChildEntity<
+        TagType
+      >(
+        REFERENCED(registry)
+        , tmpParentId
+        , childId
+      );
+    DCHECK(!removeOk2);
+
+    ECS::prependChildEntity<
+      TagType
+    >(
+      REFERENCED(registry)
+      , tmpParentId
+      , tmpChildId
+    );
+
+    DCHECK_EQ(registry.get<FirstChildComponent>(tmpParentId).firstId, tmpChildId);
+    DCHECK_EQ(registry.get<ChildrenSizeComponent>(tmpParentId).size, 1);
+
+    bool removeOk3
+      = ECS::removeChildEntity<
+        TagType
+      >(
+        REFERENCED(registry)
+        , parentId
+        , tmpChildId
+      );
+    DCHECK(!removeOk3);
   }
 
   {
@@ -527,10 +587,10 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
   }
 
   {
-    DCHECK(!hasChild<TagType>(registry, parentId, ECS::NULL_ENTITY));
-    DCHECK(!hasChild<TagType>(registry, ECS::NULL_ENTITY, childId));
-    DCHECK(!isChildEntity<TagType>(registry, ECS::NULL_ENTITY));
-    DCHECK(!isParentEntity<TagType>(registry, ECS::NULL_ENTITY));
+    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, ECS::NULL_ENTITY));
+    DCHECK(!hasChildInLinkedList<TagType>(registry, ECS::NULL_ENTITY, childId));
+    DCHECK(!hasChildComponents<TagType>(registry, ECS::NULL_ENTITY));
+    DCHECK(!hasParentComponents<TagType>(registry, ECS::NULL_ENTITY));
   }
 
   {
@@ -547,16 +607,16 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childThreeId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 1);
 
-    CREATE_ECS_TAG(Internal_HasChildrenTag);
+    CREATE_ECS_TAG(Internal_hasChildInLinkedListrenTag);
 
-    registry.emplace<Internal_HasChildrenTag>(parentId);
+    registry.emplace<Internal_hasChildInLinkedListrenTag>(parentId);
 
     removeAllChildrenFromView<
       TagType
     >(
       REFERENCED(registry)
       , ECS::include<
-          Internal_HasChildrenTag
+          Internal_hasChildInLinkedListrenTag
         >
       , ECS::exclude<>
     );
