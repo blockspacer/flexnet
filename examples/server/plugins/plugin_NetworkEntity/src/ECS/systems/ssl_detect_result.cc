@@ -167,14 +167,14 @@ void updateSSLDetection(
     .each(
       [&net_registry]
       (const ECS::Entity& entity
-       , const auto& component)
+       , view_component& component)
     {
       DCHECK(net_registry->valid(entity));
 
       handleSSLDetectResult(
         net_registry
         , entity
-        , net_registry->get<view_component>(entity).value());
+        , component.value());
 
       // do not process twice
       // similar to

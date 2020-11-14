@@ -607,16 +607,16 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childThreeId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 1);
 
-    CREATE_ECS_TAG(Internal_hasChildInLinkedListrenTag);
+    CREATE_ECS_TAG(Internal_hasChildInLinkedListTag);
 
-    registry.emplace<Internal_hasChildInLinkedListrenTag>(parentId);
+    registry.emplace<Internal_hasChildInLinkedListTag>(parentId);
 
     removeAllChildrenFromView<
       TagType
     >(
       REFERENCED(registry)
       , ECS::include<
-          Internal_hasChildInLinkedListrenTag
+          Internal_hasChildInLinkedListTag
         >
       , ECS::exclude<>
     );

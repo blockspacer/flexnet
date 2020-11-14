@@ -137,7 +137,6 @@ void updateUnusedChildList(
     REFERENCED(net_registry.registryUnsafe())
     , ECS::include<
         ECS::UnusedTag
-        , FirstChildComponent
       >
     , ECS::exclude<
         // entity in destruction

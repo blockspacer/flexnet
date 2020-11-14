@@ -114,7 +114,14 @@ GIT_SSL_NO_VERIFY=true \
 Use `--vmodule`.
 
 ```bash
-./bin/Debug/server_executable/server_executable --vmodule=*main*=100,*=200 --enable-logging=stderr --log-level=100 --show-fps-counter --enable-features=console_terminal,remote_console --start_tracing --tracing_categories=*,disabled-by-default-memory-infra
+./bin/Debug/server_executable/server_executable \
+  --vmodule=*main*=100,*=200 \
+  --enable-logging=stderr \
+  --log-level=100 \
+  --show-fps-counter \
+  --enable-features=console_terminal,remote_console \
+  --start_tracing \
+  --tracing_categories=*,disabled-by-default-memory-infra
 ```
 
 ## HOW TO BUILD WITH SANITIZERS ENABLED

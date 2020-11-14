@@ -279,7 +279,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
           .each(
             [&doEofWebsocket, &netRegistry]
             (const ECS::Entity& entity
-             , const auto& component)
+             , const ECS::TcpConnection& component)
           {
             doEofWebsocket.Run(entity, (*netRegistry));
           });
