@@ -10,6 +10,8 @@
 #include <basis/ECS/components/child_linked_list_size.hpp>
 #include <basis/ECS/components/first_child_in_linked_list.hpp>
 #include <basis/ECS/components/parent_entity.hpp>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <base/metrics/histogram.h>
 #include <base/metrics/histogram_macros.h>

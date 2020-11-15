@@ -4,7 +4,7 @@
 #include <entt/signal/dispatcher.hpp>
 #include <entt/entt.hpp>
 
-#include <basis/strong_alias.hpp>
+#include <basis/strong_types/strong_alias.hpp>
 
 namespace backend {
 

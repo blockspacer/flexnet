@@ -19,6 +19,8 @@
 #include <basis/task/periodic_check.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/task/task_util.hpp>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/buffer.hpp>
@@ -389,8 +391,11 @@ void HttpChannel::startReadAsync() NO_EXCEPTION
   ignore_result(
     postTaskOnConnectionStrand(
       FROM_HERE
-      , base::BindOnce(
-          &HttpChannel::doRead,
+      , base::bindCheckedOnce(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(this)
+          )
+          , &HttpChannel::doRead,
           base::Unretained(this)))
   );
 }
@@ -454,8 +459,11 @@ void HttpChannel::doRead() NO_EXCEPTION
     , boost::asio::bind_executor(
         *perConnectionStrand_
         , basis::bindFrontOnceCallback(
-            base::BindOnce(
-              &HttpChannel::onRead
+            base::bindCheckedOnce(
+              DEBUG_BIND_CHECKS(
+                PTR_CHECKER(this)
+              )
+              , &HttpChannel::onRead
               , base::Unretained(this)
             )
           )
@@ -645,8 +653,11 @@ void HttpChannel::onRead(
     DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
     netRegistry_->taskRunner()->PostTask(
       FROM_HERE
-      , base::BindOnce(
-          &HttpChannel::handleWebsocketUpgrade
+      , base::bindCheckedOnce(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(this)
+          )
+          , &HttpChannel::handleWebsocketUpgrade
           , base::Unretained(this)
           , ec
           , bytes_transferred
@@ -704,8 +715,11 @@ void HttpChannel::onRead(
         , boost::asio::bind_executor(
             *perConnectionStrand_
             , basis::bindFrontOnceCallback(
-                base::BindOnce(
-                  &HttpChannel::processWrittenResponse<ResponseType>
+                base::bindCheckedOnce(
+                  DEBUG_BIND_CHECKS(
+                    PTR_CHECKER(this)
+                  )
+                  , &HttpChannel::processWrittenResponse<ResponseType>
                   , base::Unretained(this)
                   // extend lifetime of the message (shared_ptr)
                   , sp

@@ -1,6 +1,9 @@
 #include "main_plugin_interface.hpp" // IWYU pragma: associated
 #include "main_plugin_constants.hpp"
 
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
+
 namespace plugin {
 namespace console_terminal {
 
@@ -80,9 +83,12 @@ MainPluginInterface::VoidPromise
           })
         )
       .ThenHere(FROM_HERE
-        , base::BindOnce(
-          &MainPluginLogic::load
-          , base::Unretained(&mainPluginLogic_.value()))
+        , base::bindCheckedOnce(
+            DEBUG_BIND_CHECKS(
+              PTR_CHECKER(&mainPluginLogic_.value())
+            )
+            , &MainPluginLogic::load
+            , base::Unretained(&mainPluginLogic_.value()))
         , base::IsNestedPromise{true}
       )
       .ThenHere(FROM_HERE
@@ -125,9 +131,12 @@ MainPluginInterface::VoidPromise MainPluginInterface::unload()
           })
       )
       .ThenHere(FROM_HERE
-        , base::BindOnce(
-          &MainPluginLogic::unload
-          , base::Unretained(&mainPluginLogic_.value()))
+        , base::bindCheckedOnce(
+            DEBUG_BIND_CHECKS(
+              PTR_CHECKER(&mainPluginLogic_.value())
+            )
+            , &MainPluginLogic::unload
+            , base::Unretained(&mainPluginLogic_.value()))
         , base::IsNestedPromise{true}
       )
       .ThenHere(FROM_HERE

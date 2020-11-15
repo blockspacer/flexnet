@@ -18,6 +18,8 @@
 #include <basis/status/status_macros.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/error.hpp>
@@ -232,10 +234,12 @@ Listener::StatusPromise Listener::configureAndRun()
   /// so it is ok to use `base::Promise` here
   return postTaskOnAcceptorStrand(
     FROM_HERE
-    , base::BindOnce(
-      &Listener::
-        configureAndRunAcceptor,
-      base::Unretained(this)));
+    , base::bindCheckedOnce(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &Listener::configureAndRunAcceptor
+        , base::Unretained(this)));
 }
 
 ::util::Status Listener::configureAndRunAcceptor()
@@ -301,8 +305,11 @@ void Listener::doAccept()
 
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::BindOnce(
-        &Listener::allocateTcpResourceAndAccept
+    , base::bindCheckedOnce(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &Listener::allocateTcpResourceAndAccept
         , base::Unretained(this))
   );
 }
@@ -373,8 +380,11 @@ void Listener::allocateTcpResourceAndAccept()
   ::boost::asio::post(
     *acceptorStrand_
     , basis::bindFrontOnceCallback(
-        base::BindOnce(
-          &Listener::asyncAccept
+        base::bindCheckedOnce(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(this)
+          )
+          , &Listener::asyncAccept
           , base::Unretained(this)
           , COPIED(
               util::UnownedPtr<StrandType>(&asioStrandCtx->value()))
@@ -425,8 +435,11 @@ void Listener::asyncAccept(
     , boost::asio::bind_executor(
         *unownedPerConnectionStrand.Get()
         , basis::bindFrontOnceCallback(
-            base::BindOnce(
-              &Listener::onAccept
+            base::bindCheckedOnce(
+              DEBUG_BIND_CHECKS(
+                PTR_CHECKER(this)
+              )
+              , &Listener::onAccept
               , base::Unretained(this)
               , COPIED(unownedPerConnectionStrand)
               , COPIED(tcp_entity_id)))
@@ -549,9 +562,12 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
   /// so it is ok to use `base::Promise` here
   return postTaskOnAcceptorStrand(
         FROM_HERE
-        , base::BindOnce(
-          &Listener::stopAcceptor,
-          base::Unretained(this)));
+        , base::bindCheckedOnce(
+            DEBUG_BIND_CHECKS(
+              PTR_CHECKER(this)
+            )
+            , &Listener::stopAcceptor,
+            base::Unretained(this)));
 }
 
 void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
@@ -604,8 +620,11 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
 
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::BindOnce(
-        &Listener::setAcceptConnectionResult
+    , base::bindCheckedOnce(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &Listener::setAcceptConnectionResult
         , base::Unretained(this)
         , COPIED(tcp_entity_id)
         , CAN_COPY_ON_MOVE("moving const") std::move(ec)
@@ -617,8 +636,11 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
   ::boost::asio::post(
     *acceptorStrand_
     , basis::bindFrontOnceCallback(
-        base::BindOnce(
-          &Listener::doAccept
+        base::bindCheckedOnce(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(this)
+          )
+          , &Listener::doAccept
           , base::Unretained(this)))
   );
 }

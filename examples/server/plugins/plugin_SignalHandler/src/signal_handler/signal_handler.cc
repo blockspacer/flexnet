@@ -57,6 +57,8 @@
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -147,8 +149,11 @@ SignalHandler::SignalHandler(
 #endif // defined(SIGQUIT)
 
   signalCallbacks_[SIGQUIT]
-    = base::BindRepeating(
-        &SignalHandler::handleQuitSignal
+    = base::bindCheckedRepeating(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &SignalHandler::handleQuitSignal
         , base::Unretained(this)
     );
 
@@ -159,8 +164,11 @@ SignalHandler::SignalHandler(
 #endif // defined(SIGQUIT)
 
   signalCallbacks_[SIGINT]
-    = base::BindRepeating(
-        &SignalHandler::handleQuitSignal
+    = base::bindCheckedRepeating(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &SignalHandler::handleQuitSignal
         , base::Unretained(this)
     );
 
@@ -171,8 +179,11 @@ SignalHandler::SignalHandler(
 #endif // defined(SIGTERM)
 
   signalCallbacks_[SIGTERM]
-    = base::BindRepeating(
-        &SignalHandler::handleQuitSignal
+    = base::bindCheckedRepeating(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &SignalHandler::handleQuitSignal
         , base::Unretained(this)
     );
 

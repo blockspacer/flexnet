@@ -18,6 +18,8 @@
 #include <basis/task/periodic_check.hpp>
 #include <basis/task/task_util.hpp>
 #include <basis/promise/post_promise.h>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/buffer.hpp>
@@ -281,8 +283,11 @@ void WsChannel::doRead() NO_EXCEPTION
       boost::asio::bind_executor(
         *perConnectionStrand_
         , basis::bindFrontOnceCallback(
-            base::BindOnce(
-              &WsChannel::onRead
+            base::bindCheckedOnce(
+              DEBUG_BIND_CHECKS(
+                PTR_CHECKER(this)
+              )
+              , &WsChannel::onRead
               , base::Unretained(this)))
       ));
 }
@@ -342,8 +347,11 @@ void WsChannel::doEof() NO_EXCEPTION
       boost::asio::bind_executor(
         *perConnectionStrand_
         , basis::bindFrontOnceCallback(
-            base::BindOnce(
-              &WsChannel::onClose
+            base::bindCheckedOnce(
+              DEBUG_BIND_CHECKS(
+                PTR_CHECKER(this)
+              )
+              , &WsChannel::onClose
               , base::Unretained(this)))
       ));
   }
@@ -421,8 +429,11 @@ void WsChannel::onRead(
   DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::BindOnce(
-        &WsChannel::allocateRecievedDataComponent
+    , base::bindCheckedOnce(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &WsChannel::allocateRecievedDataComponent
         , base::Unretained(this)
         , beast::buffers_to_string(readBuffer_.data())
       )
@@ -520,8 +531,11 @@ void WsChannel::sendAsync(
   ::boost::asio::post(
     *perConnectionStrand_
     , basis::bindFrontOnceClosure(
-        base::BindOnce(
-          &WsChannel::send
+        base::bindCheckedOnce(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(this)
+          )
+          , &WsChannel::send
           , base::Unretained(this)
           , message
           , is_binary))
@@ -622,8 +636,11 @@ void WsChannel::writeQueued() NO_EXCEPTION
     , ::boost::asio::bind_executor(
         *perConnectionStrand_
         , basis::bindFrontOnceCallback(
-            base::BindOnce(
-              &WsChannel::onWrite
+            base::bindCheckedOnce(
+              DEBUG_BIND_CHECKS(
+                PTR_CHECKER(this)
+              )
+              , &WsChannel::onWrite
               , base::Unretained(this)))
       )
   );

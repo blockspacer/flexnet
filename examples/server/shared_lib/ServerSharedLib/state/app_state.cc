@@ -18,6 +18,8 @@
 #include <basis/status/status_macros.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/error.hpp>

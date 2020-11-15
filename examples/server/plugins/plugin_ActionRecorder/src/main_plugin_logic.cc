@@ -10,7 +10,9 @@
 #include <basis/status/statusor.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/task/periodic_task_executor.hpp>
-#include <basis/strong_alias.hpp>
+#include <basis/strong_types/strong_alias.hpp>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <entt/entity/registry.hpp>
 #include <entt/signal/dispatcher.hpp>
@@ -104,8 +106,11 @@ void MainPluginLogic::setCustomCallback()
   base::SetRecordActionTaskRunner(
     mainLoopRunner_);
 
-  base::AddActionCallback(base::BindRepeating(
-    &MainPluginLogic::onUserAction
+  base::AddActionCallback(base::bindCheckedRepeating(
+    DEBUG_BIND_CHECKS(
+      PTR_CHECKER(this)
+    )
+    , &MainPluginLogic::onUserAction
     , base::Unretained(this)
   ));
 
@@ -122,8 +127,11 @@ void MainPluginLogic::unsetCustomCallback()
   LOG_CALL(DVLOG(99));
 
   // see https://chromium.googlesource.com/chromium/src.git/+/HEAD/tools/metrics/actions/README.md
-  base::RemoveActionCallback(base::BindRepeating(
-    &MainPluginLogic::onUserAction
+  base::RemoveActionCallback(base::bindCheckedRepeating(
+    DEBUG_BIND_CHECKS(
+      PTR_CHECKER(this)
+    )
+    , &MainPluginLogic::onUserAction
     , base::Unretained(this)
   ));
 

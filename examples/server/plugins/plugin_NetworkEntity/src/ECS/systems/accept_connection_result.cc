@@ -2,6 +2,8 @@
 
 #include <basis/ECS/tags.hpp>
 #include <basis/task/task_util.hpp>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <flexnet/util/close_socket_unsafe.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
@@ -119,8 +121,11 @@ void handleAcceptResult(
   ::boost::asio::post(
     detectChannelCtx->value().perConnectionStrand()
     , basis::bindFrontOnceClosure(
-        base::BindOnce(
-          &::flexnet::http::DetectChannel::runDetector
+        base::bindCheckedOnce(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(&detectChannelCtx->value())
+          )
+          , &::flexnet::http::DetectChannel::runDetector
           , base::Unretained(&detectChannelCtx->value())
           // expire timeout for SSL detection
           , std::chrono::seconds(3)))

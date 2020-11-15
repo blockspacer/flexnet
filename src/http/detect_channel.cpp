@@ -14,6 +14,8 @@
 #include <basis/unowned_ptr.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/promise/post_promise.h>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <boost/asio/basic_stream_socket.hpp>
 #include <boost/asio/bind_executor.hpp>
@@ -158,8 +160,11 @@ void DetectChannel::runDetector(
   /// i.e. API user must wait for |destruction_promise_|
   auto onDetectedCb
     = basis::bindFrontOnceCallback(
-        base::BindOnce(
-          &DetectChannel::onDetected
+        base::bindCheckedOnce(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(this)
+          )
+          , &DetectChannel::onDetected
           , base::Unretained(this)
 #if DCHECK_IS_ON()
          , timeoutPromiseResolver.GetRepeatingResolveCallback()
@@ -257,8 +262,11 @@ void DetectChannel::onDetected(
   // mark SSL detection completed
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::BindOnce(
-        &DetectChannel::setSSLDetectResult
+    , base::bindCheckedOnce(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &DetectChannel::setSSLDetectResult
         , base::Unretained(this)
         /// \note do not forget to free allocated resources
         /// in case of error code

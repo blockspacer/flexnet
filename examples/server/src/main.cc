@@ -44,6 +44,8 @@
 #include <base/compiler_specific.h>
 #include <base/template_util.h>
 #include <base/threading/thread_collision_warner.h>
+#include <base/strings/substitute.h>
+#include <base/strings/utf_string_conversions.h>
 
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/dummy_checker.hpp>
@@ -69,8 +71,15 @@
 #include <basis/task/periodic_check.hpp>
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/typed_enum.h>
-#include <basis/strong_alias.hpp>
+#include <basis/strong_types/strong_alias.hpp>
+#include <basis/strong_types/strong_bool.hpp>
+#include <basis/strong_types/strong_string.hpp>
+#include <basis/strong_types/strong_int.hpp>
+#include <basis/strong_types/strong_size_units.hpp>
+#include <basis/strong_types/strong_time_units.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -365,46 +374,6 @@ void finishProcessMetrics() NO_EXCEPTION
           << module->GetSize();
       }
     }
-  }
-
-  using ::logging::noEndl;
-  using ::logging::noFormat;
-  using ::logging::doNothing;
-
-  std::vector<std::string> items{"item1", "item2", "item3"};
-  LOG(INFO) << "Items:" << noEndl;
-  for (auto it = items.begin(); it != items.end(); ++it) {
-    LOG(INFO) << ' ' << *it << noFormat << noEndl;
-  }
-  LOG(INFO) << '\n' << noFormat << noEndl;
-
-  int n = 10;
-  for(int i = 0; i < n; i++)
-  {
-    /// \note There is no std::endl
-    /// \note FATAL may cause coredump
-    // LOG(FATAL) << "Unusual thing happened ..." << "...";
-
-    // DLOG: Print logs only when NDEBUG is not defined.
-    DLOG(INFO) << "Something just took place..." << "...";
-
-    /// \note glog doesn't have NOTICE.
-    /// Generally you should not use NOTICE
-    /// as it is intended for important logs.
-    LOG_IF(NOTICE, i > 8) << "This log will only be printed when i > 8";
-    // Prints with errno:
-    // Fail to call function setting errno: File exists (17)
-    PLOG(WARNING) << "Fail to call function setting errno";
-    VLOG(1) << "verbose log tier 1";
-
-    // #include "base/threading/platform_thread.h"
-    base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(300));
-
-    LOG_EVERY_N_US(INFO, 800000L) << "High-frequent logs (every 800ms)";
-    LOG_EVERY_SECOND(INFO) << "High-frequent logs (every 1sec)";
-    LOG_EVERY_N_TIMES(ERROR, 3) << "High-frequent logs (every 3 times)";
-    LOG_FIRST_N_TIMES(INFO, 5) << "Logs that prints for at most 5 times";
-    LOG_ONCE(WARNING) << "Logs that only prints once";
   }
 }
 

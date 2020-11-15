@@ -12,7 +12,9 @@
 #include <basis/status/statusor.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/task/periodic_task_executor.hpp>
-#include <basis/strong_alias.hpp>
+#include <basis/strong_types/strong_alias.hpp>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <entt/entity/registry.hpp>
 #include <entt/signal/dispatcher.hpp>
@@ -58,8 +60,11 @@ MainPluginLogic::MainPluginLogic(
       , REFERENCED(*netRegistry_)
       // Callback will be called per each connected client
       // to create ECS entity
-      , base::BindRepeating(
-          &::backend::TcpEntityAllocator::allocateTcpEntity
+      , base::bindCheckedRepeating(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(&tcpEntityAllocator_)
+          )
+          , &::backend::TcpEntityAllocator::allocateTcpEntity
           , base::Unretained(&tcpEntityAllocator_)
         )
     }
@@ -88,8 +93,11 @@ MainPluginLogic::VoidPromise
   return VoidPromise::CreateResolved(FROM_HERE)
   .ThenOn(mainLoopRunner_
     , FROM_HERE
-    , base::BindOnce(
-        &MainPluginLogic::startAcceptors
+    , base::bindCheckedOnce(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &MainPluginLogic::startAcceptors
         , base::Unretained(this)
     )
   );
@@ -107,14 +115,17 @@ MainPluginLogic::VoidPromise
   return VoidPromise::CreateResolved(FROM_HERE)
   .ThenOn(mainLoopRunner_
     , FROM_HERE
-    , base::BindOnce(
-      // Stops creation of new connections.
-      /// \note Existing connections may be in `constructing`
-      /// state and they can be fully created at arbitrary
-      /// (not known beforehand) time due to
-      /// asynchronous design of task scheduler.
-      &::flexnet::ws::Listener::stopAcceptorAsync
-      , base::Unretained(&listener_)
+    , base::bindCheckedOnce(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        // Stops creation of new connections.
+        /// \note Existing connections may be in `constructing`
+        /// state and they can be fully created at arbitrary
+        /// (not known beforehand) time due to
+        /// asynchronous design of task scheduler.
+        , &::flexnet::ws::Listener::stopAcceptorAsync
+        , base::Unretained(&listener_)
     )
     , base::IsNestedPromise{true}
   )
@@ -137,22 +148,28 @@ MainPluginLogic::VoidPromise
   )
   .ThenOn(mainLoopRunner_
     , FROM_HERE
-    , base::BindOnce(
-      // async-wait for destruction of existing connections
-      &MainPluginLogic::promiseNetworkResourcesFreed
-      , base::Unretained(this)
+    , base::bindCheckedOnce(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        // async-wait for destruction of existing connections
+        , &MainPluginLogic::promiseNetworkResourcesFreed
+        , base::Unretained(this)
     )
     , base::IsNestedPromise{true}
   )
   .ThenOn(mainLoopRunner_
     , FROM_HERE
-    , base::BindOnce(
-      // stop io context
-      /// \note you can not use `::boost::asio::post`
-      /// if `ioc_->stopped()`
-      /// i.e. can not use strand of registry e.t.c.
-      &MainPluginLogic::stopIOContext
-      , base::Unretained(this)
+    , base::bindCheckedOnce(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        // stop io context
+        /// \note you can not use `::boost::asio::post`
+        /// if `ioc_->stopped()`
+        /// i.e. can not use strand of registry e.t.c.
+        , &MainPluginLogic::stopIOContext
+        , base::Unretained(this)
     )
   );
 }
@@ -256,7 +273,6 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
             wsChannel->value().postTaskOnConnectionStrand(FROM_HERE,
               base::BindOnce(
                 &::flexnet::ws::WsChannel::doEof
-                //, base::Unretained(&wsChannel->value())
                 , wsChannel->value().weakSelf()
               )
             );
@@ -364,8 +380,11 @@ MainPluginLogic::VoidPromise
   // than promise will be resolved.
   // Periodic task will be redirected to `net_registry`.
   basis::PeriodicValidateUntil::ValidationTaskType validationTask
-    = base::BindRepeating(
-        &MainPluginLogic::validateAndFreeNetworkResources
+    = base::bindCheckedRepeating(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &MainPluginLogic::validateAndFreeNetworkResources
         , base::Unretained(this)
     );
 

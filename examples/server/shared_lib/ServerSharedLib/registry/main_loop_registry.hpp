@@ -37,7 +37,7 @@
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
-#include <basis/strong_alias.hpp>
+#include <basis/strong_types/strong_alias.hpp>
 #include <basis/scoped_sequence_context_var.hpp>
 
 #include <boost/asio.hpp>

@@ -12,7 +12,7 @@
 #include <basis/status/statusor.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/task/periodic_task_executor.hpp>
-#include <basis/strong_alias.hpp>
+#include <basis/strong_types/strong_alias.hpp>
 
 #include <entt/entity/registry.hpp>
 #include <entt/signal/dispatcher.hpp>

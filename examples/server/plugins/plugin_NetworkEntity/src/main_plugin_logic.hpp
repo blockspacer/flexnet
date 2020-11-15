@@ -57,7 +57,7 @@
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/status/statusor.hpp>
 #include <basis/task/periodic_check.hpp>
-#include <basis/strong_alias.hpp>
+#include <basis/strong_types/strong_alias.hpp>
 #include <basis/task/task_util.hpp>
 #include <basis/checked_optional.hpp>
 #include <basis/scoped_checks.hpp>

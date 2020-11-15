@@ -24,6 +24,8 @@
 #include <base/trace_event/trace_log.h>
 
 #include <basis/promise/post_promise.h>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <algorithm>
 #include <initializer_list>
@@ -590,10 +592,13 @@ public:
           loadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
         )
         .ThenHere(FROM_HERE
-          , base::BindOnce(
-            &PluginManager::onLoaded
-            , base::Unretained(this)
-            , nameOrPath)
+          , base::bindCheckedOnce(
+              DEBUG_BIND_CHECKS(
+                PTR_CHECKER(this)
+              )
+              , &PluginManager::onLoaded
+              , base::Unretained(this)
+              , nameOrPath)
           , base::IsNestedPromise{true}
         );
 
@@ -610,19 +615,25 @@ public:
         VoidPromise loadChain =
           loadDepsPromise
           .ThenHere(FROM_HERE
-            , base::BindOnce(
-              &PluginType::load
-              , base::Unretained(pluginPtr.get()))
-            , base::IsNestedPromise{true}
+             , base::bindCheckedOnce(
+                 DEBUG_BIND_CHECKS(
+                   PTR_CHECKER(pluginPtr.get())
+                 )
+                 , &PluginType::load
+                 , base::Unretained(pluginPtr.get()))
+             , base::IsNestedPromise{true}
           )
           .ThenHere(FROM_HERE,
             loadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
           )
           .ThenHere(FROM_HERE
-            , base::BindOnce(
-              &PluginManager::onLoaded
-              , base::Unretained(this)
-              , nameOrPath)
+            , base::bindCheckedOnce(
+                DEBUG_BIND_CHECKS(
+                  PTR_CHECKER(this)
+                )
+                , &PluginManager::onLoaded
+                , base::Unretained(this)
+                , nameOrPath)
             , base::IsNestedPromise{true}
           );
 
@@ -712,10 +723,13 @@ public:
           unloadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
         )
         .ThenHere(FROM_HERE
-          , base::BindOnce(
-            &PluginManager::onUnloaded
-            , base::Unretained(this)
-            , nameOrPath)
+          , base::bindCheckedOnce(
+              DEBUG_BIND_CHECKS(
+                PTR_CHECKER(this)
+              )
+              , &PluginManager::onUnloaded
+              , base::Unretained(this)
+              , nameOrPath)
           , base::IsNestedPromise{true}
         );
 
@@ -734,19 +748,25 @@ public:
           // require (depends on) `unloading-plugin`
           unloadRequiredByPromise
           .ThenHere(FROM_HERE
-            , base::BindOnce(
-              &PluginType::unload
-              , base::Unretained(pluginPtr.get()))
+            , base::bindCheckedOnce(
+                DEBUG_BIND_CHECKS(
+                  PTR_CHECKER(pluginPtr.get())
+                )
+                , &PluginType::unload
+                , base::Unretained(pluginPtr.get()))
             , base::IsNestedPromise{true}
           )
           .ThenHere(FROM_HERE,
             unloadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
           )
           .ThenHere(FROM_HERE
-            , base::BindOnce(
-              &PluginManager::onUnloaded
-              , base::Unretained(this)
-              , nameOrPath)
+            , base::bindCheckedOnce(
+                DEBUG_BIND_CHECKS(
+                  PTR_CHECKER(this)
+                )
+                , &PluginManager::onUnloaded
+                , base::Unretained(this)
+                , nameOrPath)
             , base::IsNestedPromise{true}
           );
 

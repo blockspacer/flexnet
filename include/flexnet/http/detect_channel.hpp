@@ -19,6 +19,8 @@
 #include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <boost/beast/core.hpp>
 
@@ -351,13 +353,16 @@ private:
       // because its storage expected to be not modified.
       // 2. On each access to strand check that stream valid
       // otherwise `::boost::asio::post` may fail.
-      , base::BindRepeating(
-        /// \note |perConnectionStrand_|
-        /// is valid as long as |stream_| valid
-        /// i.e. valid util |stream_| moved out
-        /// (it uses executor from stream).
-        &DetectChannel::isStreamValid
-        , base::Unretained(this)
+      , base::bindCheckedRepeating(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(this)
+          )
+          /// \note |perConnectionStrand_|
+          /// is valid as long as |stream_| valid
+          /// i.e. valid util |stream_| moved out
+          /// (it uses executor from stream).
+          , &DetectChannel::isStreamValid
+          , base::Unretained(this)
       )
     );
 

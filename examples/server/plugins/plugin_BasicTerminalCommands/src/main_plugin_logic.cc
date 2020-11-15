@@ -2,6 +2,9 @@
 #include "main_plugin_interface.hpp"
 #include "main_plugin_constants.hpp"
 
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
+
 namespace plugin {
 namespace basic_terminal_commands {
 

@@ -32,6 +32,8 @@
 #include <base/trace_event/process_memory_dump.h>
 #include <base/trace_event/trace_event.h>
 
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 #include <basis/scoped_checks.hpp>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/scoped_sequence_context_var.hpp>
@@ -145,8 +147,11 @@ void AsioThreadsManager::startThreads(
 
     asio_task_runners_[i]->PostTask(
       FROM_HERE
-      , base::BindRepeating(
-          &AsioThreadsManager::runIoc
+        , base::bindCheckedRepeating(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(this)
+          )
+          , &AsioThreadsManager::runIoc
           , base::Unretained(this)
           , REFERENCED(ioc)
         )

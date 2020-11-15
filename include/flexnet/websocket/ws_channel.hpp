@@ -23,6 +23,8 @@
 #include <basis/task/task_util.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -391,8 +393,11 @@ public:
     ::boost::asio::post(
       *perConnectionStrand_
       , basis::bindFrontOnceClosure(
-          base::BindOnce(
-            &WsChannel::startAccept<Body, Allocator>
+          base::bindCheckedOnce(
+            DEBUG_BIND_CHECKS(
+              PTR_CHECKER(this)
+            )
+            , &WsChannel::startAccept<Body, Allocator>
             , base::Unretained(this)
             , base::Passed(base::rvalue_cast(req))
           ))
@@ -468,8 +473,11 @@ private:
       boost::asio::bind_executor(
         *perConnectionStrand_
         , basis::bindFrontOnceCallback(
-            base::BindOnce(
-              &WsChannel::onAccept
+            base::bindCheckedOnce(
+              DEBUG_BIND_CHECKS(
+                PTR_CHECKER(this)
+              )
+              , &WsChannel::onAccept
               , base::Unretained(this)
             ))
       )

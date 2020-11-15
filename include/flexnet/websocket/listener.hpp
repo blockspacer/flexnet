@@ -20,6 +20,8 @@
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/ECS/simulation_registry.hpp>
+#include <basis/bind/bind_checked.hpp>
+#include <basis/bind/ptr_checker.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -410,8 +412,11 @@ private:
       // because its storage expected to be not modified.
       // 2. On each access to strand check that ioc not stopped
       // otherwise `::boost::asio::post` may fail.
-      , base::BindRepeating(
-          &Listener::isIocRunning
+      , base::bindCheckedRepeating(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(this)
+          )
+          , &Listener::isIocRunning
           , base::Unretained(this)
         )
     );
