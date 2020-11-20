@@ -95,7 +95,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , pluginInterface_{REFERENCED(*pluginInterface)}
+  , pluginInterface_{REFERENCED(*DCHECK_PTR(pluginInterface))}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{

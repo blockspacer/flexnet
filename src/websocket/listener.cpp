@@ -75,6 +75,8 @@ void Listener::logFailure(
 
   DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(logFailure);
 
+  DCHECK_PTR(what);
+
   // NOTE: If you got logFailure: accept: Too many open files
   // set ulimit -n 4096, see stackoverflow.com/a/8583083/10904212
   // Restart the accept operation if we got the connection_aborted error

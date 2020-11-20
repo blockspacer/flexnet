@@ -185,6 +185,8 @@ void WsChannel::onFail(
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
+  DCHECK_PTR(what);
+
   /// prevent infinite recursion
   /// onFail -> doEof -> async_close -> onClose -> onFail
   DCHECK_FUNCTION_RECURSION(onFail);

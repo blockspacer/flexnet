@@ -74,6 +74,11 @@ class MainPluginLogic
  private:
   SET_WEAK_POINTERS(MainPluginLogic);
 
+  util::UnownedRef<
+    const MainPluginInterface
+  > pluginInterface_
+      GUARDED_BY(sequence_checker_);
+
   util::UnownedPtr<
     ::backend::MainLoopRegistry
   > mainLoopRegistry_

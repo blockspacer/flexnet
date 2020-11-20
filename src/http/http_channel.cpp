@@ -542,6 +542,8 @@ void HttpChannel::onFail(
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
 
+  DCHECK_PTR(what);
+
   DCHECK(is_stream_valid_.load());
 
   // log errors with different log levels

@@ -80,6 +80,7 @@
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
+#include <basis/bind/callable_hook.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -135,6 +136,7 @@ static VoidPromise startPluginManager() NO_EXCEPTION
 
   base::CommandLine* cmdLine
     = base::CommandLine::ForCurrentProcess();
+  DCHECK_PTR(cmdLine);
 
   base::FilePath pathToDirWithPlugins
     = cmdLine->HasSwitch(kPluginsDirSwitch)
@@ -318,10 +320,13 @@ void finishProcessMetrics() NO_EXCEPTION
       for (const base::SamplingHeapProfiler::Sample& sample : samples) {
         std::vector<base::Frame> frames;
         frames.reserve(sample.stack.size());
-        for (const void* frame : sample.stack) {
+        for (const void* frame : sample.stack)
+        {
+          DCHECK_PTR(frame);
           uintptr_t address = reinterpret_cast<uintptr_t>(frame);
           const base::ModuleCache::Module* module =
               module_cache.GetModuleForAddress(address);
+          DCHECK_PTR(module);
           frames.emplace_back(address, module);
         }
         size_t count = std::max<size_t>(
@@ -354,7 +359,9 @@ void finishProcessMetrics() NO_EXCEPTION
           << it.second;
       }
 
-      for (const auto* module : module_cache.GetModules()) {
+      for (const auto* module : module_cache.GetModules())
+      {
+        DCHECK_PTR(module);
         VLOG(1)
           << "module GetDebugBasename: "
           << base::StringPrintf(

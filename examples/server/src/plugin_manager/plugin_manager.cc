@@ -84,7 +84,7 @@ bool parsePluginsConfig(
   // configurations for all plugins
   ConfigurationGroup* configurationGroup
     = conf.group(plugin::kAllPluginsConfigCategory);
-  DCHECK(configurationGroup);
+  DCHECK_PTR(configurationGroup);
 
   if(configurationGroup) {
     // configurations for individual plugins
@@ -109,6 +109,8 @@ std::map<std::string, PluginMetadata> loadPluginsMetadata(
   for(const ConfigurationGroup* plugin_group
       : plugin_groups)
   {
+    DCHECK_PTR(plugin_group);
+
     std::vector<std::string> dependsOn;
 
     if(!plugin_group->hasValue("title"))
