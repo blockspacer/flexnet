@@ -57,7 +57,6 @@
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
-#include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
 #include <basis/base_environment.hpp>

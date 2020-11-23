@@ -68,7 +68,6 @@
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
 #include <basis/ECS/tags.hpp>
-#include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
 #include <basis/task/periodic_check.hpp>

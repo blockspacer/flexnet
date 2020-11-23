@@ -12,7 +12,7 @@
 #include <base/trace_event/trace_event.h>
 #include <base/strings/string_number_conversions.h>
 #include <base/numerics/safe_conversions.h>
-#include <basis/stats_table.hpp>
+#include <basis/tracing/stats_table.hpp>
 
 #include <basis/scoped_sequence_context_var.hpp>
 #include <basis/scoped_log_run_time.hpp>

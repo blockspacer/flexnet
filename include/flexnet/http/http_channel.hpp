@@ -17,7 +17,6 @@
 #include <basis/ECS/network_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/status/statusor.hpp>
-#include <basis/move_only.hpp>
 #include <basis/atomic_flag_macros.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep

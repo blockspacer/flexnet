@@ -62,7 +62,6 @@
 #include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/global_context.hpp>
-#include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
 #include <basis/base_environment.hpp>
@@ -70,7 +69,6 @@
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
 #include <basis/scoped_sequence_context_var.hpp>
-#include <basis/typed_enum.h>
 #include <basis/strong_types/strong_alias.hpp>
 #include <basis/strong_types/strong_bool.hpp>
 #include <basis/strong_types/strong_string.hpp>

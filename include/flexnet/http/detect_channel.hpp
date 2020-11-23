@@ -16,7 +16,6 @@
 #include <basis/checked_optional.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/promise/post_promise.h>
-#include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>

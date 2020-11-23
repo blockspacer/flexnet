@@ -10,7 +10,6 @@
 #include <base/guid.h>
 
 #include <basis/ECS/tags.hpp>
-#include <basis/move_only.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/promise/post_promise.h>
