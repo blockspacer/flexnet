@@ -103,7 +103,7 @@ void updateUnusedChildList(
     ECS::foreachChildEntity<TagType>(
       REFERENCED(net_registry.registryUnsafe())
       , parentEntityId
-      , base::BindRepeating(
+      , ::base::BindRepeating(
         [
         ](
           ECS::Registry& registry

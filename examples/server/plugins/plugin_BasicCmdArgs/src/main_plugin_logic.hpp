@@ -42,10 +42,10 @@ class MainPluginLogic
 {
  public:
   using VoidPromise
-    = base::Promise<void, base::NoReject>;
+    = ::base::Promise<void, ::base::NoReject>;
 
   using StatusPromise
-    = base::Promise<::util::Status, base::NoReject>;
+    = ::base::Promise<::basis::Status, ::base::NoReject>;
 
  public:
   SET_WEAK_SELF(MainPluginLogic)
@@ -76,19 +76,19 @@ class MainPluginLogic
  private:
   SET_WEAK_POINTERS(MainPluginLogic);
 
-  util::UnownedRef<
+  ::basis::UnownedRef<
     const MainPluginInterface
   > pluginInterface_
       GUARDED_BY(sequence_checker_);
 
-  util::UnownedPtr<
+  ::basis::UnownedPtr<
     ::backend::MainLoopRegistry
   > mainLoopRegistry_
     GUARDED_BY(sequence_checker_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
-  scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
+  scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_
     GUARDED_BY(sequence_checker_);
 
   SEQUENCE_CHECKER(sequence_checker_);

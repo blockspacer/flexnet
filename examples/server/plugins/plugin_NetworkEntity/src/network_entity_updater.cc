@@ -76,7 +76,7 @@
 namespace backend {
 
 NetworkEntityUpdater::NetworkEntityUpdater(
-  scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner
+  scoped_refptr<::base::SequencedTaskRunner> periodicAsioTaskRunner
   , ECS::NetworkRegistry& netRegistry
   , boost::asio::io_context& ioc)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -88,7 +88,7 @@ NetworkEntityUpdater::NetworkEntityUpdater(
   , ioc_(REFERENCED(ioc))
   , periodicAsioTaskRunner_(periodicAsioTaskRunner)
   , periodicTaskExecutor_(
-      base::BindRepeating(
+      ::base::BindRepeating(
         &NetworkEntityUpdater::update
         /// \note callback may be skipped if `WeakPtr` becomes invalid
         , weakSelf()
@@ -137,7 +137,7 @@ void NetworkEntityUpdater::update() NO_EXCEPTION
 
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::BindOnce([
+    , ::base::BindOnce([
       ](
         ECS::NetworkRegistry& net_registry
       ){

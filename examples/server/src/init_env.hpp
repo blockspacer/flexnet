@@ -15,7 +15,7 @@ MUST_USE_RETURN_VALUE
 base::Optional<int> initEnv(
   int argc
   , char* argv[]
-  , basis::ScopedBaseEnvironment& base_env
+  , ::basis::ScopedBaseEnvironment& base_env
   );
 
 } // namespace backend

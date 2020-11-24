@@ -40,21 +40,21 @@
 namespace backend {
 
 /// \todo make configurable
-static constexpr base::FilePath::CharType kIcuDataFileName[]
+static constexpr ::base::FilePath::CharType kIcuDataFileName[]
   = FILE_PATH_LITERAL(R"raw(./resources/icu/optimal/icudt64l.dat)raw");
 
 /// \todo make configurable
-static constexpr base::FilePath::CharType kTraceReportFileName[]
+static constexpr ::base::FilePath::CharType kTraceReportFileName[]
   = FILE_PATH_LITERAL(R"raw(trace_report.json)raw");
 
 MUST_USE_RETURN_VALUE
 base::Optional<int> initEnv(
   int argc
   , char* argv[]
-  , basis::ScopedBaseEnvironment& base_env
+  , ::basis::ScopedBaseEnvironment& base_env
   )
 {
-  base::FilePath dir_exe;
+  ::base::FilePath dir_exe;
   if (!base::PathService::Get(base::DIR_EXE, &dir_exe)) {
     NOTREACHED();
     return EXIT_FAILURE;
@@ -100,13 +100,13 @@ base::Optional<int> initEnv(
         "Ctx_SimulationRegistry");
 
   DCHECK(base::ThreadPool::GetInstance());
-  scoped_refptr<base::SequencedTaskRunner> entt_task_runner =
-    base::ThreadPool::GetInstance()->
+  scoped_refptr<::base::SequencedTaskRunner> entt_task_runner =
+    ::base::ThreadPool::GetInstance()->
     CreateSequencedTaskRunnerWithTraits(
-      base::TaskTraits{
-        base::TaskPriority::BEST_EFFORT
-        , base::MayBlock()
-        , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+      ::base::TaskTraits{
+        ::base::TaskPriority::BEST_EFFORT
+        , ::base::MayBlock()
+        , ::base::TaskShutdownBehavior::BLOCK_SHUTDOWN
       }
     );
 
@@ -115,7 +115,7 @@ base::Optional<int> initEnv(
   enttManager.set_task_runner(entt_task_runner);
 #endif // 0
 
-  return base::nullopt;
+  return ::base::nullopt;
 }
 
 } // namespace backend

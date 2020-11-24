@@ -44,7 +44,7 @@ namespace plugin {
 namespace signal_handler {
 
 using SignalHandlerCb
-  = base::RepeatingCallback<
+  = ::base::RepeatingCallback<
       void(::boost::system::error_code const& errorCode, int signum)
     >;
 
@@ -55,7 +55,7 @@ class SignalHandler
  public:
   SignalHandler(
     ::boost::asio::io_context& ioc
-    , base::OnceClosure&& quitCb)
+    , ::base::OnceClosure&& quitCb)
     PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   ~SignalHandler()
@@ -73,7 +73,7 @@ class SignalHandler
   ::boost::asio::signal_set signals_set_
     GUARDED_BY(sequence_checker_);
 
-  base::OnceClosure quitCb_
+  ::base::OnceClosure quitCb_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(quitCb_);
 
   std::atomic<size_t> signalsRecievedCount_

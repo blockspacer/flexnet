@@ -53,15 +53,15 @@ AppState::AppState(const State& initial_state)
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-util::Status AppState::processStateChange(
-  const base::Location &from_here
+basis::Status AppState::processStateChange(
+  const ::base::Location &from_here
   , const AppState::Event &processEvent) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  const ::util::Status stateProcessed
+  const ::basis::Status stateProcessed
       = sm_.ProcessEvent(processEvent
                          , FROM_HERE.ToString()
                          , nullptr);
@@ -82,17 +82,17 @@ util::Status AppState::processStateChange(
 
 AppState::VoidPromise
   AppState::promiseEntryOnce(
-    const base::Location& from_here
+    const ::base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  base::ManualPromiseResolver<void, base::NoReject>
+  ::base::ManualPromiseResolver<void, ::base::NoReject>
     eventOnceResolver(FROM_HERE);
 
-  AddEntryAction(AppState::TERMINATED, base::BindRepeating(
+  AddEntryAction(AppState::TERMINATED, ::base::BindRepeating(
     []
     (base::OnceClosure&& resolveCb
      , AppState::Event event
@@ -108,14 +108,14 @@ AppState::VoidPromise
       /// \note `AddEntryAction` will add repeating callback,
       /// but we want to execute it only once
       if(resolveCb) {
-        base::rvalue_cast(resolveCb).Run();
+        ::base::rvalue_cast(resolveCb).Run();
       }
 
-      return ::util::OkStatus();
+      return ::basis::OkStatus();
     }
-    /// \note A base::RepeatingCallback can only be run once
-    /// if arguments were bound with base::Passed().
-    , base::Passed(eventOnceResolver.GetRepeatingResolveCallback())
+    /// \note A ::base::RepeatingCallback can only be run once
+    /// if arguments were bound with ::base::Passed().
+    , ::base::Passed(eventOnceResolver.GetRepeatingResolveCallback())
   ));
 
   return eventOnceResolver.promise();
@@ -123,17 +123,17 @@ AppState::VoidPromise
 
 AppState::VoidPromise
   AppState::promiseExitOnce(
-    const base::Location& from_here
+    const ::base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  base::ManualPromiseResolver<void, base::NoReject>
+  ::base::ManualPromiseResolver<void, ::base::NoReject>
     eventOnceResolver(FROM_HERE);
 
-  AddEntryAction(AppState::TERMINATED, base::BindRepeating(
+  AddEntryAction(AppState::TERMINATED, ::base::BindRepeating(
     []
     (base::OnceClosure&& resolveCb
      , AppState::Event event
@@ -149,14 +149,14 @@ AppState::VoidPromise
       /// \note `AddEntryAction` will add repeating callback,
       /// but we want to execute it only once
       if(resolveCb) {
-        base::rvalue_cast(resolveCb).Run();
+        ::base::rvalue_cast(resolveCb).Run();
       }
 
-      return ::util::OkStatus();
+      return ::basis::OkStatus();
     }
-    /// \note A base::RepeatingCallback can only be run once
-    /// if arguments were bound with base::Passed().
-    , base::Passed(eventOnceResolver.GetRepeatingResolveCallback())
+    /// \note A ::base::RepeatingCallback can only be run once
+    /// if arguments were bound with ::base::Passed().
+    , ::base::Passed(eventOnceResolver.GetRepeatingResolveCallback())
   ));
 
   return eventOnceResolver.promise();

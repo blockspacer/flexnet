@@ -101,12 +101,12 @@ void handleAcceptResult(
   /// \note it is not ordinary ECS component,
   /// it is stored in entity context (not in ECS registry)
   using DetectChannelCtxComponent
-    = base::Optional<::flexnet::http::DetectChannel>;
+    = ::base::Optional<::flexnet::http::DetectChannel>;
 
   DetectChannelCtxComponent* detectChannelCtx
     = &tcpComponent->reset_or_create_var<DetectChannelCtxComponent>(
-        "Ctx_DetectChannel_" + base::GenerateGUID() // debug name
-        , base::rvalue_cast(acceptResult.socket)
+        "Ctx_DetectChannel_" + ::base::GenerateGUID() // debug name
+        , ::base::rvalue_cast(acceptResult.socket)
         , REFERENCED(net_registry)
         , entity_id);
 
@@ -120,13 +120,13 @@ void handleAcceptResult(
   // working executor required by |::boost::asio::post|
   ::boost::asio::post(
     detectChannelCtx->value().perConnectionStrand()
-    , basis::bindFrontOnceClosure(
-        base::bindCheckedOnce(
+    , ::basis::bindFrontOnceClosure(
+        ::base::bindCheckedOnce(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(&detectChannelCtx->value())
           )
           , &::flexnet::http::DetectChannel::runDetector
-          , base::Unretained(&detectChannelCtx->value())
+          , ::base::Unretained(&detectChannelCtx->value())
           // expire timeout for SSL detection
           , std::chrono::seconds(3)))
   );
@@ -138,7 +138,7 @@ void updateNewConnections(
   using namespace ::flexnet::ws;
 
   using view_component
-    = base::Optional<Listener::AcceptConnectionResult>;
+    = ::base::Optional<Listener::AcceptConnectionResult>;
 
   DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
 

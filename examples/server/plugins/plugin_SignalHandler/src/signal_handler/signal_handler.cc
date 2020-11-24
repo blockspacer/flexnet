@@ -132,7 +132,7 @@ static std::string getSignalName(int signum)
 
 SignalHandler::SignalHandler(
   ::boost::asio::io_context& ioc
-  , base::OnceClosure&& quitCb)
+  , ::base::OnceClosure&& quitCb)
   : signals_set_(
       /// \note will not handle signals if ioc stopped
       ioc, SIGINT, SIGTERM)
@@ -148,12 +148,12 @@ SignalHandler::SignalHandler(
 #endif // defined(SIGQUIT)
 
   signalCallbacks_[SIGQUIT]
-    = base::bindCheckedRepeating(
+    = ::base::bindCheckedRepeating(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         , &SignalHandler::handleQuitSignal
-        , base::Unretained(this)
+        , ::base::Unretained(this)
     );
 
 #if defined(SIGINT)
@@ -163,12 +163,12 @@ SignalHandler::SignalHandler(
 #endif // defined(SIGQUIT)
 
   signalCallbacks_[SIGINT]
-    = base::bindCheckedRepeating(
+    = ::base::bindCheckedRepeating(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         , &SignalHandler::handleQuitSignal
-        , base::Unretained(this)
+        , ::base::Unretained(this)
     );
 
 #if defined(SIGQUIT)
@@ -178,12 +178,12 @@ SignalHandler::SignalHandler(
 #endif // defined(SIGTERM)
 
   signalCallbacks_[SIGTERM]
-    = base::bindCheckedRepeating(
+    = ::base::bindCheckedRepeating(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         , &SignalHandler::handleQuitSignal
-        , base::Unretained(this)
+        , ::base::Unretained(this)
     );
 
   signals_set_.async_wait(
@@ -263,7 +263,7 @@ void SignalHandler::handleQuitSignal(
     return;
   }
 
-  base::rvalue_cast(quitCb_).Run();
+  ::base::rvalue_cast(quitCb_).Run();
 }
 
 SignalHandler::~SignalHandler()

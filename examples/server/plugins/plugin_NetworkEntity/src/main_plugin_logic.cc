@@ -31,16 +31,16 @@ namespace network_entity {
 STRONGLY_TYPED(basis::PeriodicTaskExecutor, NetworkEntityPeriodicTaskExecutor);
 
 static void setNetworkEntityPeriodicTaskExecutorOnSequence(
-  const base::Location& from_here
-  , scoped_refptr<base::SequencedTaskRunner> task_runner
-  , COPIED() base::RepeatingClosure updateCallback)
+  const ::base::Location& from_here
+  , scoped_refptr<::base::SequencedTaskRunner> task_runner
+  , COPIED() ::base::RepeatingClosure updateCallback)
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK(task_runner
     && task_runner->RunsTasksInCurrentSequence());
 
-  base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
+  ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
     = ECS::SequenceLocalContext::getSequenceLocalInstance(
         from_here, task_runner);
 
@@ -58,13 +58,13 @@ static void setNetworkEntityPeriodicTaskExecutorOnSequence(
 }
 
 static void startNetworkEntityPeriodicTaskExecutorOnSequence(
-  const base::TimeDelta& endTimeDelta)
+  const ::base::TimeDelta& endTimeDelta)
 {
   LOG_CALL(DVLOG(99));
 
-  base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
+  ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
     = ECS::SequenceLocalContext::getSequenceLocalInstance(
-        FROM_HERE, base::SequencedTaskRunnerHandle::Get());
+        FROM_HERE, ::base::SequencedTaskRunnerHandle::Get());
 
   DCHECK(sequenceLocalContext);
   DCHECK(sequenceLocalContext->try_ctx<NetworkEntityPeriodicTaskExecutor>(FROM_HERE));
@@ -79,9 +79,9 @@ static void unsetNetworkEntityPeriodicTaskExecutorOnSequence()
 {
   LOG_CALL(DVLOG(99));
 
-  base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
+  ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
     = ECS::SequenceLocalContext::getSequenceLocalInstance(
-        FROM_HERE, base::SequencedTaskRunnerHandle::Get());
+        FROM_HERE, ::base::SequencedTaskRunnerHandle::Get());
 
   DCHECK(sequenceLocalContext);
   DCHECK(sequenceLocalContext->try_ctx<NetworkEntityPeriodicTaskExecutor>(FROM_HERE));
@@ -99,14 +99,14 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      base::MessageLoop::current()->task_runner()}
+      ::base::MessageLoop::current()->task_runner()}
   , periodicAsioTaskRunner_(
-      base::ThreadPool::GetInstance()->
+      ::base::ThreadPool::GetInstance()->
         CreateSequencedTaskRunnerWithTraits(
-          base::TaskTraits{
-            base::TaskPriority::BEST_EFFORT
-            , base::MayBlock()
-            , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+          ::base::TaskTraits{
+            ::base::TaskPriority::BEST_EFFORT
+            , ::base::MayBlock()
+            , ::base::TaskShutdownBehavior::BLOCK_SHUTDOWN
           }
         ))
   , ioc_{REFERENCED(
@@ -139,27 +139,27 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::load()");
 
-  return base::PostPromise(
+  return ::base::PostPromise(
     FROM_HERE
     , periodicAsioTaskRunner_.get()
-    , base::BindOnce(
+    , ::base::BindOnce(
         &setNetworkEntityPeriodicTaskExecutorOnSequence
         , FROM_HERE
         , periodicAsioTaskRunner_
-        , base::bindCheckedRepeating(
+        , ::base::bindCheckedRepeating(
             DEBUG_BIND_CHECKS(
               PTR_CHECKER(&networkEntityUpdater_)
             )
             , &::backend::NetworkEntityUpdater::update
-            , base::Unretained(&networkEntityUpdater_)
+            , ::base::Unretained(&networkEntityUpdater_)
           )
       )
   )
   .ThenOn(periodicAsioTaskRunner_
     , FROM_HERE
-    , base::BindOnce(
+    , ::base::BindOnce(
         &startNetworkEntityPeriodicTaskExecutorOnSequence
-        , base::TimeDelta::FromMilliseconds(
+        , ::base::TimeDelta::FromMilliseconds(
             pluginInterface_->entityUpdateFreqMillisec())
       )
   );
@@ -172,11 +172,11 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::unload()");
 
-  return base::PostPromise(
+  return ::base::PostPromise(
     FROM_HERE
     // Post our work to the strand, to prevent data race
     , periodicAsioTaskRunner_.get()
-    , base::BindOnce(&unsetNetworkEntityPeriodicTaskExecutorOnSequence)
+    , ::base::BindOnce(&unsetNetworkEntityPeriodicTaskExecutorOnSequence)
   );
 }
 

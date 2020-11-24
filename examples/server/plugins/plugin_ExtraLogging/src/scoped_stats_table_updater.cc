@@ -29,7 +29,7 @@ ScopedStatsTableUpdater::~ScopedStatsTableUpdater()
 {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  base::StatsTable table_{
+  ::base::StatsTable table_{
     "app_stats_table" // name
     , 50 // max_threads
     , 1000 // max_counters
@@ -39,21 +39,21 @@ ScopedStatsTableUpdater::~ScopedStatsTableUpdater()
 
   table_.RegisterCurrentThread("server_main_thread");
 
-  base::Time app_epoch;
+  ::base::Time app_epoch;
   {
     static const char kAppEpochStr[]
       = "Sun, 01 May 2000 12:00:00 GMT";
     const bool appEpochOk
-      = base::Time::FromString(kAppEpochStr, &app_epoch);
+      = ::base::Time::FromString(kAppEpochStr, &app_epoch);
     DCHECK(appEpochOk);
   }
 
   /// \note save time of last launch attempt into shared memory file
-  base::Time prev_last_launch;
+  ::base::Time prev_last_launch;
   {
     VLOG(9)
       << "time now: "
-      << base::Time::Now();
+      << ::base::Time::Now();
     const std::string counter_name = "appserver.last_launch_time";
     int counter_id
       = table_.FindOrAddCounter(counter_name);
@@ -62,7 +62,7 @@ ScopedStatsTableUpdater::~ScopedStatsTableUpdater()
     DCHECK(counter_loc);
     if(*counter_loc) {
       prev_last_launch
-        = app_epoch + base::TimeDelta::FromSeconds(*counter_loc);
+        = app_epoch + ::base::TimeDelta::FromSeconds(*counter_loc);
       LOG(INFO)
         << "last launch time (seconds precision): "
         << prev_last_launch;

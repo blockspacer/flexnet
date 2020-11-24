@@ -8,6 +8,6 @@ namespace backend {
 constexpr char kFeatureConsoleTerminalName[]
   = "console_terminal";
 
-extern const base::Feature kFeatureConsoleTerminal;
+extern const ::base::Feature kFeatureConsoleTerminal;
 
 } // namespace backend

@@ -297,7 +297,7 @@ public:
     RecievedData(
       RecievedData&& other)
       : RecievedData(
-          base::rvalue_cast(other.data))
+          ::base::rvalue_cast(other.data))
       {}
 
     // Move assignment operator
@@ -311,7 +311,7 @@ public:
     {
       if (this != &rhs)
       {
-        data = base::rvalue_cast(rhs.data);
+        data = ::base::rvalue_cast(rhs.data);
       }
 
       return *this;
@@ -336,7 +336,7 @@ public:
     RecievedFrom(
       RecievedFrom&& other)
       : RecievedFrom(
-          base::rvalue_cast(other.entity_id))
+          ::base::rvalue_cast(other.entity_id))
       {}
 
     // Move assignment operator
@@ -350,7 +350,7 @@ public:
     {
       if (this != &rhs)
       {
-        entity_id = base::rvalue_cast(rhs.entity_id);
+        entity_id = ::base::rvalue_cast(rhs.entity_id);
       }
 
       return *this;
@@ -391,14 +391,14 @@ public:
     DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
     ::boost::asio::post(
       *perConnectionStrand_
-      , basis::bindFrontOnceClosure(
-          base::bindCheckedOnce(
+      , ::basis::bindFrontOnceClosure(
+          ::base::bindCheckedOnce(
             DEBUG_BIND_CHECKS(
               PTR_CHECKER(this)
             )
             , &WsChannel::startAccept<Body, Allocator>
-            , base::Unretained(this)
-            , base::Passed(base::rvalue_cast(req))
+            , ::base::Unretained(this)
+            , ::base::Passed(base::rvalue_cast(req))
           ))
     );
   }
@@ -414,14 +414,14 @@ public:
   template <typename CallbackT>
   MUST_USE_RETURN_VALUE
   auto postTaskOnConnectionStrand(
-    const base::Location& from_here
+    const ::base::Location& from_here
     , CallbackT&& task
-    , base::IsNestedPromise isNestedPromise
-        = base::IsNestedPromise()) NO_EXCEPTION
+    , ::base::IsNestedPromise isNestedPromise
+        = ::base::IsNestedPromise()) NO_EXCEPTION
   {
     DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
-    return base::PostPromiseOnAsioExecutor(
+    return ::base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
       , *perConnectionStrand_
@@ -471,13 +471,13 @@ private:
       req,
       boost::asio::bind_executor(
         *perConnectionStrand_
-        , basis::bindFrontOnceCallback(
-            base::bindCheckedOnce(
+        , ::basis::bindFrontOnceCallback(
+            ::base::bindCheckedOnce(
               DEBUG_BIND_CHECKS(
                 PTR_CHECKER(this)
               )
               , &WsChannel::onAccept
-              , base::Unretained(this)
+              , ::base::Unretained(this)
             ))
       )
     );
@@ -563,7 +563,7 @@ private:
     GUARDED_BY(perConnectionStrand_);
 
   // |stream_| and calls to |async_*| are guarded by strand
-  basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
+  ::basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
   // The dynamic buffer to store recieved data
@@ -571,7 +571,7 @@ private:
     GUARDED_BY(perConnectionStrand_);
 
   // used by |entity_id_|
-  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   // `per-connection entity`

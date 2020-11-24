@@ -102,10 +102,10 @@ class MainPluginLogic
 {
  public:
   using VoidPromise
-    = base::Promise<void, base::NoReject>;
+    = ::base::Promise<void, ::base::NoReject>;
 
   using StatusPromise
-    = base::Promise<::util::Status, base::NoReject>;
+    = ::base::Promise<::basis::Status, ::base::NoReject>;
 
   using EndpointType
     = ::boost::asio::ip::tcp::endpoint;
@@ -148,29 +148,29 @@ class MainPluginLogic
  private:
   SET_WEAK_POINTERS(MainPluginLogic);
 
-  util::UnownedRef<
+  ::basis::UnownedRef<
     const MainPluginInterface
   > pluginInterface_
       GUARDED_BY(sequence_checker_);
 
-  util::UnownedPtr<
+  ::basis::UnownedPtr<
     ::backend::MainLoopRegistry
   > mainLoopRegistry_
     GUARDED_BY(sequence_checker_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
-  scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
+  scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_
     GUARDED_BY(&sequence_checker_);
 
   // Task sequence used to update asio registry.
-  scoped_refptr<base::SequencedTaskRunner> periodicAsioTaskRunner_
+  scoped_refptr<::base::SequencedTaskRunner> periodicAsioTaskRunner_
     GUARDED_BY(&sequence_checker_);
 
-  util::UnownedRef<::boost::asio::io_context> ioc_
+  ::basis::UnownedRef<::boost::asio::io_context> ioc_
     GUARDED_BY(&sequence_checker_);
 
-  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
     GUARDED_BY(&sequence_checker_);
 
   ::backend::NetworkEntityUpdater networkEntityUpdater_

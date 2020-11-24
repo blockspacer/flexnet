@@ -40,7 +40,7 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      base::MessageLoop::current()->task_runner()}
+      ::base::MessageLoop::current()->task_runner()}
   , ioc_{REFERENCED(
       mainLoopRegistry_->registry()
         .ctx<::boost::asio::io_context>())}
@@ -60,12 +60,12 @@ MainPluginLogic::MainPluginLogic(
       , REFERENCED(*netRegistry_)
       // Callback will be called per each connected client
       // to create ECS entity
-      , base::bindCheckedRepeating(
+      , ::base::bindCheckedRepeating(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(&tcpEntityAllocator_)
           )
           , &::backend::TcpEntityAllocator::allocateTcpEntity
-          , base::Unretained(&tcpEntityAllocator_)
+          , ::base::Unretained(&tcpEntityAllocator_)
         )
     }
 {
@@ -93,12 +93,12 @@ MainPluginLogic::VoidPromise
   return VoidPromise::CreateResolved(FROM_HERE)
   .ThenOn(mainLoopRunner_
     , FROM_HERE
-    , base::bindCheckedOnce(
+    , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         , &MainPluginLogic::startAcceptors
-        , base::Unretained(this)
+        , ::base::Unretained(this)
     )
   );
 }
@@ -115,7 +115,7 @@ MainPluginLogic::VoidPromise
   return VoidPromise::CreateResolved(FROM_HERE)
   .ThenOn(mainLoopRunner_
     , FROM_HERE
-    , base::bindCheckedOnce(
+    , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
@@ -125,16 +125,16 @@ MainPluginLogic::VoidPromise
         /// (not known beforehand) time due to
         /// asynchronous design of task scheduler.
         , &::flexnet::ws::Listener::stopAcceptorAsync
-        , base::Unretained(&listener_)
+        , ::base::Unretained(&listener_)
     )
-    , base::IsNestedPromise{true}
+    , ::base::IsNestedPromise{true}
   )
   .ThenOn(mainLoopRunner_
     , FROM_HERE
-    , base::BindOnce(
+    , ::base::BindOnce(
         [
         ](
-          const ::util::Status& stopAcceptorResult
+          const ::basis::Status& stopAcceptorResult
         ){
            LOG_CALL(DVLOG(99));
 
@@ -148,19 +148,19 @@ MainPluginLogic::VoidPromise
   )
   .ThenOn(mainLoopRunner_
     , FROM_HERE
-    , base::bindCheckedOnce(
+    , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         // async-wait for destruction of existing connections
         , &MainPluginLogic::promiseNetworkResourcesFreed
-        , base::Unretained(this)
+        , ::base::Unretained(this)
     )
-    , base::IsNestedPromise{true}
+    , ::base::IsNestedPromise{true}
   )
   .ThenOn(mainLoopRunner_
     , FROM_HERE
-    , base::bindCheckedOnce(
+    , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
@@ -169,7 +169,7 @@ MainPluginLogic::VoidPromise
         /// if `ioc_->stopped()`
         /// i.e. can not use strand of registry e.t.c.
         , &MainPluginLogic::stopIOContext
-        , base::Unretained(this)
+        , ::base::Unretained(this)
     )
   );
 }
@@ -180,15 +180,15 @@ void MainPluginLogic::startAcceptors() NO_EXCEPTION
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  base::PostPromise(FROM_HERE
+  ::base::PostPromise(FROM_HERE
     /// \note delayed execution:
     /// will be executed only when |run_loop| is running
-    , base::MessageLoop::current()->task_runner().get()
-    , base::BindOnce(
+    , ::base::MessageLoop::current()->task_runner().get()
+    , ::base::BindOnce(
         &MainPluginLogic::configureAndRunAcceptor
-        , base::Unretained(this)
+        , ::base::Unretained(this)
     )
-    , base::IsNestedPromise{true}
+    , ::base::IsNestedPromise{true}
   );
 }
 
@@ -208,7 +208,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
 
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::BindOnce([
+    , ::base::BindOnce([
       ](
         ECS::NetworkRegistry& netRegistry
       ){
@@ -219,7 +219,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
         /// \note it is not ordinary ECS component,
         /// it is stored in entity context (not in ECS registry)
         using WsChannelComponent
-          = base::Optional<::flexnet::ws::WsChannel>;
+          = ::base::Optional<::flexnet::ws::WsChannel>;
 
         auto ecsView
           = netRegistry->view<ECS::TcpConnection>(
@@ -233,8 +233,8 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
               >
             );
 
-        base::RepeatingCallback<void(ECS::Entity, ECS::Registry&)> doEofWebsocket
-          = base::BindRepeating(
+        ::base::RepeatingCallback<void(ECS::Entity, ECS::Registry&)> doEofWebsocket
+          = ::base::BindRepeating(
               []
               (ECS::NetworkRegistry& netRegistry
                , ECS::Entity entity
@@ -271,7 +271,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
               << tcpComponent.debug_id;
             // schedule `async_close` for websocket connections
             wsChannel->value().postTaskOnConnectionStrand(FROM_HERE,
-              base::BindOnce(
+              ::base::BindOnce(
                 &::flexnet::ws::WsChannel::doEof
                 , wsChannel->value().weakSelf()
               )
@@ -307,7 +307,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
 }
 
 void MainPluginLogic::validateAndFreeNetworkResources(
-  base::RepeatingClosure resolveCallback) NO_EXCEPTION
+  ::base::RepeatingClosure resolveCallback) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -334,11 +334,11 @@ void MainPluginLogic::validateAndFreeNetworkResources(
 
    netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::BindOnce(
+    , ::base::BindOnce(
       []
       (
         ECS::NetworkRegistry& netRegistry
-        , COPIED() base::RepeatingClosure resolveCallback)
+        , COPIED() ::base::RepeatingClosure resolveCallback)
       {
         LOG_CALL(DVLOG(99));
 
@@ -379,31 +379,31 @@ MainPluginLogic::VoidPromise
   // Will check periodically if `netRegistry->empty()` and if true,
   // than promise will be resolved.
   // Periodic task will be redirected to `net_registry`.
-  basis::PeriodicValidateUntil::ValidationTaskType validationTask
-    = base::bindCheckedRepeating(
+  ::basis::PeriodicValidateUntil::ValidationTaskType validationTask
+    = ::base::bindCheckedRepeating(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         , &MainPluginLogic::validateAndFreeNetworkResources
-        , base::Unretained(this)
+        , ::base::Unretained(this)
     );
 
   return periodicValidateUntil_.runPromise(FROM_HERE
-    , basis::EndingTimeout{
-        base::TimeDelta::FromMilliseconds(
+    , ::basis::EndingTimeout{
+        ::base::TimeDelta::FromMilliseconds(
           pluginInterface_->quitDetectionDebugTimeoutMillisec())} // debug-only expiration time
-    , basis::PeriodicCheckUntil::CheckPeriod{
-        base::TimeDelta::FromMilliseconds(
+    , ::basis::PeriodicCheckUntil::CheckPeriod{
+        ::base::TimeDelta::FromMilliseconds(
           pluginInterface_->quitDetectionFreqMillisec())}
       // debug-only error
     , "Destruction of allocated connections hanged."
       "ECS registry must become empty after some time (during app termination)."
       "Not empty registry indicates bugs that need to be reported."
-    , base::rvalue_cast(validationTask)
+    , ::base::rvalue_cast(validationTask)
   )
   .ThenHere(
     FROM_HERE
-    , base::BindOnce(
+    , ::base::BindOnce(
       []
       ()
       {
@@ -426,7 +426,7 @@ MainPluginLogic::VoidPromise
   return listener_.configureAndRun()
   .ThenOn(mainLoopRunner_
     , FROM_HERE
-    , base::BindOnce(
+    , ::base::BindOnce(
       [
       ](
       ){

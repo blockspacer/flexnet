@@ -38,7 +38,7 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      base::MessageLoop::current()->task_runner()}
+      ::base::MessageLoop::current()->task_runner()}
   , netRegistry_{
       REFERENCED(mainLoopRegistry_->registry()
         .set<ECS::NetworkRegistry>())}

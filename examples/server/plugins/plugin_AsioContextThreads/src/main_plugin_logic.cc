@@ -14,7 +14,7 @@ MainPluginLogic::MainPluginLogic(
         weak_ptr_factory_.GetWeakPtr()))
   , pluginInterface_{REFERENCED(*DCHECK_PTR(pluginInterface))}
   , mainLoopRunner_{
-      base::MessageLoop::current()->task_runner()}
+      ::base::MessageLoop::current()->task_runner()}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , ioc_(REFERENCED(
@@ -30,7 +30,7 @@ MainPluginLogic::MainPluginLogic(
 
   asioThreadsManager_.startThreads(
     /// \note Crash if out of range.
-    base::checked_cast<size_t>(pluginInterface_->asioThreads())
+    ::base::checked_cast<size_t>(pluginInterface_->asioThreads())
     , REFERENCED(*ioc_)
   );
 }
@@ -65,9 +65,9 @@ MainPluginLogic::VoidPromise
   DCHECK(mainLoopRunner_);
 
   return
-    base::PostPromise(FROM_HERE
+    ::base::PostPromise(FROM_HERE
       , UNOWNED_LIFETIME(mainLoopRunner_.get())
-      , base::BindOnce(
+      , ::base::BindOnce(
         [
         ](
         ){

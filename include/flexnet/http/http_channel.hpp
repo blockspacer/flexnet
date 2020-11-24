@@ -171,14 +171,14 @@ public:
   template <typename CallbackT>
   MUST_USE_RETURN_VALUE
   auto postTaskOnConnectionStrand(
-    const base::Location& from_here
+    const ::base::Location& from_here
     , CallbackT&& task
-    , base::IsNestedPromise isNestedPromise = base::IsNestedPromise())
+    , ::base::IsNestedPromise isNestedPromise = ::base::IsNestedPromise())
   NO_EXCEPTION
   {
     DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
-    return base::PostPromiseOnAsioExecutor(
+    return ::base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
       , *perConnectionStrand_
@@ -280,14 +280,14 @@ private:
     GUARDED_BY(perConnectionStrand_);
 
   // |stream_| and calls to |async_*| are guarded by strand
-  basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
+  ::basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
     GUARD_MEMBER_WITH_CHECK(
       perConnectionStrand_
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
       // 2. On each access to strand check that stream valid
       // otherwise `::boost::asio::post` may fail.
-      , base::bindCheckedRepeating(
+      , ::base::bindCheckedRepeating(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(this)
           )
@@ -296,7 +296,7 @@ private:
           /// i.e. valid util |stream_| moved out
           /// (it uses executor from stream).
           , &HttpChannel::isStreamValid
-          , base::Unretained(this)
+          , ::base::Unretained(this)
         )
     );
 
@@ -317,7 +317,7 @@ private:
     GUARDED_BY(perConnectionStrand_);
 
   // used by |entity_id_|
-  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   // `per-connection entity`

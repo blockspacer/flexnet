@@ -83,7 +83,7 @@ MainLoopRegistry*
   /// Singleton itself thread-safe.
   /// The underlying Type must of course be
   /// thread-safe if you want to use it concurrently.
-  return base::Singleton<MainLoopRegistry>::get();
+  return ::base::Singleton<MainLoopRegistry>::get();
 }
 
 } // namespace backend

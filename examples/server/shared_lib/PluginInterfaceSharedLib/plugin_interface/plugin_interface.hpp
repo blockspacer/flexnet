@@ -43,7 +43,7 @@ class PluginInterface
 {
  public:
   using VoidPromise
-    = base::Promise<void, base::NoReject>;
+    = ::base::Promise<void, ::base::NoReject>;
 
   explicit PluginInterface(
     ::plugin::AbstractManager& manager

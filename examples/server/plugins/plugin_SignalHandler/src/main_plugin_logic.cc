@@ -35,14 +35,14 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      base::MessageLoop::current()->task_runner()}
+      ::base::MessageLoop::current()->task_runner()}
   , signalHandler_(
       REFERENCED(mainLoopRegistry_->registry()
         .ctx<::boost::asio::io_context>())
       // `bindToTaskRunner` re-routes callback to task runner
-      , basis::bindToTaskRunner(
+      , ::basis::bindToTaskRunner(
           FROM_HERE
-          , base::BindOnce(
+          , ::base::BindOnce(
               &MainPluginLogic::handleSigQuit
               , weakSelf())
           , mainLoopRunner_)
@@ -95,7 +95,7 @@ void MainPluginLogic::handleSigQuit()
 
   DCHECK(mainLoopRunner_);
   (mainLoopRunner_)->PostTask(FROM_HERE
-    , base::BindOnce(
+    , ::base::BindOnce(
         &MainPluginLogic::handleTerminationEvent
         , weakSelf()));
 }
@@ -111,7 +111,7 @@ void MainPluginLogic::handleTerminationEvent()
     mainLoopRegistry_->registry()
       .ctx<::backend::AppState>();
 
-  ::util::Status result =
+  ::basis::Status result =
     appState.processStateChange(
       FROM_HERE
       , ::backend::AppState::TERMINATE);

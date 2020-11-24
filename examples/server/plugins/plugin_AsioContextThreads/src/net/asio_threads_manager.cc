@@ -127,7 +127,7 @@ void AsioThreadsManager::startThreads(
           "AsioThread_" + std::to_string(i));
 
     DCHECK(asio_thread);
-    base::Thread::Options options;
+    ::base::Thread::Options options;
     asio_thread->StartWithOptions(options);
     asio_thread->WaitUntilThreadStarted();
 
@@ -142,16 +142,16 @@ void AsioThreadsManager::startThreads(
     DCHECK(asio_task_runners_[i]);
 
     asio_threads_.push_back(
-      base::rvalue_cast(asio_thread));
+      ::base::rvalue_cast(asio_thread));
 
     asio_task_runners_[i]->PostTask(
       FROM_HERE
-        , base::bindCheckedRepeating(
+        , ::base::bindCheckedRepeating(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(this)
           )
           , &AsioThreadsManager::runIoc
-          , base::Unretained(this)
+          , ::base::Unretained(this)
           , REFERENCED(ioc)
         )
     );

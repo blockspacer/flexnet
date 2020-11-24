@@ -22,7 +22,7 @@ MainPluginLogic::MainPluginLogic(
       REFERENCED(mainLoopRegistry_->registry()
         .ctx<::backend::ConsoleTerminalEventDispatcher>()))
   , mainLoopRunner_{
-      base::MessageLoop::current()->task_runner()}
+      ::base::MessageLoop::current()->task_runner()}
 {
   LOG_CALL(DVLOG(99));
 
@@ -58,7 +58,7 @@ void MainPluginLogic::handleConsoleInput(
 
     DCHECK(mainLoopRunner_);
     (mainLoopRunner_)->PostTask(FROM_HERE
-      , base::BindOnce(
+      , ::base::BindOnce(
           &MainPluginLogic::handleTerminationEvent
           , weakSelf()
       ));
@@ -76,7 +76,7 @@ void MainPluginLogic::handleTerminationEvent()
     mainLoopRegistry_->registry()
       .ctx<::backend::AppState>();
 
-  ::util::Status result =
+  ::basis::Status result =
     appState.processStateChange(
       FROM_HERE
       , ::backend::AppState::TERMINATE);

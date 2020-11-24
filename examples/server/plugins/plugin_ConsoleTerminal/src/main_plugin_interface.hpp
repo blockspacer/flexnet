@@ -41,7 +41,7 @@ class MainPluginInterface
   : public ::plugin::PluginInterface {
  public:
   using VoidPromise
-    = base::Promise<void, base::NoReject>;
+    = ::base::Promise<void, ::base::NoReject>;
 
  public:
   SET_WEAK_SELF(MainPluginInterface)
@@ -84,11 +84,11 @@ private:
   std::string description_
     GUARDED_BY(sequence_checker_);
 
-  scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
+  scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_
     GUARDED_BY(sequence_checker_);
 
   // Use `base::Optional` because plugin can be unloaded i.e. `reset()`
-  base::Optional<MainPluginLogic> mainPluginLogic_
+  ::base::Optional<MainPluginLogic> mainPluginLogic_
     GUARDED_BY(sequence_checker_);
 
   SEQUENCE_CHECKER(sequence_checker_);

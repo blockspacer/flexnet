@@ -108,7 +108,7 @@ public:
       >;
 
   using VoidPromise
-    = base::Promise<void, base::NoReject>;
+    = ::base::Promise<void, ::base::NoReject>;
 
   using AbstractPlugin
     = ::Corrade::PluginManager::AbstractPlugin;
@@ -142,11 +142,11 @@ public:
   /// \todo refactor long method
   VoidPromise startup(
     // dir must contain plugin files (usually `.so` files)
-    const base::FilePath& _pathToDirWithPlugins
+    const ::base::FilePath& _pathToDirWithPlugins
     // path to `plugins.conf`
-    , const base::FilePath& _pathToPluginsConfFile
+    , const ::base::FilePath& _pathToPluginsConfFile
     // used to force loading of some plugins
-    , const std::vector<base::FilePath>& _pathsToExtraPluginFiles)
+    , const std::vector<::base::FilePath>& _pathsToExtraPluginFiles)
   {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -162,10 +162,10 @@ public:
     CHECK(!executable_path.empty())
       << "invalid executable path";
 
-    const base::FilePath pathToDirWithPlugins
+    const ::base::FilePath pathToDirWithPlugins
       = _pathToDirWithPlugins.empty()
         // default value
-          ? base::FilePath{executable_path}
+          ? ::base::FilePath{executable_path}
           : _pathToDirWithPlugins;
     CHECK(!pathToDirWithPlugins.empty())
       << "invalid path to directory with plugins";
@@ -177,10 +177,10 @@ public:
             , kPluginsConfigFileName}
           );
 
-    const base::FilePath pathToPluginsConfFile
+    const ::base::FilePath pathToPluginsConfFile
       = _pathToPluginsConfFile.empty()
         // default value
-        ? base::FilePath{pluginsConfFile}
+        ? ::base::FilePath{pluginsConfFile}
         : _pathToPluginsConfFile;
     CHECK(!pathToPluginsConfFile.empty())
       << "invalid path to plugins configuration file";
@@ -297,7 +297,7 @@ public:
 
     // append path to plugins that
     // must be loaded independently of configuration file
-    for(const base::FilePath& pluginPath
+    for(const ::base::FilePath& pluginPath
         : _pathsToExtraPluginFiles)
     {
       VLOG(9)
@@ -350,7 +350,7 @@ public:
 
         loadResolvers_[nameOrPath]
           = std::make_unique<
-              base::ManualPromiseResolver<void, base::NoReject>
+              ::base::ManualPromiseResolver<void, ::base::NoReject>
             >(FROM_HERE);
 
         CHECK(loadPromises_.find(nameOrPath) == loadPromises_.end())
@@ -369,7 +369,7 @@ public:
 
         unloadResolvers_[nameOrPath]
           = std::make_unique<
-              base::ManualPromiseResolver<void, base::NoReject>
+              ::base::ManualPromiseResolver<void, ::base::NoReject>
             >(FROM_HERE);
 
         CHECK(unloadPromises_.find(nameOrPath) == unloadPromises_.end())
@@ -435,7 +435,7 @@ public:
             << dep;
 
           loadDepsPromise
-            = base::Promises::All(FROM_HERE
+            = ::base::Promises::All(FROM_HERE
                 , std::vector<VoidPromise>{
                     loadDepsPromise
                     , loadPromises_[dep]}
@@ -592,14 +592,14 @@ public:
           loadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
         )
         .ThenHere(FROM_HERE
-          , base::bindCheckedOnce(
+          , ::base::bindCheckedOnce(
               DEBUG_BIND_CHECKS(
                 PTR_CHECKER(this)
               )
               , &PluginManager::onLoaded
-              , base::Unretained(this)
+              , ::base::Unretained(this)
               , nameOrPath)
-          , base::IsNestedPromise{true}
+          , ::base::IsNestedPromise{true}
         );
 
         loadPromiseParallel.push_back(loadChain);
@@ -615,26 +615,26 @@ public:
         VoidPromise loadChain =
           loadDepsPromise
           .ThenHere(FROM_HERE
-             , base::bindCheckedOnce(
+             , ::base::bindCheckedOnce(
                  DEBUG_BIND_CHECKS(
                    PTR_CHECKER(pluginPtr.get())
                  )
                  , &PluginType::load
-                 , base::Unretained(pluginPtr.get()))
-             , base::IsNestedPromise{true}
+                 , ::base::Unretained(pluginPtr.get()))
+             , ::base::IsNestedPromise{true}
           )
           .ThenHere(FROM_HERE,
             loadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
           )
           .ThenHere(FROM_HERE
-            , base::bindCheckedOnce(
+            , ::base::bindCheckedOnce(
                 DEBUG_BIND_CHECKS(
                   PTR_CHECKER(this)
                 )
                 , &PluginManager::onLoaded
-                , base::Unretained(this)
+                , ::base::Unretained(this)
                 , nameOrPath)
-            , base::IsNestedPromise{true}
+            , ::base::IsNestedPromise{true}
           );
 
         loadPromiseParallel.push_back(loadChain);
@@ -652,7 +652,7 @@ public:
     is_initialized_ = true;
 
 
-    return base::Promises::All(FROM_HERE, loadPromiseParallel);
+    return ::base::Promises::All(FROM_HERE, loadPromiseParallel);
   }
 
   // calls `unload()` for each loaded plugin
@@ -704,7 +704,7 @@ public:
             << req;
 
           unloadRequiredByPromise
-            = base::Promises::All(FROM_HERE
+            = ::base::Promises::All(FROM_HERE
                 , std::vector<VoidPromise>{
                     unloadRequiredByPromise
                     , unloadPromises_[req]}
@@ -723,14 +723,14 @@ public:
           unloadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
         )
         .ThenHere(FROM_HERE
-          , base::bindCheckedOnce(
+          , ::base::bindCheckedOnce(
               DEBUG_BIND_CHECKS(
                 PTR_CHECKER(this)
               )
               , &PluginManager::onUnloaded
-              , base::Unretained(this)
+              , ::base::Unretained(this)
               , nameOrPath)
-          , base::IsNestedPromise{true}
+          , ::base::IsNestedPromise{true}
         );
 
         unloadPromiseParallel.push_back(unloadChain);
@@ -748,33 +748,33 @@ public:
           // require (depends on) `unloading-plugin`
           unloadRequiredByPromise
           .ThenHere(FROM_HERE
-            , base::bindCheckedOnce(
+            , ::base::bindCheckedOnce(
                 DEBUG_BIND_CHECKS(
                   PTR_CHECKER(pluginPtr.get())
                 )
                 , &PluginType::unload
-                , base::Unretained(pluginPtr.get()))
-            , base::IsNestedPromise{true}
+                , ::base::Unretained(pluginPtr.get()))
+            , ::base::IsNestedPromise{true}
           )
           .ThenHere(FROM_HERE,
             unloadResolvers_[nameOrPath]->GetRepeatingResolveCallback()
           )
           .ThenHere(FROM_HERE
-            , base::bindCheckedOnce(
+            , ::base::bindCheckedOnce(
                 DEBUG_BIND_CHECKS(
                   PTR_CHECKER(this)
                 )
                 , &PluginManager::onUnloaded
-                , base::Unretained(this)
+                , ::base::Unretained(this)
                 , nameOrPath)
-            , base::IsNestedPromise{true}
+            , ::base::IsNestedPromise{true}
           );
 
         unloadPromiseParallel.push_back(unloadChain);
       }
     }
 
-    return base::Promises::All(FROM_HERE, unloadPromiseParallel);
+    return ::base::Promises::All(FROM_HERE, unloadPromiseParallel);
   }
 
   [[nodiscard]] /* do not ignore return value */
@@ -817,14 +817,14 @@ private:
   std::map<
     std::string
     , std::unique_ptr<
-        base::ManualPromiseResolver<void, base::NoReject>
+        ::base::ManualPromiseResolver<void, ::base::NoReject>
       >
   > loadResolvers_;
 
   std::map<
     std::string
     , std::unique_ptr<
-        base::ManualPromiseResolver<void, base::NoReject>
+        ::base::ManualPromiseResolver<void, ::base::NoReject>
       >
   > unloadResolvers_;
 

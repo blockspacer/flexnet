@@ -134,7 +134,7 @@ void Listener::logFailure(
                  " error: ", what, ec);
 }
 
-::util::Status Listener::openAcceptor()
+::basis::Status Listener::openAcceptor()
 {
   LOG_CALL(DVLOG(99));
 
@@ -165,10 +165,10 @@ void Listener::logFailure(
            << "Failed to open acceptor";
   }
 
-  return ::util::OkStatus();
+  return ::basis::OkStatus();
 }
 
-::util::Status Listener::configureAcceptor()
+::basis::Status Listener::configureAcceptor()
 {
   LOG_CALL(DVLOG(99));
 
@@ -222,7 +222,7 @@ void Listener::logFailure(
            << "Could not call listen for acceptor";
   }
 
-  return ::util::OkStatus();
+  return ::basis::OkStatus();
 }
 
 Listener::StatusPromise Listener::configureAndRun()
@@ -236,15 +236,15 @@ Listener::StatusPromise Listener::configureAndRun()
   /// so it is ok to use `base::Promise` here
   return postTaskOnAcceptorStrand(
     FROM_HERE
-    , base::bindCheckedOnce(
+    , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         , &Listener::configureAndRunAcceptor
-        , base::Unretained(this)));
+        , ::base::Unretained(this)));
 }
 
-::util::Status Listener::configureAndRunAcceptor()
+::basis::Status Listener::configureAndRunAcceptor()
 {
   LOG_CALL(DVLOG(99));
 
@@ -276,7 +276,7 @@ Listener::StatusPromise Listener::configureAndRun()
   doAccept();
 
   /// \todo always ok
-  return ::util::OkStatus();
+  return ::basis::OkStatus();
 }
 
 void Listener::doAccept()
@@ -307,12 +307,12 @@ void Listener::doAccept()
 
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::bindCheckedOnce(
+    , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         , &Listener::allocateTcpResourceAndAccept
-        , base::Unretained(this))
+        , ::base::Unretained(this))
   );
 }
 
@@ -355,7 +355,7 @@ void Listener::allocateTcpResourceAndAccept()
 
   StrandComponent* asioStrandCtx
     = &tcpComponent->reset_or_create_var<StrandComponent>(
-        "Ctx_StrandComponent_" + base::GenerateGUID() // debug name
+        "Ctx_StrandComponent_" + ::base::GenerateGUID() // debug name
         /// \note `get_executor` returns copy
         , ioc_->get_executor());
 
@@ -381,21 +381,21 @@ void Listener::allocateTcpResourceAndAccept()
   // Accept connection
   ::boost::asio::post(
     *acceptorStrand_
-    , basis::bindFrontOnceCallback(
-        base::bindCheckedOnce(
+    , ::basis::bindFrontOnceCallback(
+        ::base::bindCheckedOnce(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(this)
           )
           , &Listener::asyncAccept
-          , base::Unretained(this)
+          , ::base::Unretained(this)
           , COPIED(
-              util::UnownedPtr<StrandType>(&asioStrandCtx->value()))
+              ::basis::UnownedPtr<StrandType>(&asioStrandCtx->value()))
           , COPIED(tcp_entity_id)))
   );
 }
 
 void Listener::asyncAccept(
-  util::UnownedPtr<StrandType> unownedPerConnectionStrand
+  ::basis::UnownedPtr<StrandType> unownedPerConnectionStrand
   , ECS::Entity tcp_entity_id)
 {
   LOG_CALL(DVLOG(99));
@@ -436,20 +436,20 @@ void Listener::asyncAccept(
     *unownedPerConnectionStrand.Get()
     , boost::asio::bind_executor(
         *unownedPerConnectionStrand.Get()
-        , basis::bindFrontOnceCallback(
-            base::bindCheckedOnce(
+        , ::basis::bindFrontOnceCallback(
+            ::base::bindCheckedOnce(
               DEBUG_BIND_CHECKS(
                 PTR_CHECKER(this)
               )
               , &Listener::onAccept
-              , base::Unretained(this)
+              , ::base::Unretained(this)
               , COPIED(unownedPerConnectionStrand)
               , COPIED(tcp_entity_id)))
       )
     );
 }
 
-::util::Status Listener::pause()
+::basis::Status Listener::pause()
 {
   LOG_CALL(DVLOG(99));
 
@@ -463,10 +463,10 @@ void Listener::asyncAccept(
   /// \todo IMPLEMENT server pause
   NOTIMPLEMENTED();
 
-  return ::util::OkStatus();
+  return ::basis::OkStatus();
 }
 
-::util::Status Listener::stopAcceptor()
+::basis::Status Listener::stopAcceptor()
 {
   LOG_CALL(DVLOG(99));
 
@@ -485,7 +485,7 @@ void Listener::asyncAccept(
     VLOG(9)
       << "unable to stop closed listener";
 
-    return ::util::OkStatus();
+    return ::basis::OkStatus();
   }
 
   ErrorCode ec;
@@ -520,16 +520,16 @@ void Listener::asyncAccept(
     DCHECK(!isAcceptorOpen());
   }
 
-  return ::util::OkStatus();
+  return ::basis::OkStatus();
 }
 
-util::Status Listener::processStateChange(
-  const base::Location &from_here
+basis::Status Listener::processStateChange(
+  const ::base::Location &from_here
   , const Listener::Event &processEvent)
 {
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
-  const ::util::Status stateProcessed
+  const ::basis::Status stateProcessed
       = sm_.ProcessEvent(processEvent
                          , FROM_HERE.ToString()
                          , nullptr);
@@ -564,15 +564,15 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
   /// so it is ok to use `base::Promise` here
   return postTaskOnAcceptorStrand(
         FROM_HERE
-        , base::bindCheckedOnce(
+        , ::base::bindCheckedOnce(
             DEBUG_BIND_CHECKS(
               PTR_CHECKER(this)
             )
             , &Listener::stopAcceptor,
-            base::Unretained(this)));
+            ::base::Unretained(this)));
 }
 
-void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
+void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
                         , ECS::Entity tcp_entity_id
                         , const ErrorCode& ec
                         , SocketType&& socket)
@@ -622,28 +622,28 @@ void Listener::onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
 
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::bindCheckedOnce(
+    , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         , &Listener::setAcceptConnectionResult
-        , base::Unretained(this)
+        , ::base::Unretained(this)
         , COPIED(tcp_entity_id)
         , CAN_COPY_ON_MOVE("moving const") std::move(ec)
-        , base::rvalue_cast(socket)
+        , ::base::rvalue_cast(socket)
       )
   );
 
   // Accept another connection
   ::boost::asio::post(
     *acceptorStrand_
-    , basis::bindFrontOnceCallback(
-        base::bindCheckedOnce(
+    , ::basis::bindFrontOnceCallback(
+        ::base::bindCheckedOnce(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(this)
           )
           , &Listener::doAccept
-          , base::Unretained(this)))
+          , ::base::Unretained(this)))
   );
 }
 
@@ -669,7 +669,7 @@ void Listener::setAcceptConnectionResult(
 
   {
     using UniqueAcceptComponent
-      = base::Optional<Listener::AcceptConnectionResult>;
+      = ::base::Optional<Listener::AcceptConnectionResult>;
 
     // If the value already exists allow it to be re-used
     (*netRegistry_)->remove_if_exists<
@@ -687,10 +687,10 @@ void Listener::setAcceptConnectionResult(
 
     UniqueAcceptComponent& acceptResult
       = (*netRegistry_).reset_or_create_component<UniqueAcceptComponent>(
-            "UniqueAcceptComponent_" + base::GenerateGUID() // debug name
+            "UniqueAcceptComponent_" + ::base::GenerateGUID() // debug name
             , tcp_entity_id
-            , base::rvalue_cast(ec)
-            , base::rvalue_cast(socket)
+            , ::base::rvalue_cast(ec)
+            , ::base::rvalue_cast(socket)
             , forceClosing);
   }
 }

@@ -71,9 +71,9 @@ MainPluginInterface::VoidPromise
   mainPluginLogic_.emplace(this);
 
   return
-      base::PostPromise(FROM_HERE
+      ::base::PostPromise(FROM_HERE
         , UNOWNED_LIFETIME(mainLoopRunner_.get())
-        , base::BindOnce(
+        , ::base::BindOnce(
           [
           ](
           ){
@@ -83,16 +83,16 @@ MainPluginInterface::VoidPromise
           })
         )
       .ThenHere(FROM_HERE
-        , base::bindCheckedOnce(
+        , ::base::bindCheckedOnce(
             DEBUG_BIND_CHECKS(
               PTR_CHECKER(&mainPluginLogic_.value())
             )
             , &MainPluginLogic::load
-            , base::Unretained(&mainPluginLogic_.value()))
-        , base::IsNestedPromise{true}
+            , ::base::Unretained(&mainPluginLogic_.value()))
+        , ::base::IsNestedPromise{true}
       )
       .ThenHere(FROM_HERE
-        , base::BindOnce(
+        , ::base::BindOnce(
           [
           ](
           ){
@@ -119,9 +119,9 @@ MainPluginInterface::VoidPromise MainPluginInterface::unload()
   DCHECK(mainPluginLogic_);
 
   return
-      base::PostPromise(FROM_HERE
+      ::base::PostPromise(FROM_HERE
         , UNOWNED_LIFETIME(mainLoopRunner_.get())
-        , base::BindOnce(
+        , ::base::BindOnce(
           [
           ](
           ){
@@ -131,25 +131,25 @@ MainPluginInterface::VoidPromise MainPluginInterface::unload()
           })
       )
       .ThenHere(FROM_HERE
-        , base::bindCheckedOnce(
+        , ::base::bindCheckedOnce(
             DEBUG_BIND_CHECKS(
               PTR_CHECKER(&mainPluginLogic_.value())
             )
             , &MainPluginLogic::unload
-            , base::Unretained(&mainPluginLogic_.value()))
-        , base::IsNestedPromise{true}
+            , ::base::Unretained(&mainPluginLogic_.value()))
+        , ::base::IsNestedPromise{true}
       )
       .ThenHere(FROM_HERE
-        , base::bindCheckedOnce(
+        , ::base::bindCheckedOnce(
             DEBUG_BIND_CHECKS(
               PTR_CHECKER(&mainPluginLogic_)
             )
             , &base::Optional<MainPluginLogic>::reset
-            , base::Unretained(&mainPluginLogic_)
+            , ::base::Unretained(&mainPluginLogic_)
           )
       )
       .ThenHere(FROM_HERE
-        , base::BindOnce(
+        , ::base::BindOnce(
           [
           ](
           ){

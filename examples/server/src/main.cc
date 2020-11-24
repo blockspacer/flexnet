@@ -9,6 +9,7 @@
 
 #include <base/rvalue_cast.h>
 #include <base/path_service.h>
+#include <base/callback_list.h>
 #include <base/optional.h>
 #include <base/bind.h>
 #include <base/run_loop.h>
@@ -47,6 +48,8 @@
 #include <base/strings/substitute.h>
 #include <base/strings/utf_string_conversions.h>
 
+#include <basis/fail_point/fail_point.hpp>
+#include <basis/plug_point/plug_point.hpp>
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/dummy_checker.hpp>
 #include <basis/bind/ptr_checker.hpp>
@@ -96,7 +99,7 @@ using namespace flexnet;
 using namespace backend;
 
 using VoidPromise
-  = base::Promise<void, base::NoReject>;
+  = ::base::Promise<void, ::base::NoReject>;
 
 using PluginManager
   = plugin::PluginManager<
@@ -127,33 +130,33 @@ static VoidPromise startPluginManager() NO_EXCEPTION
   SCOPED_UMA_HISTOGRAM_TIMER( /// \note measures up to 10 seconds
     "startPluginManager from " + FROM_HERE.ToString());
 
-  base::FilePath dir_exe;
+  ::base::FilePath dir_exe;
   if (!base::PathService::Get(base::DIR_EXE, &dir_exe)) {
     NOTREACHED();
   }
 
-  base::CommandLine* cmdLine
-    = base::CommandLine::ForCurrentProcess();
+  ::base::CommandLine* cmdLine
+    = ::base::CommandLine::ForCurrentProcess();
   DCHECK_PTR(cmdLine);
 
-  base::FilePath pathToDirWithPlugins
+  ::base::FilePath pathToDirWithPlugins
     = cmdLine->HasSwitch(kPluginsDirSwitch)
-      ? base::FilePath{cmdLine->GetSwitchValueASCII(
+      ? ::base::FilePath{cmdLine->GetSwitchValueASCII(
           kPluginsDirSwitch)}
       // default value
       : dir_exe
         .AppendASCII(kRelativePluginsDir);
 
-  base::FilePath pathToPluginsConfFile
+  ::base::FilePath pathToPluginsConfFile
   = cmdLine->HasSwitch(kPluginsConfigFileSwitch)
-      ? base::FilePath{cmdLine->GetSwitchValueASCII(
+      ? ::base::FilePath{cmdLine->GetSwitchValueASCII(
           kPluginsConfigFileSwitch)}
       // default value
       : dir_exe
         .AppendASCII(kDefaultPluginsConfigFilesDir)
         .AppendASCII(::plugin::kPluginsConfigFileName);
 
-  std::vector<base::FilePath> pathsToExtraPluginFiles{};
+  std::vector<::base::FilePath> pathsToExtraPluginFiles{};
 
   loadStaticPlugins();
 
@@ -162,9 +165,9 @@ static VoidPromise startPluginManager() NO_EXCEPTION
       .ctx<PluginManager>();
 
   return pluginManager.startup(
-    base::rvalue_cast(pathToDirWithPlugins)
-    , base::rvalue_cast(pathToPluginsConfFile)
-    , base::rvalue_cast(pathsToExtraPluginFiles)
+    ::base::rvalue_cast(pathToDirWithPlugins)
+    , ::base::rvalue_cast(pathToPluginsConfFile)
+    , ::base::rvalue_cast(pathsToExtraPluginFiles)
   );
 }
 
@@ -182,7 +185,7 @@ static VoidPromise shutdownPluginManager() NO_EXCEPTION
   return pluginManager.shutdown()
   .ThenHere(FROM_HERE
     /// \note call after `pluginManager.shutdown()` finished
-    , base::BindOnce(&unloadStaticPlugins)
+    , ::base::BindOnce(&unloadStaticPlugins)
   );
 }
 
@@ -231,7 +234,7 @@ static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
       .ctx<AppState>();
 
   {
-     ::util::Status result =
+     ::basis::Status result =
        appState.processStateChange(
          FROM_HERE
          , AppState::START);
@@ -249,17 +252,17 @@ static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
     , AppState::TERMINATE)
   .ThenHere(FROM_HERE
     // during teardown we need to be able to perform IO.
-    , base::BindOnce(
+    , ::base::BindOnce(
         &base::ThreadRestrictions::SetIOAllowed
         , true
       )
   )
   .ThenHere(FROM_HERE
-    , base::BindOnce(&shutdownPluginManager)
-    , base::IsNestedPromise{true}
+    , ::base::BindOnce(&shutdownPluginManager)
+    , ::base::IsNestedPromise{true}
   )
   .ThenHere(FROM_HERE
-    , base::BindOnce(&unsetGlobals)
+    , ::base::BindOnce(&unsetGlobals)
   );
 }
 
@@ -269,7 +272,7 @@ static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
 void finishProcessMetrics() NO_EXCEPTION
 {
   auto processMetrics
-    = base::ProcessMetrics::CreateCurrentProcessMetrics();
+    = ::base::ProcessMetrics::CreateCurrentProcessMetrics();
 
   {
     size_t malloc_usage =
@@ -280,7 +283,7 @@ void finishProcessMetrics() NO_EXCEPTION
       << malloc_usage;
 
     int malloc_usage_mb = static_cast<int>(malloc_usage >> 20);
-    base::UmaHistogramMemoryLargeMB(
+    ::base::UmaHistogramMemoryLargeMB(
       "App.Memory.HeapProfiler.Malloc"
       , malloc_usage_mb);
   }
@@ -309,20 +312,20 @@ void finishProcessMetrics() NO_EXCEPTION
     // sampling profiling of native memory heap.
     // Aggregates the heap allocations and records samples
     // using GetSamples method.
-    std::vector<base::SamplingHeapProfiler::Sample> samples =
-        base::SamplingHeapProfiler::Get()->GetSamples(
+    std::vector<::base::SamplingHeapProfiler::Sample> samples =
+        ::base::SamplingHeapProfiler::Get()->GetSamples(
           0 // To retrieve all set to 0.
         );
     if (!samples.empty()) {
-      base::ModuleCache module_cache;
-      for (const base::SamplingHeapProfiler::Sample& sample : samples) {
-        std::vector<base::Frame> frames;
+      ::base::ModuleCache module_cache;
+      for (const ::base::SamplingHeapProfiler::Sample& sample : samples) {
+        std::vector<::base::Frame> frames;
         frames.reserve(sample.stack.size());
         for (const void* frame : sample.stack)
         {
           DCHECK_PTR(frame);
           uintptr_t address = reinterpret_cast<uintptr_t>(frame);
-          const base::ModuleCache::Module* module =
+          const ::base::ModuleCache::Module* module =
               module_cache.GetModuleForAddress(address);
           DCHECK_PTR(module);
           frames.emplace_back(address, module);
@@ -362,14 +365,14 @@ void finishProcessMetrics() NO_EXCEPTION
         DCHECK_PTR(module);
         VLOG(1)
           << "module GetDebugBasename: "
-          << base::StringPrintf(
+          << ::base::StringPrintf(
                 // PRFilePath from <base/files/file_path.h>
                 // prints path names portably
                 "%" PRFilePath
                , module->GetDebugBasename().value().c_str());
         VLOG(1)
           << "module GetBaseAddress: "
-          << base::StringPrintf(
+          << ::base::StringPrintf(
                 // PRIxPTR from <base/basictypes.h>
                 // i.e. <inttypes.h>
                 "0x%" PRIxPTR
@@ -385,12 +388,12 @@ void finishProcessMetrics() NO_EXCEPTION
 int main(int argc, char* argv[])
 {
   // stores basic requirements, like thread pool, logging, etc.
-  basis::ScopedBaseEnvironment base_env;
+  ::basis::ScopedBaseEnvironment base_env;
 
   // init common application systems,
   // initialization order matters!
   {
-    base::Optional<int> exit_code = initEnv(
+    ::base::Optional<int> exit_code = initEnv(
       argc
       , argv
       , base_env);
@@ -402,17 +405,17 @@ int main(int argc, char* argv[])
   }
 
   // Main loop that performs scheduled tasks.
-  base::RunLoop runLoop;
+  ::base::RunLoop runLoop;
 
   /// \note Task will be executed
   /// when `runLoop.Run()` called.
-  base::PostPromise(FROM_HERE,
-    base::MessageLoop::current().task_runner().get()
-    , base::BindOnce(&runServerAndPromiseQuit)
-    , base::IsNestedPromise{true}
+  ::base::PostPromise(FROM_HERE,
+    ::base::MessageLoop::current().task_runner().get()
+    , ::base::BindOnce(&runServerAndPromiseQuit)
+    , ::base::IsNestedPromise{true}
   )
   .ThenHere(FROM_HERE
-    , base::BindOnce(&finishProcessMetrics)
+    , ::base::BindOnce(&finishProcessMetrics)
   )
   // Stop `base::RunLoop` when `base::Promise` resolved.
   .ThenHere(FROM_HERE

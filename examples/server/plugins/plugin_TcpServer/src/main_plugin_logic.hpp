@@ -76,10 +76,10 @@ class MainPluginLogic
 {
  public:
   using VoidPromise
-    = base::Promise<void, base::NoReject>;
+    = ::base::Promise<void, ::base::NoReject>;
 
   using StatusPromise
-    = base::Promise<::util::Status, base::NoReject>;
+    = ::base::Promise<::basis::Status, ::base::NoReject>;
 
   using EndpointType
     = ::boost::asio::ip::tcp::endpoint;
@@ -148,7 +148,7 @@ class MainPluginLogic
   // `resolveCallback` will be executed if `registry.empty()`.
   // We assume that empty ECS registry means that network resources were freed.
   void validateAndFreeNetworkResources(
-    base::RepeatingClosure resolveCallback) NO_EXCEPTION
+    ::base::RepeatingClosure resolveCallback) NO_EXCEPTION
     PRIVATE_METHOD_RUN_ON(periodicValidateUntil_.taskRunner().get());
 
   // Stop the `io_context`. This will cause `io_context.run()`
@@ -161,31 +161,31 @@ class MainPluginLogic
   SET_WEAK_POINTERS(MainPluginLogic);
 
   // Used to free network resources.
-  basis::PeriodicValidateUntil periodicValidateUntil_
+  ::basis::PeriodicValidateUntil periodicValidateUntil_
     GUARD_MEMBER_DISALLOW_THREAD_COLLISION(periodicValidateUntil_);
 
-  util::UnownedRef<
+  ::basis::UnownedRef<
     const MainPluginInterface
   > pluginInterface_
       GUARDED_BY(sequence_checker_);
 
-  util::UnownedPtr<
+  ::basis::UnownedPtr<
     ::backend::MainLoopRegistry
   > mainLoopRegistry_
     GUARDED_BY(sequence_checker_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
-  scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner_
+  scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(mainLoopRunner_);
 
-  util::UnownedRef<::boost::asio::io_context> ioc_
+  ::basis::UnownedRef<::boost::asio::io_context> ioc_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
   const EndpointType tcpEndpoint_
     GUARDED_BY(sequence_checker_);
 
-  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   ::backend::TcpEntityAllocator tcpEntityAllocator_;

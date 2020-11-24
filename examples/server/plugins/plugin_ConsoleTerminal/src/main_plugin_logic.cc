@@ -49,11 +49,11 @@ template<
   , typename DispatcherType
 >
 static void postOnRunnerDispatcherEvent(
-  scoped_refptr<base::SequencedTaskRunner> taskRunner
+  scoped_refptr<::base::SequencedTaskRunner> taskRunner
   , EventType&& event)
 {
   taskRunner->PostTask(FROM_HERE,
-    base::BindOnce(
+    ::base::BindOnce(
     [
     ](
       EventType&& event
@@ -76,22 +76,22 @@ static void postOnRunnerDispatcherEvent(
         EventType
       >(event);
     }
-    , base::rvalue_cast(event)
+    , ::base::rvalue_cast(event)
     )
   );
 }
 
 static void setConsolePeriodicTaskExecutorOnSequence(
-  const base::Location& from_here
-  , scoped_refptr<base::SequencedTaskRunner> task_runner
-  , COPIED() base::RepeatingClosure updateCallback)
+  const ::base::Location& from_here
+  , scoped_refptr<::base::SequencedTaskRunner> task_runner
+  , COPIED() ::base::RepeatingClosure updateCallback)
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK(task_runner
     && task_runner->RunsTasksInCurrentSequence());
 
-  base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
+  ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
     = ECS::SequenceLocalContext::getSequenceLocalInstance(
         from_here, task_runner);
 
@@ -109,13 +109,13 @@ static void setConsolePeriodicTaskExecutorOnSequence(
 }
 
 static void startConsolePeriodicTaskExecutorOnSequence(
-  const base::TimeDelta& endTimeDelta)
+  const ::base::TimeDelta& endTimeDelta)
 {
   LOG_CALL(DVLOG(99));
 
-  base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
+  ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
     = ECS::SequenceLocalContext::getSequenceLocalInstance(
-        FROM_HERE, base::SequencedTaskRunnerHandle::Get());
+        FROM_HERE, ::base::SequencedTaskRunnerHandle::Get());
 
   DCHECK(sequenceLocalContext);
   DCHECK(sequenceLocalContext->try_ctx<ConsolePeriodicTaskExecutor>(FROM_HERE));
@@ -130,9 +130,9 @@ static void unsetConsolePeriodicTaskExecutorOnSequence()
 {
   LOG_CALL(DVLOG(99));
 
-  base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
+  ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
     = ECS::SequenceLocalContext::getSequenceLocalInstance(
-        FROM_HERE, base::SequencedTaskRunnerHandle::Get());
+        FROM_HERE, ::base::SequencedTaskRunnerHandle::Get());
 
   DCHECK(sequenceLocalContext);
   DCHECK(sequenceLocalContext->try_ctx<ConsolePeriodicTaskExecutor>(FROM_HERE));
@@ -178,8 +178,8 @@ int kbhit()
 /// see stackoverflow.com/a/21749034
 /// see stackoverflow.com/questions/40811438/input-with-a-timeout-in-c
 static void updateConsoleInput(
-  scoped_refptr<base::SingleThreadTaskRunner> mainLoopRunner
-  , scoped_refptr<base::SequencedTaskRunner> periodicConsoleTaskRunner) NO_EXCEPTION
+  scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner
+  , scoped_refptr<::base::SequencedTaskRunner> periodicConsoleTaskRunner) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -227,7 +227,7 @@ static void updateConsoleInput(
       std::string // event type
       , backend::ConsoleTerminalEventDispatcher // dispatcher type
     >(mainLoopRunner
-      , base::rvalue_cast(line));
+      , ::base::rvalue_cast(line));
   } else {
     DVLOG(99)
       << "no console input";
@@ -248,14 +248,14 @@ MainPluginLogic::MainPluginLogic(
       REFERENCED(mainLoopRegistry_->registry()
         .set<::backend::ConsoleTerminalEventDispatcher>()))
   , mainLoopRunner_{
-      base::MessageLoop::current()->task_runner()}
+      ::base::MessageLoop::current()->task_runner()}
   , periodicConsoleTaskRunner_(
-    base::ThreadPool::GetInstance()->
+    ::base::ThreadPool::GetInstance()->
       CreateSequencedTaskRunnerWithTraits(
-        base::TaskTraits{
-          base::TaskPriority::BEST_EFFORT
-          , base::MayBlock()
-          , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+        ::base::TaskTraits{
+          ::base::TaskPriority::BEST_EFFORT
+          , ::base::MayBlock()
+          , ::base::TaskShutdownBehavior::BLOCK_SHUTDOWN
         }
       ))
 {
@@ -278,14 +278,14 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::load()");
 
-  return base::PostPromise(
+  return ::base::PostPromise(
     FROM_HERE
     , periodicConsoleTaskRunner_.get()
-    , base::BindOnce(
+    , ::base::BindOnce(
         &setConsolePeriodicTaskExecutorOnSequence
         , FROM_HERE
         , periodicConsoleTaskRunner_
-        , base::BindRepeating(
+        , ::base::BindRepeating(
             &updateConsoleInput
             , mainLoopRunner_
             , periodicConsoleTaskRunner_
@@ -294,9 +294,9 @@ MainPluginLogic::VoidPromise
   )
   .ThenOn(periodicConsoleTaskRunner_
     , FROM_HERE
-    , base::BindOnce(
+    , ::base::BindOnce(
         &startConsolePeriodicTaskExecutorOnSequence
-        , base::TimeDelta::FromMilliseconds(
+        , ::base::TimeDelta::FromMilliseconds(
             pluginInterface_->consoleInputFreqMillisec())
       )
   );
@@ -311,11 +311,11 @@ MainPluginLogic::VoidPromise
 
   DCHECK(mainLoopRunner_);
 
-  return base::PostPromise(
+  return ::base::PostPromise(
     FROM_HERE
     // Post our work to the strand, to prevent data race
     , periodicConsoleTaskRunner_.get()
-    , base::BindOnce(&unsetConsolePeriodicTaskExecutorOnSequence)
+    , ::base::BindOnce(&unsetConsolePeriodicTaskExecutorOnSequence)
   );
 }
 

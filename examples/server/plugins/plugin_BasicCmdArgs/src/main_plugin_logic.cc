@@ -24,7 +24,7 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      base::MessageLoop::current()->task_runner()}
+      ::base::MessageLoop::current()->task_runner()}
 {
   LOG_CALL(DVLOG(99));
 
@@ -44,8 +44,8 @@ void MainPluginLogic::handleCmd()
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  base::CommandLine* cmdLine
-    = base::CommandLine::ForCurrentProcess();
+  ::base::CommandLine* cmdLine
+    = ::base::CommandLine::ForCurrentProcess();
   DCHECK(cmdLine);
 
   if (cmdLine->HasSwitch(kVersionSwitch))

@@ -211,7 +211,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     ECS::foreachChildEntity<TagType>(
       REFERENCED(registry)
       , parentId
-      , base::BindRepeating(
+      , ::base::BindRepeating(
         [
         ](
           std::vector<ECS::Entity>& iterated
@@ -264,7 +264,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     ECS::foreachChildEntity<TagType>(
       REFERENCED(registry)
       , parentId
-      , base::BindRepeating(
+      , ::base::BindRepeating(
         [
         ](
           std::vector<ECS::Entity>& iterated
@@ -323,7 +323,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     ECS::foreachChildEntity<TagType>(
       REFERENCED(registry)
       , parentId
-      , base::BindRepeating(
+      , ::base::BindRepeating(
         [
         ](
           std::vector<ECS::Entity>& iterated
@@ -383,7 +383,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     ECS::foreachChildEntity<TagType>(
       REFERENCED(registry)
       , parentId
-      , base::BindRepeating(
+      , ::base::BindRepeating(
         [
         ](
           std::vector<ECS::Entity>& iterated
@@ -514,7 +514,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     ECS::foreachChildEntity<TagType>(
       REFERENCED(registry)
       , parentId
-      , base::BindRepeating(
+      , ::base::BindRepeating(
         [
         ](
           std::vector<ECS::Entity>& iterated
@@ -567,7 +567,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     ECS::foreachChildEntity<TagType>(
       REFERENCED(registry)
       , parentId
-      , base::BindRepeating(
+      , ::base::BindRepeating(
         [
         ](
           std::vector<ECS::Entity>& iterated
@@ -626,7 +626,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     ECS::foreachChildEntity<TagType>(
       REFERENCED(registry)
       , parentId
-      , base::BindRepeating(
+      , ::base::BindRepeating(
         [
         ](
           std::vector<ECS::Entity>& iterated

@@ -71,13 +71,13 @@ public:
   };
 
   using StateMachineType =
-      basis::UnsafeStateMachine<
+      ::basis::UnsafeStateMachine<
         AppState::State
         , AppState::Event
       >;
 
   using VoidPromise
-    = base::Promise<void, base::NoReject>;
+    = ::base::Promise<void, ::base::NoReject>;
 
 public:
   // USAGE
@@ -85,7 +85,7 @@ public:
   // // Warning: all callbacks must be used
   // // within the lifetime of the state machine.
   // StateMachineType::CallbackType okStateCallback =
-  //   base::BindRepeating(
+  //   ::base::BindRepeating(
   //   []
   //   (Event event
   //    , State next_state
@@ -94,7 +94,7 @@ public:
   //     ignore_result(event);
   //     ignore_result(next_state);
   //     ignore_result(recovery_event);
-  //     return ::util::OkStatus();
+  //     return ::basis::OkStatus();
   //   });
   // sm_->AddExitAction(UNINITIALIZED, okStateCallback);
   void AddExitAction(
@@ -133,7 +133,7 @@ public:
   /// (`GetRepeatingResolveCallback` will NOT `Run()`).
   MUST_USE_RETURN_VALUE
   VoidPromise promiseEntryOnce(
-    const base::Location& from_here
+    const ::base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
     PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
@@ -142,13 +142,13 @@ public:
   /// (`GetRepeatingResolveCallback` will NOT `Run()`).
   MUST_USE_RETURN_VALUE
   VoidPromise promiseExitOnce(
-    const base::Location& from_here
+    const ::base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
     PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
   MUST_USE_RETURN_VALUE
-  ::util::Status processStateChange(
-    const base::Location& from_here
+  ::basis::Status processStateChange(
+    const ::base::Location& from_here
     , const AppState::Event& processEvent) NO_EXCEPTION
     PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 

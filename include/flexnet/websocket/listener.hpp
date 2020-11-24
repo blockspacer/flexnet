@@ -91,7 +91,7 @@ public:
   /// sets common components and performs checks
   /// (if entity was re-used from cache some components must be reset)
   using EntityAllocatorCb
-    = base::RepeatingCallback<ECS::Entity()>;
+    = ::base::RepeatingCallback<ECS::Entity()>;
 
   using EndpointType
     = ::boost::asio::ip::tcp::endpoint;
@@ -118,13 +118,13 @@ public:
   // Each created network entity will store
   // `::boost::asio::strand` as ECS component.
   using StrandComponent
-    = base::Optional<StrandType>;
+    = ::base::Optional<StrandType>;
 
   using StatusPromise
-    = base::Promise<util::Status, base::NoReject>;
+    = ::base::Promise<basis::Status, ::base::NoReject>;
 
   using VoidPromise
-    = base::Promise<void, base::NoReject>;
+    = ::base::Promise<void, ::base::NoReject>;
 
 #if DCHECK_IS_ON()
   enum State {
@@ -155,7 +155,7 @@ public:
   };
 
   using StateMachineType =
-      basis::UnsafeStateMachine<
+      ::basis::UnsafeStateMachine<
         Listener::State
         , Listener::Event
       >;
@@ -176,9 +176,9 @@ public:
     AcceptConnectionResult(
       AcceptConnectionResult&& other)
       : AcceptConnectionResult(
-          base::rvalue_cast(other.ec)
-          , base::rvalue_cast(other.socket)
-          , base::rvalue_cast(other.need_close))
+          ::base::rvalue_cast(other.ec)
+          , ::base::rvalue_cast(other.socket)
+          , ::base::rvalue_cast(other.need_close))
       {}
 
     // Move assignment operator
@@ -192,9 +192,9 @@ public:
     {
       if (this != &rhs)
       {
-        ec = base::rvalue_cast(rhs.ec);
-        socket = base::rvalue_cast(rhs.socket);
-        need_close = base::rvalue_cast(rhs.need_close);
+        ec = ::base::rvalue_cast(rhs.ec);
+        socket = ::base::rvalue_cast(rhs.socket);
+        need_close = ::base::rvalue_cast(rhs.need_close);
       }
 
       return *this;
@@ -235,16 +235,16 @@ public:
   template <typename CallbackT>
   MUST_USE_RETURN_VALUE
   auto postTaskOnAcceptorStrand(
-    const base::Location& from_here
+    const ::base::Location& from_here
     , CallbackT&& task
-    , base::IsNestedPromise isNestedPromise = base::IsNestedPromise())
+    , ::base::IsNestedPromise isNestedPromise = ::base::IsNestedPromise())
   {
     DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
     DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
     // unable to `::boost::asio::post` on stopped ioc
     DCHECK(!ioc_->stopped());
-    return base::PostPromiseOnAsioExecutor(
+    return ::base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
       , *acceptorStrand_
@@ -260,7 +260,7 @@ public:
   StatusPromise stopAcceptorAsync();
 
   MUST_USE_RETURN_VALUE
-    ::util::Status pause();
+    ::basis::Status pause();
 
   // calls to |async_accept*| must be performed on same sequence
   // i.e. it is |acceptorStrand_.running_in_this_thread()|
@@ -271,7 +271,7 @@ public:
   /// stops accepting incoming connections
   /// \note stopped acceptor may be continued via `async_accept`
   MUST_USE_RETURN_VALUE
-    ::util::Status stopAcceptor();
+    ::basis::Status stopAcceptor();
 
   SET_WEAK_SELF(Listener)
 
@@ -283,15 +283,15 @@ private:
   /// while `async_accept` is awaiting.
   /// i.e. `onAccept` will be called anyway
   /// and we can use it to free allocated resources.
-  void onAccept(util::UnownedPtr<StrandType> unownedPerConnectionStrand
+  void onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
                 // `per-connection entity`
                 , ECS::Entity tcp_entity_id
                 , const ErrorCode& ec
                 , SocketType&& socket);
 
   MUST_USE_RETURN_VALUE
-  ::util::Status processStateChange(
-    const base::Location& from_here
+  ::basis::Status processStateChange(
+    const ::base::Location& from_here
     , const Listener::Event& processEvent);
 
   // uses provided `per-connection entity`
@@ -299,7 +299,7 @@ private:
   // i.e. `per-connection data` will be stored
   // in `per-connection entity`
   void asyncAccept(
-    util::UnownedPtr<StrandType> unownedPerConnectionStrand
+    ::basis::UnownedPtr<StrandType> unownedPerConnectionStrand
     , ECS::Entity tcp_entity_id);
 
   void allocateTcpResourceAndAccept()
@@ -320,15 +320,15 @@ private:
     GUARD_METHOD_ON_UNKNOWN_THREAD(logFailure);
 
   MUST_USE_RETURN_VALUE
-    ::util::Status configureAcceptor();
+    ::basis::Status configureAcceptor();
 
   MUST_USE_RETURN_VALUE
-    ::util::Status openAcceptor();
+    ::basis::Status openAcceptor();
 
   void doAccept();
 
   MUST_USE_RETURN_VALUE
-    ::util::Status configureAndRunAcceptor();
+    ::basis::Status configureAndRunAcceptor();
 
   // Defines all valid transitions for the state machine.
   // The transition table represents the following state diagram:
@@ -390,7 +390,7 @@ private:
   SET_WEAK_POINTERS(Listener);
 
   // Provides I/O functionality
-  const util::UnownedRef<IoContext> ioc_
+  const ::basis::UnownedRef<IoContext> ioc_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
   // acceptor will listen that address
@@ -398,26 +398,26 @@ private:
     GUARDED_BY(acceptorStrand_);
 
   // used to create `per-connection entity`
-  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
   /// \note Do not destruct |Listener| while |acceptorStrand_|
   /// has scheduled or execting tasks.
-  const basis::AnnotatedStrand<ExecutorType> acceptorStrand_
+  const ::basis::AnnotatedStrand<ExecutorType> acceptorStrand_
     GUARD_MEMBER_WITH_CHECK(
       acceptorStrand_
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
       // 2. On each access to strand check that ioc not stopped
       // otherwise `::boost::asio::post` may fail.
-      , base::bindCheckedRepeating(
+      , ::base::bindCheckedRepeating(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(this)
           )
           , &Listener::isIocRunning
-          , base::Unretained(this)
+          , ::base::Unretained(this)
         )
     );
 

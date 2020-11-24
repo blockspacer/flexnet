@@ -118,13 +118,13 @@ void handleSSLDetectResult(
     /// \note it is not ordinary ECS component,
     /// it is stored in entity context (not in ECS registry)
     using HttpChannelCtxComponent
-      = base::Optional<::flexnet::http::HttpChannel>;
+      = ::base::Optional<::flexnet::http::HttpChannel>;
 
     HttpChannelCtxComponent* channelCtx
       = &tcpComponent->reset_or_create_var<HttpChannelCtxComponent>(
-          "Ctx_http_Channel_" + base::GenerateGUID() // debug name
-          , base::rvalue_cast(detectResult.stream.value())
-          , base::rvalue_cast(detectResult.buffer)
+          "Ctx_http_Channel_" + ::base::GenerateGUID() // debug name
+          , ::base::rvalue_cast(detectResult.stream.value())
+          , ::base::rvalue_cast(detectResult.buffer)
           , REFERENCED(net_registry)
           , entity_id);
 
@@ -145,7 +145,7 @@ void updateSSLDetection(
   using namespace ::flexnet::http;
 
   using view_component
-    = base::Optional<DetectChannel::SSLDetectResult>;
+    = ::base::Optional<DetectChannel::SSLDetectResult>;
 
   DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
 

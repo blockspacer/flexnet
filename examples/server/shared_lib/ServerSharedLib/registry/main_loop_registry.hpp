@@ -85,7 +85,7 @@ class MainLoopRegistry {
   // private due to singleton
   ~MainLoopRegistry() = default;
 
-  friend struct base::DefaultSingletonTraits<MainLoopRegistry>;
+  friend struct ::base::DefaultSingletonTraits<MainLoopRegistry>;
 
  private:
   /// \note registry is not thread-safe,

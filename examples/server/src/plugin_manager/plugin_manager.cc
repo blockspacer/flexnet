@@ -175,7 +175,7 @@ std::map<std::string, PluginMetadata> loadPluginsMetadata(
       filtered_plugins[pluginTitle]
         = PluginMetadata{
             pluginTitle
-            , base::rvalue_cast(dependsOn)
+            , ::base::rvalue_cast(dependsOn)
             , std::vector<std::string>{} // requiredBy
           };
     }

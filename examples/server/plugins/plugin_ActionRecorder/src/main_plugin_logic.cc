@@ -35,7 +35,7 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      base::MessageLoop::current()->task_runner()}
+      ::base::MessageLoop::current()->task_runner()}
   , isSetActionCallback_{false}
 {
   LOG_CALL(DVLOG(99));
@@ -104,15 +104,15 @@ void MainPluginLogic::setCustomCallback()
 
   // used by |base::RecordAction|
   // see https://chromium.googlesource.com/chromium/src.git/+/HEAD/tools/metrics/actions/README.md
-  base::SetRecordActionTaskRunner(
+  ::base::SetRecordActionTaskRunner(
     mainLoopRunner_);
 
-  base::AddActionCallback(base::bindCheckedRepeating(
+  ::base::AddActionCallback(base::bindCheckedRepeating(
     DEBUG_BIND_CHECKS(
       PTR_CHECKER(this)
     )
     , &MainPluginLogic::onUserAction
-    , base::Unretained(this)
+    , ::base::Unretained(this)
   ));
 
   VLOG(9)
@@ -128,12 +128,12 @@ void MainPluginLogic::unsetCustomCallback()
   LOG_CALL(DVLOG(99));
 
   // see https://chromium.googlesource.com/chromium/src.git/+/HEAD/tools/metrics/actions/README.md
-  base::RemoveActionCallback(base::bindCheckedRepeating(
+  ::base::RemoveActionCallback(base::bindCheckedRepeating(
     DEBUG_BIND_CHECKS(
       PTR_CHECKER(this)
     )
     , &MainPluginLogic::onUserAction
-    , base::Unretained(this)
+    , ::base::Unretained(this)
   ));
 
   VLOG(9)
@@ -141,7 +141,7 @@ void MainPluginLogic::unsetCustomCallback()
 }
 
 MainPluginLogic::VoidPromise MainPluginLogic::setRecordActionTaskRunner(
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner)
+  scoped_refptr<::base::SingleThreadTaskRunner> task_runner)
 {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -157,9 +157,9 @@ MainPluginLogic::VoidPromise MainPluginLogic::setRecordActionTaskRunner(
   // thread that owns |task_runner_| must be running,
   // otherwise |PostTask| will do nothing
   MainPluginLogic::VoidPromise cbPromise
-    = base::PostPromise(FROM_HERE
+    = ::base::PostPromise(FROM_HERE
         , mainLoopRunner_.get()
-        , base::BindOnce(
+        , ::base::BindOnce(
             &MainPluginLogic::setCustomCallback
             , weakSelf()
         )
@@ -187,9 +187,9 @@ MainPluginLogic::VoidPromise MainPluginLogic::removeActionCallback()
   // thread that owns |task_runner_| must be running,
   // otherwise |PostTask| will do nothing
   MainPluginLogic::VoidPromise cbPromise
-    = base::PostPromise(FROM_HERE
+    = ::base::PostPromise(FROM_HERE
         , mainLoopRunner_.get()
-        , base::BindOnce(
+        , ::base::BindOnce(
             &MainPluginLogic::unsetCustomCallback
             , weakSelf()
         )

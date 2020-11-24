@@ -57,7 +57,7 @@ template<class Allocator>
 using basic_fields
   = beast::http::basic_fields<Allocator>;
 
-/// \todo use base::FilePath
+/// \todo use ::base::FilePath
 // Append an HTTP rel-path to a local filesystem path.
 // The returned path is normalized for the platform.
 std::string
@@ -390,12 +390,12 @@ void HttpChannel::startReadAsync() NO_EXCEPTION
   ignore_result(
     postTaskOnConnectionStrand(
       FROM_HERE
-      , base::bindCheckedOnce(
+      , ::base::bindCheckedOnce(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(this)
           )
           , &HttpChannel::doRead,
-          base::Unretained(this)))
+          ::base::Unretained(this)))
   );
 }
 
@@ -454,16 +454,16 @@ void HttpChannel::doRead() NO_EXCEPTION
     stream_
     , buffer_
     , parser_->get()
-    /// \todo use base::BindFrontWrapper
+    /// \todo use ::base::BindFrontWrapper
     , boost::asio::bind_executor(
         *perConnectionStrand_
-        , basis::bindFrontOnceCallback(
-            base::bindCheckedOnce(
+        , ::basis::bindFrontOnceCallback(
+            ::base::bindCheckedOnce(
               DEBUG_BIND_CHECKS(
                 PTR_CHECKER(this)
               )
               , &HttpChannel::onRead
-              , base::Unretained(this)
+              , ::base::Unretained(this)
             )
           )
       )
@@ -506,7 +506,7 @@ void HttpChannel::doEof() NO_EXCEPTION
   DCHECK_NO_ATOMIC_FLAG(can_schedule_callbacks_);
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::BindOnce(
+    , ::base::BindOnce(
         &HttpChannel::markUnused
         , REFERENCED(*netRegistry_)
         , entity_id_
@@ -654,16 +654,16 @@ void HttpChannel::onRead(
     DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
     netRegistry_->taskRunner()->PostTask(
       FROM_HERE
-      , base::bindCheckedOnce(
+      , ::base::bindCheckedOnce(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(this)
           )
           , &HttpChannel::handleWebsocketUpgrade
-          , base::Unretained(this)
+          , ::base::Unretained(this)
           , ec
           , bytes_transferred
-          , base::rvalue_cast(stream_)
-          , base::Passed(base::rvalue_cast(parser_->release()))
+          , ::base::rvalue_cast(stream_)
+          , ::base::Passed(base::rvalue_cast(parser_->release()))
         )
     );
 
@@ -715,13 +715,13 @@ void HttpChannel::onRead(
         , *sp
         , boost::asio::bind_executor(
             *perConnectionStrand_
-            , basis::bindFrontOnceCallback(
-                base::bindCheckedOnce(
+            , ::basis::bindFrontOnceCallback(
+                ::base::bindCheckedOnce(
                   DEBUG_BIND_CHECKS(
                     PTR_CHECKER(this)
                   )
                   , &HttpChannel::processWrittenResponse<ResponseType>
-                  , base::Unretained(this)
+                  , ::base::Unretained(this)
                   // extend lifetime of the message (shared_ptr)
                   , sp
                 )
@@ -758,12 +758,12 @@ void HttpChannel::handleWebsocketUpgrade(
   /// \note it is not ordinary ECS component,
   /// it is stored in entity context (not in ECS registry)
   using WsChannelComponent
-    = base::Optional<::flexnet::ws::WsChannel>;
+    = ::base::Optional<::flexnet::ws::WsChannel>;
 
   WsChannelComponent* wsChannelCtx
     = &tcpComponent->reset_or_create_var<WsChannelComponent>(
-        "Ctx_WsChannelComponent_" + base::GenerateGUID() // debug name
-        , base::rvalue_cast(stream)
+        "Ctx_WsChannelComponent_" + ::base::GenerateGUID() // debug name
+        , ::base::rvalue_cast(stream)
         , REFERENCED(*netRegistry_)
         , entity_id_);
 

@@ -109,34 +109,34 @@ void DetectChannel::runDetector(
 #if DCHECK_IS_ON()
   // used to limit execution time of async function
   // that resolves promise
-  base::ManualPromiseResolver<void, base::NoReject>
+  ::base::ManualPromiseResolver<void, ::base::NoReject>
     timeoutPromiseResolver(FROM_HERE);
 
   DCHECK(base::ThreadPool::GetInstance());
   // wait and signal on different task runners
-  scoped_refptr<base::SequencedTaskRunner> timeout_task_runner =
-    base::ThreadPool::GetInstance()->
+  scoped_refptr<::base::SequencedTaskRunner> timeout_task_runner =
+    ::base::ThreadPool::GetInstance()->
     CreateSequencedTaskRunnerWithTraits(
-      base::TaskTraits{
-        base::TaskPriority::BEST_EFFORT
-        , base::MayBlock()
-        , base::TaskShutdownBehavior::BLOCK_SHUTDOWN
+      ::base::TaskTraits{
+        ::base::TaskPriority::BEST_EFFORT
+        , ::base::MayBlock()
+        , ::base::TaskShutdownBehavior::BLOCK_SHUTDOWN
       }
     );
 
   ignore_result(base::PostPromise(FROM_HERE
   , timeout_task_runner.get()
-  , base::BindOnce(
+  , ::base::BindOnce(
     // limit execution time
     &basis::setPeriodicTimeoutCheckerOnSequence
     , FROM_HERE
     , timeout_task_runner
-    , basis::EndingTimeout{
+    , ::basis::EndingTimeout{
         /// \todo make configurable
-        base::TimeDelta::FromSeconds(7)}
-    , basis::PeriodicCheckUntil::CheckPeriod{
+        ::base::TimeDelta::FromSeconds(7)}
+    , ::basis::PeriodicCheckUntil::CheckPeriod{
         /// \todo make configurable
-        base::TimeDelta::FromMinutes(1)}
+        ::base::TimeDelta::FromMinutes(1)}
     , "detection of new connection hanged")));
 
   /// \note promise has shared lifetime,
@@ -147,7 +147,7 @@ void DetectChannel::runDetector(
   // reset check of execution time
   .ThenOn(timeout_task_runner
     , FROM_HERE
-    , base::BindOnce(&basis::unsetPeriodicTimeoutCheckerOnSequence)
+    , ::base::BindOnce(&basis::unsetPeriodicTimeoutCheckerOnSequence)
   )
   ;
 #endif // DCHECK_IS_ON()
@@ -158,13 +158,13 @@ void DetectChannel::runDetector(
   /// all its callbacks finished (or failed to schedule).
   /// i.e. API user must wait for |destruction_promise_|
   auto onDetectedCb
-    = basis::bindFrontOnceCallback(
-        base::bindCheckedOnce(
+    = ::basis::bindFrontOnceCallback(
+        ::base::bindCheckedOnce(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(this)
           )
           , &DetectChannel::onDetected
-          , base::Unretained(this)
+          , ::base::Unretained(this)
 #if DCHECK_IS_ON()
          , timeoutPromiseResolver.GetRepeatingResolveCallback()
 #endif // DCHECK_IS_ON()
@@ -202,13 +202,13 @@ void DetectChannel::runDetector(
     RAW_REFERENCED(buffer_), // The dynamic buffer to use
     boost::asio::bind_executor(
       *perConnectionStrand_
-      , base::rvalue_cast(onDetectedCb))
+      , ::base::rvalue_cast(onDetectedCb))
     );
 }
 
 void DetectChannel::onDetected(
 #if DCHECK_IS_ON()
-  COPIED() base::RepeatingClosure timeoutResolver
+  COPIED() ::base::RepeatingClosure timeoutResolver
 #endif // DCHECK_IS_ON()
   , const ErrorCode& ec
   , const bool& handshakeResult)
@@ -261,18 +261,18 @@ void DetectChannel::onDetected(
   // mark SSL detection completed
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::bindCheckedOnce(
+    , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         , &DetectChannel::setSSLDetectResult
-        , base::Unretained(this)
+        , ::base::Unretained(this)
         /// \note do not forget to free allocated resources
         /// in case of error code
         , CAN_COPY_ON_MOVE("moving const") std::move(ec)
         , handshakeResult
-        , MAKES_INVALID(stream_) base::rvalue_cast(stream_.value())
-        , MAKES_INVALID(buffer_) base::rvalue_cast(buffer_)
+        , MAKES_INVALID(stream_) ::base::rvalue_cast(stream_.value())
+        , MAKES_INVALID(buffer_) ::base::rvalue_cast(buffer_)
         , forceClosing
       )
   );
@@ -306,7 +306,7 @@ void DetectChannel::setSSLDetectResult(
 
   {
     using UniqueSSLDetectComponent
-      = base::Optional<DetectChannel::SSLDetectResult>;
+      = ::base::Optional<DetectChannel::SSLDetectResult>;
 
     // If the value already exists allow it to be re-used
     (*netRegistry_)->remove_if_exists<
@@ -315,12 +315,12 @@ void DetectChannel::setSSLDetectResult(
 
     UniqueSSLDetectComponent& detectResult
       = (*netRegistry_).reset_or_create_component<UniqueSSLDetectComponent>(
-            "UniqueSSLDetectComponent_" + base::GenerateGUID() // debug name
+            "UniqueSSLDetectComponent_" + ::base::GenerateGUID() // debug name
             , entity_id_
-            , base::rvalue_cast(ec)
+            , ::base::rvalue_cast(ec)
             , handshakeResult
-            , base::rvalue_cast(stream)
-            , base::rvalue_cast(buffer)
+            , ::base::rvalue_cast(stream)
+            , ::base::rvalue_cast(buffer)
             , need_close);
   }
 }

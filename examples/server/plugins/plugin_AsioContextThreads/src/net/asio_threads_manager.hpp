@@ -44,7 +44,7 @@ class AsioThreadsManager
 {
 public:
   using AsioThreadType
-    = base::Thread;
+    = ::base::Thread;
 
 public:
   SET_WEAK_SELF(AsioThreadsManager)
@@ -84,7 +84,7 @@ private:
   /// on that task runner
   /// i.e. use asio based task runners and sequences!
   std::vector<
-    scoped_refptr<base::SequencedTaskRunner>
+    scoped_refptr<::base::SequencedTaskRunner>
   > asio_task_runners_
     GUARDED_BY(sequence_checker_);
 

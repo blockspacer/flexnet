@@ -93,7 +93,7 @@ option(ENABLE_TSAN
 option(ENABLE_OCLINT
   "Enable oclint" OFF)
 
-# TODO: __do_global_dtors_aux, base::debug::CollectStackTrace
+# TODO: __do_global_dtors_aux, ::base::debug::CollectStackTrace
 option(ENABLE_VALGRIND_TESTS
   "Enable valgrind for unit tests" OFF)
 

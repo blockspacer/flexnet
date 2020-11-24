@@ -2,8 +2,8 @@
 
 namespace backend {
 
-const base::Feature kFeatureConsoleTerminal {
-  kFeatureConsoleTerminalName, base::FEATURE_DISABLED_BY_DEFAULT
+const ::base::Feature kFeatureConsoleTerminal {
+  kFeatureConsoleTerminalName, ::base::FEATURE_DISABLED_BY_DEFAULT
 };
 
 } // namespace backend

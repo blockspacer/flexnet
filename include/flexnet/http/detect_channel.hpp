@@ -135,11 +135,11 @@ public:
     SSLDetectResult(
       SSLDetectResult&& other)
       : SSLDetectResult(
-          base::rvalue_cast(other.ec)
-          , base::rvalue_cast(other.handshakeResult)
-          , base::rvalue_cast(other.stream.value())
-          , base::rvalue_cast(other.buffer)
-          , base::rvalue_cast(other.need_close))
+          ::base::rvalue_cast(other.ec)
+          , ::base::rvalue_cast(other.handshakeResult)
+          , ::base::rvalue_cast(other.stream.value())
+          , ::base::rvalue_cast(other.buffer)
+          , ::base::rvalue_cast(other.need_close))
       {}
 
     // Copy assignment operator
@@ -161,12 +161,12 @@ public:
     {
       if (this != &rhs)
       {
-        ec = base::rvalue_cast(rhs.ec);
-        handshakeResult = base::rvalue_cast(rhs.handshakeResult);
+        ec = ::base::rvalue_cast(rhs.ec);
+        handshakeResult = ::base::rvalue_cast(rhs.handshakeResult);
         DCHECK(rhs.stream.has_value());
         stream.emplace(base::rvalue_cast(rhs.stream.value()));
-        buffer = base::rvalue_cast(rhs.buffer);
-        need_close = base::rvalue_cast(rhs.need_close);
+        buffer = ::base::rvalue_cast(rhs.buffer);
+        need_close = ::base::rvalue_cast(rhs.need_close);
       }
 
       return *this;
@@ -248,16 +248,16 @@ public:
   template <typename CallbackT>
   MUST_USE_RETURN_VALUE
   auto postTaskOnStrand(
-    const base::Location& from_here
+    const ::base::Location& from_here
     , CallbackT&& task
-    , base::IsNestedPromise isNestedPromise = base::IsNestedPromise())
+    , ::base::IsNestedPromise isNestedPromise = ::base::IsNestedPromise())
   {
     DCHECK_MEMBER_OF_UNKNOWN_THREAD(stream_);
     DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
 
     DCHECK(stream_.has_value()
       && stream_.value().socket().is_open());
-    return base::PostPromiseOnAsioExecutor(
+    return ::base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
       , *perConnectionStrand_
@@ -286,7 +286,7 @@ private:
 #if DCHECK_IS_ON()
     // Used to stop periodic timer that limits execution time.
     // See `timeoutPromiseResolver.GetRepeatingResolveCallback()`.
-    COPIED() base::RepeatingClosure timeoutResolver
+    COPIED() ::base::RepeatingClosure timeoutResolver
 #endif // DCHECK_IS_ON()
     , const ErrorCode& ec
     // `true` if the buffer contains a TLS client handshake
@@ -323,7 +323,7 @@ private:
 
   /// \todo make NOT optional
   // can not copy assign `stream`, so use optional
-  base::Optional<StreamType> stream_
+  ::base::Optional<StreamType> stream_
     /// \note moved between threads,
     /// take care of thread-safety!
     GUARD_MEMBER_OF_UNKNOWN_THREAD(stream_);
@@ -345,14 +345,14 @@ private:
     GUARD_MEMBER_OF_UNKNOWN_THREAD(is_buffer_valid_);
 
   // |stream_| and calls to |async_detect*| are guarded by strand
-  basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
+  ::basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
     GUARD_MEMBER_WITH_CHECK(
       perConnectionStrand_
       // 1. It safe to read value from any thread
       // because its storage expected to be not modified.
       // 2. On each access to strand check that stream valid
       // otherwise `::boost::asio::post` may fail.
-      , base::bindCheckedRepeating(
+      , ::base::bindCheckedRepeating(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(this)
           )
@@ -361,7 +361,7 @@ private:
           /// i.e. valid util |stream_| moved out
           /// (it uses executor from stream).
           , &DetectChannel::isStreamValid
-          , base::Unretained(this)
+          , ::base::Unretained(this)
       )
     );
 
@@ -371,7 +371,7 @@ private:
     GUARD_MEMBER_OF_UNKNOWN_THREAD(atomicDetectDoneFlag_);
 
   // used by |entity_id_|
-  util::UnownedRef<ECS::NetworkRegistry> netRegistry_
+  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
     GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
 
   // `per-connection entity`

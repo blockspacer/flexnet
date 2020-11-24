@@ -283,13 +283,13 @@ void WsChannel::doRead() NO_EXCEPTION
       readBuffer_,
       boost::asio::bind_executor(
         *perConnectionStrand_
-        , basis::bindFrontOnceCallback(
-            base::bindCheckedOnce(
+        , ::basis::bindFrontOnceCallback(
+            ::base::bindCheckedOnce(
               DEBUG_BIND_CHECKS(
                 PTR_CHECKER(this)
               )
               , &WsChannel::onRead
-              , base::Unretained(this)))
+              , ::base::Unretained(this)))
       ));
 }
 
@@ -347,13 +347,13 @@ void WsChannel::doEof() NO_EXCEPTION
     ws_.async_close(websocket::close_code::normal,
       boost::asio::bind_executor(
         *perConnectionStrand_
-        , basis::bindFrontOnceCallback(
-            base::bindCheckedOnce(
+        , ::basis::bindFrontOnceCallback(
+            ::base::bindCheckedOnce(
               DEBUG_BIND_CHECKS(
                 PTR_CHECKER(this)
               )
               , &WsChannel::onClose
-              , base::Unretained(this)))
+              , ::base::Unretained(this)))
       ));
   }
 
@@ -362,7 +362,7 @@ void WsChannel::doEof() NO_EXCEPTION
   DCHECK_NO_ATOMIC_FLAG(can_schedule_callbacks_);
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::BindOnce(
+    , ::base::BindOnce(
         &WsChannel::markUnused
         , REFERENCED(*netRegistry_)
         , entity_id_
@@ -430,12 +430,12 @@ void WsChannel::onRead(
   DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
   netRegistry_->taskRunner()->PostTask(
     FROM_HERE
-    , base::bindCheckedOnce(
+    , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
           PTR_CHECKER(this)
         )
         , &WsChannel::allocateRecievedDataComponent
-        , base::Unretained(this)
+        , ::base::Unretained(this)
         , beast::buffers_to_string(readBuffer_.data())
       )
   );
@@ -470,12 +470,12 @@ void WsChannel::allocateRecievedDataComponent(
 
   {
     using RecievedDataComponent
-      = base::Optional<WsChannel::RecievedData>;
+      = ::base::Optional<WsChannel::RecievedData>;
 
     RecievedDataComponent& recievedDataComponent
       = (*netRegistry_)->emplace<RecievedDataComponent>(
             msg_entity_id // assign to entity with that id
-            , base::rvalue_cast(message));
+            , ::base::rvalue_cast(message));
 
     DCHECK((*netRegistry_)->valid(entity_id_));
     DCHECK((*netRegistry_)->valid(msg_entity_id));
@@ -531,13 +531,13 @@ void WsChannel::sendAsync(
   DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
   ::boost::asio::post(
     *perConnectionStrand_
-    , basis::bindFrontOnceClosure(
-        base::bindCheckedOnce(
+    , ::basis::bindFrontOnceClosure(
+        ::base::bindCheckedOnce(
           DEBUG_BIND_CHECKS(
             PTR_CHECKER(this)
           )
           , &WsChannel::send
-          , base::Unretained(this)
+          , ::base::Unretained(this)
           , message
           , is_binary))
   );
@@ -636,13 +636,13 @@ void WsChannel::writeQueued() NO_EXCEPTION
       *(dp.data))
     , ::boost::asio::bind_executor(
         *perConnectionStrand_
-        , basis::bindFrontOnceCallback(
-            base::bindCheckedOnce(
+        , ::basis::bindFrontOnceCallback(
+            ::base::bindCheckedOnce(
               DEBUG_BIND_CHECKS(
                 PTR_CHECKER(this)
               )
               , &WsChannel::onWrite
-              , base::Unretained(this)))
+              , ::base::Unretained(this)))
       )
   );
 }

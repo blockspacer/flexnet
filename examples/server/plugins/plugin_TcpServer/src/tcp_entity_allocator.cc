@@ -222,7 +222,7 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
   ECS::TcpConnection& tcpComponent
     = (*netRegistryRef_)->get_or_emplace<ECS::TcpConnection>(
         allocateResult.entity_id
-        , "TcpConnection_" + base::GenerateGUID() // debug name
+        , "TcpConnection_" + ::base::GenerateGUID() // debug name
       );
 
   /// We want to add custom components to entity from plugins.
@@ -279,7 +279,7 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
 
     // sanity check
     if((*netRegistryRef_)->has<
-         base::Optional<DetectChannel::SSLDetectResult>
+         ::base::Optional<DetectChannel::SSLDetectResult>
         >(allocateResult.entity_id))
     {
       // process result once (i.e. do not handle outdated result)
@@ -290,7 +290,7 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
 
     // sanity check
     if((*netRegistryRef_)->has<
-         base::Optional<Listener::AcceptConnectionResult>
+         ::base::Optional<Listener::AcceptConnectionResult>
         >(allocateResult.entity_id))
     {
       // process result once (i.e. do not handle outdated result)
@@ -311,7 +311,7 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
       }
       , {
         "SSLDetectResult"
-        , entt::type_info<base::Optional<DetectChannel::SSLDetectResult>>::id()
+        , entt::type_info<::base::Optional<DetectChannel::SSLDetectResult>>::id()
       }
       , {
         "UnusedSSLDetectResultTag"
@@ -319,7 +319,7 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
       }
       , {
         "AcceptConnectionResult"
-        , entt::type_info<base::Optional<Listener::AcceptConnectionResult>>::id()
+        , entt::type_info<::base::Optional<Listener::AcceptConnectionResult>>::id()
       }
       , {
         "UnusedAcceptResultTag"
@@ -386,15 +386,15 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
       }
       , {
         "HttpChannel"
-        , entt::type_info<base::Optional<::flexnet::http::HttpChannel>>::id()
+        , entt::type_info<::base::Optional<::flexnet::http::HttpChannel>>::id()
       }
       , {
         "WsChannel"
-        , entt::type_info<base::Optional<::flexnet::ws::WsChannel>>::id()
+        , entt::type_info<::base::Optional<::flexnet::ws::WsChannel>>::id()
       }
       , {
         "DetectChannel"
-        , entt::type_info<base::Optional<::flexnet::http::DetectChannel>>::id()
+        , entt::type_info<::base::Optional<::flexnet::http::DetectChannel>>::id()
       }
     };
 

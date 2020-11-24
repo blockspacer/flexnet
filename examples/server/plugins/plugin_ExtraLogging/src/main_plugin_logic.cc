@@ -44,7 +44,7 @@ static void checkNumOfCores(
 
 static void displayMachineInfo()
 {
-  base::CPU cpu;
+  ::base::CPU cpu;
 
   LOG(INFO)
     << "has_sse:"
@@ -65,7 +65,7 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      base::MessageLoop::current()->task_runner()}
+      ::base::MessageLoop::current()->task_runner()}
 {
   LOG_CALL(DVLOG(99));
 
@@ -81,14 +81,14 @@ MainPluginLogic::MainPluginLogic(
 
   if(configuration.hasValue(kConfMinCoresBeforeWarn))
   {
-    base::StringToInt(
+    ::base::StringToInt(
       configuration.value(kConfMinCoresBeforeWarn)
       , &confMinCores);
   }
 
   checkNumOfCores(
     /// \note Crash if out of range.
-    base::checked_cast<size_t>(confMinCores));
+    ::base::checked_cast<size_t>(confMinCores));
 }
 
 MainPluginLogic::~MainPluginLogic()
