@@ -14,7 +14,7 @@
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/promise/post_promise.h>
-#include <basis/scoped_cleanup.hpp>
+#include <basis/core/scoped_cleanup.hpp>
 #include <basis/status/status_macros.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep

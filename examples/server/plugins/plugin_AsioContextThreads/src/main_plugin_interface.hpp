@@ -20,8 +20,7 @@
 #include <base/strings/string_number_conversions.h>
 #include <base/numerics/safe_conversions.h>
 
-#include <basis/scoped_sequence_context_var.hpp>
-#include <basis/scoped_log_run_time.hpp>
+#include <basis/log/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/unowned_ref.hpp>

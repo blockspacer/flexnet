@@ -48,6 +48,7 @@
 #include <base/strings/substitute.h>
 #include <base/strings/utf_string_conversions.h>
 
+#include <basis/core/typed_enum.hpp>
 #include <basis/fail_point/fail_point.hpp>
 #include <basis/plug_point/plug_point.hpp>
 #include <basis/bind/bind_checked.hpp>
@@ -57,21 +58,19 @@
 #include <basis/bind/call_count_checker.hpp>
 #include <basis/bind/delay_time_checker.hpp>
 #include <basis/bind/exec_time_checker.hpp>
-#include <basis/scoped_checks.hpp>
+#include <basis/checks_and_guard_annotations.hpp>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
-#include <basis/ECS/global_context.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
 #include <basis/base_environment.hpp>
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
-#include <basis/scoped_sequence_context_var.hpp>
 #include <basis/strong_types/strong_alias.hpp>
 #include <basis/strong_types/strong_bool.hpp>
 #include <basis/strong_types/strong_string.hpp>
@@ -82,6 +81,7 @@
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
 #include <basis/bind/callable_hook.hpp>
+#include <basis/core/with_details.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>

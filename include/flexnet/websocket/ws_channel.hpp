@@ -14,8 +14,8 @@
 #include <base/recursion_checker.h>
 
 #include <basis/checked_optional.hpp>
-#include <basis/atomic_flag_macros.hpp>
-#include <basis/scoped_checks.hpp>
+#include <basis/core/debug_flag_macros.hpp>
+#include <basis/checks_and_guard_annotations.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/status/statusor.hpp>

@@ -29,8 +29,7 @@
 #include <base/metrics/user_metrics_action.h>
 #include <base/observer_list_threadsafe.h>
 
-#include <basis/scoped_sequence_context_var.hpp>
-#include <basis/scoped_log_run_time.hpp>
+#include <basis/log/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/unowned_ref.hpp>

@@ -51,8 +51,7 @@
 #include <base/trace_event/process_memory_dump.h>
 #include <base/trace_event/trace_event.h>
 
-#include <basis/scoped_sequence_context_var.hpp>
-#include <basis/scoped_log_run_time.hpp>
+#include <basis/log/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/status/statusor.hpp>
@@ -60,13 +59,12 @@
 #include <basis/strong_types/strong_alias.hpp>
 #include <basis/task/task_util.hpp>
 #include <basis/checked_optional.hpp>
-#include <basis/scoped_checks.hpp>
+#include <basis/checks_and_guard_annotations.hpp>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
-#include <basis/ECS/global_context.hpp>
 #include <basis/ECS/tags.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>

@@ -1,7 +1,6 @@
 #include "scoped_stats_table_updater.hpp" // IWYU pragma: associated
 
-#include <basis/scoped_sequence_context_var.hpp>
-#include <basis/scoped_log_run_time.hpp>
+#include <basis/log/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/unowned_ref.hpp>
@@ -29,7 +28,7 @@ ScopedStatsTableUpdater::~ScopedStatsTableUpdater()
 {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  ::base::StatsTable table_{
+  ::basis::StatsTable table_{
     "app_stats_table" // name
     , 50 // max_threads
     , 1000 // max_counters

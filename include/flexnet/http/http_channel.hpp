@@ -13,11 +13,11 @@
 
 #include <basis/task/task_util.hpp>
 #include <basis/checked_optional.hpp>
-#include <basis/scoped_checks.hpp>
+#include <basis/checks_and_guard_annotations.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/status/statusor.hpp>
-#include <basis/atomic_flag_macros.hpp>
+#include <basis/core/debug_flag_macros.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>

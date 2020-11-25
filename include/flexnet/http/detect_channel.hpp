@@ -12,7 +12,7 @@
 #include <base/threading/thread_collision_warner.h>
 
 #include <basis/task/task_util.hpp>
-#include <basis/scoped_checks.hpp>
+#include <basis/checks_and_guard_annotations.hpp>
 #include <basis/checked_optional.hpp>
 #include <basis/ECS/network_registry.hpp>
 #include <basis/promise/post_promise.h>
