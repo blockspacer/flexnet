@@ -94,7 +94,7 @@ public:
   //     ignore_result(event);
   //     ignore_result(next_state);
   //     ignore_result(recovery_event);
-  //     return ::basis::OkStatus();
+  //     return ::basis::OkStatus(FROM_HERE);
   //   });
   // sm_->AddExitAction(UNINITIALIZED, okStateCallback);
   void AddExitAction(

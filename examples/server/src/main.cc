@@ -120,6 +120,90 @@ static const char kRelativePluginsDir[]
 static const char kPluginsDirSwitch[]
   = "plugins_dir";
 
+//#define TODO_TESTS 1
+
+#if TODO_TESTS
+static ::basis::Status testErrInternal()
+{
+  ::basis::Status status =
+    MAKE_ERROR()
+      << "testErrInternal_text";
+  return status;
+}
+
+static ::basis::Status testErrInternal2()
+{
+  RETURN_ERROR(/*ERR_INVALID_PARAM*/)
+      << "testErrInternal2_text";
+}
+
+static ::basis::Status testErrInternal3()
+{
+  int port = -1;
+
+  RETURN_ERR_IF_FALSE(port >= 0)
+      << "Port ID must be non-negative. Attempted to get port " << port;
+
+  NOTREACHED();
+
+  //RETURN_ERROR(/*ERR_INVALID_PARAM*/);
+  ::basis::Status status =
+    MAKE_ERROR()
+      << "testErrInternal3_text";
+  return status;
+}
+
+static ::basis::Status testOk()
+{
+  RETURN_OK();
+}
+
+static ::basis::Status testOk2()
+{
+  return ::basis::OkStatus(FROM_HERE);
+}
+
+static ::basis::StatusOr<std::string> or_testErrInternal()
+{
+  ::basis::StatusOr<std::string> status =
+    MAKE_ERROR()
+      << "or_testErrInternal_text";
+  return status;
+}
+
+static ::basis::StatusOr<std::string> or_testErrInternal2()
+{
+  RETURN_ERROR(/*ERR_INVALID_PARAM*/)
+      << "Unsupported or_testErrInternal2.";
+}
+
+static ::basis::StatusOr<std::string> or_testOk()
+{
+  return {FROM_HERE, "or_testOk!!"};
+}
+
+static ::basis::StatusOr<std::string> or_testErrInternal3()
+{
+  int port = -1;
+
+  RETURN_ERR_IF_FALSE(port >= 0)
+      << "Port ID must be non-negative. Attempted to get port " << port;
+
+  NOTREACHED();
+
+  //RETURN_ERROR(/*ERR_INVALID_PARAM*/);
+  ::basis::Status status =
+    MAKE_ERROR()
+      << "or_testErrInternal3_text";
+  return status;
+}
+
+static ::basis::StatusOr<std::string> or_testOk2()
+{
+  return {FROM_HERE, "or_testOk2!!"};
+}
+#endif
+
 MUST_USE_RESULT
 static VoidPromise startPluginManager() NO_EXCEPTION
 {
@@ -244,6 +328,66 @@ static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
   ignore_result(
     startPluginManager()
   );
+
+#if TODO_TESTS
+  {
+    ::basis::Status resErrInternal
+      = testErrInternal();
+    ::basis::Status resErrInternal2
+      = testErrInternal2();
+    ::basis::Status resErrInternal3
+      = testErrInternal3();
+    ::basis::Status resOk
+      = testOk();
+    ::basis::Status resOk2
+      = testOk2();
+    DVLOG(99)
+      << " resErrInternal "
+      << resErrInternal;
+    DVLOG(99)
+      << " resErrInternal2 "
+      << resErrInternal2;
+    DVLOG(99)
+      << " resErrInternal3 "
+      << resErrInternal3;
+    DVLOG(99)
+      << " resOk "
+      << resOk;
+    DVLOG(99)
+      << " resOk2 "
+      << resOk2;
+  }
+
+  {
+    ::basis::StatusOr<std::string> or_resErrInternal
+      = or_testErrInternal();
+    ::basis::StatusOr<std::string> or_resErrInternal2
+      = or_testErrInternal2();
+    ::basis::StatusOr<std::string> or_resErrInternal3
+      = or_testErrInternal3();
+    ::basis::StatusOr<std::string> or_resOk
+      = or_testOk();
+    ::basis::StatusOr<std::string> or_resOk2
+      = or_testOk2();
+    DVLOG(99)
+      << " or_resErrInternal "
+      << or_resErrInternal;
+    DVLOG(99)
+      << " or_resErrInternal2 "
+      << or_resErrInternal2;
+    DVLOG(99)
+      << " or_resErrInternal3 "
+      << or_resErrInternal3;
+    DVLOG(99)
+      << " or_resOk "
+      << or_resOk;
+    DVLOG(99)
+      << " or_resOk2 "
+      << or_resOk2;
+  }
+
+  exit(0);
+#endif
 
   return
   // async-wait for termination event

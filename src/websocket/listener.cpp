@@ -165,7 +165,7 @@ void Listener::logFailure(
            << "Failed to open acceptor";
   }
 
-  return ::basis::OkStatus();
+  return ::basis::OkStatus(FROM_HERE);
 }
 
 ::basis::Status Listener::configureAcceptor()
@@ -222,7 +222,7 @@ void Listener::logFailure(
            << "Could not call listen for acceptor";
   }
 
-  return ::basis::OkStatus();
+  return ::basis::OkStatus(FROM_HERE);
 }
 
 Listener::StatusPromise Listener::configureAndRun()
@@ -276,7 +276,7 @@ Listener::StatusPromise Listener::configureAndRun()
   doAccept();
 
   /// \todo always ok
-  return ::basis::OkStatus();
+  return ::basis::OkStatus(FROM_HERE);
 }
 
 void Listener::doAccept()
@@ -463,7 +463,7 @@ void Listener::asyncAccept(
   /// \todo IMPLEMENT server pause
   NOTIMPLEMENTED();
 
-  return ::basis::OkStatus();
+  return ::basis::OkStatus(FROM_HERE);
 }
 
 ::basis::Status Listener::stopAcceptor()
@@ -485,7 +485,7 @@ void Listener::asyncAccept(
     VLOG(9)
       << "unable to stop closed listener";
 
-    return ::basis::OkStatus();
+    return ::basis::OkStatus(FROM_HERE);
   }
 
   ErrorCode ec;
@@ -520,7 +520,7 @@ void Listener::asyncAccept(
     DCHECK(!isAcceptorOpen());
   }
 
-  return ::basis::OkStatus();
+  return ::basis::OkStatus(FROM_HERE);
 }
 
 basis::Status Listener::processStateChange(
