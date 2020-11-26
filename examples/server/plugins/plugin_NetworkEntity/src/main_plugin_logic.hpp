@@ -63,7 +63,7 @@
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/tags.hpp>
 #include <basis/unowned_ptr.hpp>
@@ -168,7 +168,7 @@ class MainPluginLogic
   ::basis::UnownedRef<::boost::asio::io_context> ioc_
     GUARDED_BY(&sequence_checker_);
 
-  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
+  ::basis::UnownedRef<ECS::SafeRegistry> registry_
     GUARDED_BY(&sequence_checker_);
 
   ::backend::NetworkEntityUpdater networkEntityUpdater_

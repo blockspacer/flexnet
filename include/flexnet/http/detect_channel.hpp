@@ -14,7 +14,7 @@
 #include <basis/task/task_util.hpp>
 #include <basis/checks_and_guard_annotations.hpp>
 #include <basis/checked_optional.hpp>
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
@@ -185,7 +185,7 @@ public:
   DetectChannel(
     // Take ownership of the socket
     AsioTcp::socket&& socket
-    , ECS::NetworkRegistry& netRegistry
+    , ECS::SafeRegistry& registry
     , const ECS::Entity entity_id);
 
   DetectChannel(
@@ -304,7 +304,7 @@ private:
     , StreamType&& stream
     , MessageBufferType&& buffer
     , bool need_close)
-    PRIVATE_METHOD_RUN_ON(*netRegistry_);
+    PRIVATE_METHOD_RUN_ON(*registry_);
 
   void configureDetector
     (const std::chrono::seconds& expire_timeout);
@@ -371,8 +371,8 @@ private:
     GUARD_MEMBER_OF_UNKNOWN_THREAD(atomicDetectDoneFlag_);
 
   // used by |entity_id_|
-  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  ::basis::UnownedRef<ECS::SafeRegistry> registry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(registry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage

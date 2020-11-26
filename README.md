@@ -119,7 +119,7 @@ Use `--vmodule`.
   --enable-logging=stderr \
   --log-level=100 \
   --show-fps-counter \
-  --enable-features=console_terminal,remote_console \
+  --enable-features=console_terminal,remote_console,print_status_macro_stack_trace,print_status_macro_error \
   --start_tracing \
   --tracing_categories=*,disabled-by-default-memory-infra
 ```
@@ -532,6 +532,11 @@ cmake -E time cmake --build . \
   --config ${build_type} \
   --target flexnet_run_all_tests
 
+# run unit tests for basis
+cmake -E time cmake --build . \
+  --config ${build_type} \
+  --target basis_run_all_tests
+
 # do not forget to reset compile flags
 unset CFLAGS
 unset CXXFLAGS
@@ -614,6 +619,11 @@ cmake -E time cmake --build . \
 cmake -E time cmake --build . \
   --config ${build_type} \
   --target flexnet_run_all_tests
+
+# run unit tests for basis
+cmake -E time cmake --build . \
+  --config ${build_type} \
+  --target basis_run_all_tests
 ```
 
 ## For contibutors: IWYU

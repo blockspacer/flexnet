@@ -111,12 +111,12 @@ MainPluginLogic::MainPluginLogic(
   , ioc_{REFERENCED(
       mainLoopRegistry_->registry()
         .ctx<::boost::asio::io_context>())}
-  , netRegistry_{REFERENCED(
+  , registry_{REFERENCED(
       mainLoopRegistry_->registry()
-        .ctx<ECS::NetworkRegistry>())}
+        .ctx<ECS::SafeRegistry>())}
   , networkEntityUpdater_{
       periodicAsioTaskRunner_
-      , REFERENCED(*netRegistry_)
+      , REFERENCED(*registry_)
       , REFERENCED(*ioc_)}
 {
   LOG_CALL(DVLOG(99));

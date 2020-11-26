@@ -1,4 +1,4 @@
-#include "basis/ECS/network_registry.hpp"
+#include "basis/ECS/safe_registry.hpp"
 
 #include <chrono>
 
@@ -12,6 +12,6 @@ namespace ECS {
 // and avoid heap memory allocations
 // because performance is critical here.
 void updateUnusedSystem(
-  ECS::NetworkRegistry& net_registry);
+  ECS::SafeRegistry& registry);
 
 } // namespace ECS

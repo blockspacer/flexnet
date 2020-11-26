@@ -19,12 +19,12 @@ namespace ECS {
 static size_t numOfCleanedUpEntities = 0;
 
 void updateCleanupSystem(
-  ECS::NetworkRegistry& net_registry)
+  ECS::SafeRegistry& registry)
 {
-  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
   auto registry_group
-    = net_registry->view<ECS::NeedToDestroyTag>();
+    = registry->view<ECS::NeedToDestroyTag>();
 
   if(registry_group.size()) {
     UMA_HISTOGRAM_COUNTS_1000("ECS.cleanupBatches",
@@ -44,14 +44,14 @@ void updateCleanupSystem(
   }
   registry_group
     .each(
-      [&net_registry]
+      [&registry]
       (const ECS::Entity& entity)
     {
-      DCHECK(net_registry->valid(entity));
+      DCHECK(registry->valid(entity));
     });
 #endif // NDEBUG
 
-  net_registry->destroy(
+  registry->destroy(
     registry_group.begin()
     , registry_group.end());
 }

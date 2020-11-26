@@ -52,7 +52,7 @@
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/unowned_ptr.hpp>
@@ -75,14 +75,14 @@ namespace backend {
 
 NetworkEntityUpdater::NetworkEntityUpdater(
   scoped_refptr<::base::SequencedTaskRunner> periodicAsioTaskRunner
-  , ECS::NetworkRegistry& netRegistry
+  , ECS::SafeRegistry& registry
   , boost::asio::io_context& ioc)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , netRegistry_(REFERENCED(netRegistry))
+  , registry_(REFERENCED(registry))
   , ioc_(REFERENCED(ioc))
   , periodicAsioTaskRunner_(periodicAsioTaskRunner)
   , periodicTaskExecutor_(
@@ -107,7 +107,7 @@ NetworkEntityUpdater::~NetworkEntityUpdater()
 
 void NetworkEntityUpdater::update() NO_EXCEPTION
 {
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(periodicAsioTaskRunner_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
@@ -126,47 +126,46 @@ void NetworkEntityUpdater::update() NO_EXCEPTION
     // i.e. use check `registry.empty()`
     {
       /// \note (thread-safety) access when ioc->stopped
-      /// i.e. assume no running asio threads that use |netRegistry_|
-      DCHECK(netRegistry_->registryUnsafe().empty());
+      /// i.e. assume no running asio threads that use |registry_|
+      DCHECK(registry_->registryUnsafe().empty());
     }
 
     return;
   }
 
-  netRegistry_->taskRunner()->PostTask(
+  registry_->taskRunner()->PostTask(
     FROM_HERE
     , ::base::BindOnce([
       ](
-        ECS::NetworkRegistry& net_registry
+        ECS::SafeRegistry& registry
       ){
-        DCHECK(
-          net_registry.RunsTasksInCurrentSequence());
+        DCHECK_RUN_ON_REGISTRY(&registry);
 
-        ECS::updateNewConnections(net_registry);
+        ECS::updateNewConnections(registry);
 
-        ECS::updateSSLDetection(net_registry);
+        ECS::updateSSLDetection(registry);
 
         /// \todo customizable cleanup period
         ECS::updateUnusedChildList<
           // drop recieved messages
           // if websocket session is unused i.e. closed
           ::flexnet::ws::WsChannel::RecievedData
-        >(net_registry);
+        >(registry);
 
         /// \note Removes `DelayedConstructionJustDone` component from any entity.
-        ECS::updateDelayedConstructionJustDone(net_registry);
+        ECS::updateDelayedConstructionJustDone(registry);
 
         /// \note Removes `DelayedConstruction` component from any entity
         /// and adds `DelayedConstructionJustDone` component.
-        ECS::updateDelayedConstruction(net_registry);
+        ECS::updateDelayedConstruction(registry);
 
         /// \todo customizable cleanup period
-        ECS::updateUnusedSystem(net_registry);
+        ECS::updateUnusedSystem(registry);
 
         /// \todo customizable cleanup period
-        ECS::updateCleanupSystem(net_registry);
+        ECS::updateCleanupSystem(registry);
       }
-      , REFERENCED(*netRegistry_)
+      , REFERENCED(*registry_)
     )
   );
 }

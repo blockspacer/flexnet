@@ -38,9 +38,9 @@ MainPluginLogic::MainPluginLogic(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
       ::base::MessageLoop::current()->task_runner()}
-  , netRegistry_{
+  , registry_{
       REFERENCED(mainLoopRegistry_->registry()
-        .set<ECS::NetworkRegistry>())}
+        .set<ECS::SafeRegistry>())}
 {
   LOG_CALL(DVLOG(99));
 

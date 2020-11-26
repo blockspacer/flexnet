@@ -1,6 +1,6 @@
 #pragma once
 
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/core/bitmask.hpp>
 
 #include <base/rvalue_cast.h>
@@ -220,7 +220,7 @@ public:
    IoContext& ioc
     , EndpointType&& endpoint
     // ECS registry used to create `per-connection entity`
-    , ECS::NetworkRegistry& netRegistry
+    , ECS::SafeRegistry& registry
     , EntityAllocatorCb entityAllocator);
 
   Listener(
@@ -303,7 +303,7 @@ private:
     , ECS::Entity tcp_entity_id);
 
   void allocateTcpResourceAndAccept()
-    PRIVATE_METHOD_RUN_ON(*netRegistry_);
+    PRIVATE_METHOD_RUN_ON(*registry_);
 
   // store result of |acceptor_.async_accept(...)|
   // in `per-connection entity`
@@ -312,7 +312,7 @@ private:
     ECS::Entity tcp_entity_id
     , ErrorCode&& ec
     , SocketType&& socket)
-    PRIVATE_METHOD_RUN_ON(*netRegistry_);
+    PRIVATE_METHOD_RUN_ON(*registry_);
 
   // Report a failure
   /// \note not thread-safe, so keep it for logging purposes only
@@ -398,8 +398,8 @@ private:
     GUARDED_BY(acceptorStrand_);
 
   // used to create `per-connection entity`
-  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  ::basis::UnownedRef<ECS::SafeRegistry> registry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(registry_);
 
   // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.

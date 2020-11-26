@@ -30,16 +30,16 @@ using Listener
 static size_t numOfHandleAcceptResult = 0;
 
 void handleAcceptResult(
-  ECS::NetworkRegistry& net_registry
+  ECS::SafeRegistry& registry
   , const ECS::Entity& entity_id
   , Listener::AcceptConnectionResult& acceptResult)
 {
   using namespace ::flexnet::ws;
   using namespace ::flexnet::http;
 
-  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
-  DCHECK(net_registry->valid(entity_id));
+  DCHECK(registry->valid(entity_id));
 
   numOfHandleAcceptResult++;
   UMA_HISTOGRAM_COUNTS_1000("ECS.handleAcceptResult",
@@ -48,7 +48,7 @@ void handleAcceptResult(
   // each entity representing tcp connection
   // must have that component
   ECS::TcpConnection& tcpComponent
-    = net_registry->get<ECS::TcpConnection>(entity_id);
+    = registry->get<ECS::TcpConnection>(entity_id);
 
   LOG_CALL(DVLOG(99))
     << " for TcpConnection with id: "
@@ -58,17 +58,17 @@ void handleAcceptResult(
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
 
   auto closeAndReleaseResources
-    = [&acceptResult, &net_registry, entity_id]()
+    = [&acceptResult, &registry, entity_id]()
   {
-    DCHECK(net_registry.RunsTasksInCurrentSequence());
+    DCHECK_RUN_ON_REGISTRY(&registry);
 
     util::closeSocketUnsafe(
       REFERENCED(acceptResult.socket));
 
-    DCHECK(net_registry->valid(entity_id));
+    DCHECK(registry->valid(entity_id));
 
-    if(!net_registry->has<ECS::UnusedTag>(entity_id)) {
-      net_registry->emplace<ECS::UnusedTag>(entity_id);
+    if(!registry->has<ECS::UnusedTag>(entity_id)) {
+      registry->emplace<ECS::UnusedTag>(entity_id);
     }
   };
 
@@ -107,7 +107,7 @@ void handleAcceptResult(
     = &tcpComponent->reset_or_create_var<DetectChannelCtxComponent>(
         "Ctx_DetectChannel_" + ::base::GenerateGUID() // debug name
         , ::base::rvalue_cast(acceptResult.socket)
-        , REFERENCED(net_registry)
+        , REFERENCED(registry)
         , entity_id);
 
   // Check that if the value already existed
@@ -133,21 +133,21 @@ void handleAcceptResult(
 }
 
 void updateNewConnections(
-  ECS::NetworkRegistry& net_registry)
+  ECS::SafeRegistry& registry)
 {
   using namespace ::flexnet::ws;
 
   using view_component
     = ::base::Optional<Listener::AcceptConnectionResult>;
 
-  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
   // Avoid extra allocations
   // with memory pool in ECS style using |ECS::UnusedTag|
   // (objects that are no more in use can return into pool)
   /// \note do not forget to free some memory in pool periodically
   auto registry_group
-    = net_registry->view<view_component>(
+    = registry->view<view_component>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -162,14 +162,14 @@ void updateNewConnections(
 
   registry_group
     .each(
-      [&net_registry]
+      [&registry]
       (const ECS::Entity& entity
        , view_component& component)
     {
-      DCHECK(net_registry->valid(entity));
+      DCHECK(registry->valid(entity));
 
       handleAcceptResult(
-        net_registry
+        registry
         , entity
         , component.value());
 
@@ -178,8 +178,8 @@ void updateNewConnections(
       // `registry.remove<view_component>(entity);`
       // except avoids extra allocations
       // i.e. can be used with memory pool
-      if(!net_registry->has<ECS::UnusedAcceptResultTag>(entity)) {
-        net_registry->emplace<ECS::UnusedAcceptResultTag>(entity);
+      if(!registry->has<ECS::UnusedAcceptResultTag>(entity)) {
+        registry->emplace<ECS::UnusedAcceptResultTag>(entity);
       }
     });
 }

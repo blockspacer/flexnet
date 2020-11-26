@@ -23,7 +23,7 @@
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/unowned_ref.hpp>
 #include <basis/status/statusor.hpp>
 
@@ -89,8 +89,8 @@ class MainPluginLogic
   ::backend::AsioThreadsManager asioThreadsManager_
     GUARDED_BY(sequence_checker_);
 
-  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  ::basis::UnownedRef<ECS::SafeRegistry> registry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(registry_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

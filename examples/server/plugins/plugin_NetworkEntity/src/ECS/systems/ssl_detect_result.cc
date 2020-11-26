@@ -26,17 +26,17 @@ static constexpr size_t kShutdownExpireTimeoutSec = 5;
 static size_t numOfHandleSSLDetectResult = 0;
 
 void handleSSLDetectResult(
-  ECS::NetworkRegistry& net_registry
+  ECS::SafeRegistry& registry
   , const ECS::Entity& entity_id
   , flexnet::http::DetectChannel::SSLDetectResult& detectResult)
 {
   using namespace ::flexnet::http;
 
-  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK(net_registry->valid(entity_id));
+  DCHECK(registry->valid(entity_id));
 
   numOfHandleSSLDetectResult++;
   UMA_HISTOGRAM_COUNTS_1000("ECS.handleSSLDetectResult",
@@ -46,7 +46,7 @@ void handleSSLDetectResult(
   /// We assume that is is safe to change unused asio `stream`
   /// on any thread.
   auto doCloseStream
-    = [&detectResult, &net_registry, entity_id]()
+    = [&detectResult, &registry, entity_id]()
   {
     /// \note we are closing unused stream, so it must be thread-safe here
     if(detectResult.stream.value().socket().is_open()) {
@@ -60,17 +60,17 @@ void handleSSLDetectResult(
   };
 
   auto doMarkUnused
-    = [&detectResult, &net_registry, entity_id]()
+    = [&detectResult, &registry, entity_id]()
   {
-    DCHECK(net_registry.RunsTasksInCurrentSequence());
+    DCHECK_RUN_ON_REGISTRY(&registry);
 
     util::closeSocketUnsafe(
       REFERENCED(detectResult.stream.value().socket()));
 
-    DCHECK(net_registry->valid(entity_id));
+    DCHECK(registry->valid(entity_id));
 
-    if(!net_registry->has<ECS::UnusedTag>(entity_id)) {
-      net_registry->emplace<ECS::UnusedTag>(entity_id);
+    if(!registry->has<ECS::UnusedTag>(entity_id)) {
+      registry->emplace<ECS::UnusedTag>(entity_id);
     }
   };
 
@@ -107,7 +107,7 @@ void handleSSLDetectResult(
   }
 
   ECS::TcpConnection& tcpComponent
-    = net_registry->get<ECS::TcpConnection>(entity_id);
+    = registry->get<ECS::TcpConnection>(entity_id);
 
   DVLOG(99)
     << "using TcpConnection with id: "
@@ -125,7 +125,7 @@ void handleSSLDetectResult(
           "Ctx_http_Channel_" + ::base::GenerateGUID() // debug name
           , ::base::rvalue_cast(detectResult.stream.value())
           , ::base::rvalue_cast(detectResult.buffer)
-          , REFERENCED(net_registry)
+          , REFERENCED(registry)
           , entity_id);
 
     // Check that if the value already existed
@@ -140,17 +140,17 @@ void handleSSLDetectResult(
 }
 
 void updateSSLDetection(
-  ECS::NetworkRegistry& net_registry)
+  ECS::SafeRegistry& registry)
 {
   using namespace ::flexnet::http;
 
   using view_component
     = ::base::Optional<DetectChannel::SSLDetectResult>;
 
-  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
   auto registry_group
-    = net_registry->view<view_component>(
+    = registry->view<view_component>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -165,14 +165,14 @@ void updateSSLDetection(
 
   registry_group
     .each(
-      [&net_registry]
+      [&registry]
       (const ECS::Entity& entity
        , view_component& component)
     {
-      DCHECK(net_registry->valid(entity));
+      DCHECK(registry->valid(entity));
 
       handleSSLDetectResult(
-        net_registry
+        registry
         , entity
         , component.value());
 
@@ -181,8 +181,8 @@ void updateSSLDetection(
       // `registry.remove<view_component>(entity);`
       // except avoids extra allocations
       // i.e. can be used with memory pool
-      if(!net_registry->has<ECS::UnusedSSLDetectResultTag>(entity)) {
-        net_registry->emplace<ECS::UnusedSSLDetectResultTag>(entity);
+      if(!registry->has<ECS::UnusedSSLDetectResultTag>(entity)) {
+        registry->emplace<ECS::UnusedSSLDetectResultTag>(entity);
       }
     });
 }

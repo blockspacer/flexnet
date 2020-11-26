@@ -49,14 +49,14 @@ MainPluginLogic::MainPluginLogic(
     , /// \note Crash if out of range.
       ::base::checked_cast<unsigned short>(
           pluginInterface->portNum())}
-  , netRegistry_{
+  , registry_{
       REFERENCED(mainLoopRegistry_->registry()
-        .ctx<ECS::NetworkRegistry>())}
-  , tcpEntityAllocator_(REFERENCED(*netRegistry_))
+        .ctx<ECS::SafeRegistry>())}
+  , tcpEntityAllocator_(REFERENCED(*registry_))
   , listener_{
       *ioc_
       , EndpointType{tcpEndpoint_}
-      , REFERENCED(*netRegistry_)
+      , REFERENCED(*registry_)
       // Callback will be called per each connected client
       // to create ECS entity
       , ::base::bindCheckedRepeating(
@@ -195,7 +195,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(periodicValidateUntil_);
 
@@ -205,15 +205,15 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
   /// if `ioc_->stopped()`
   DCHECK(!ioc_->stopped()); // io_context::stopped is thread-safe
 
-  netRegistry_->taskRunner()->PostTask(
+  registry_->taskRunner()->PostTask(
     FROM_HERE
     , ::base::BindOnce([
       ](
-        ECS::NetworkRegistry& netRegistry
+        ECS::SafeRegistry& registry
       ){
         LOG_CALL(DVLOG(99));
 
-        DCHECK(netRegistry.RunsTasksInCurrentSequence());
+        DCHECK_RUN_ON_REGISTRY(&registry);
 
         /// \note it is not ordinary ECS component,
         /// it is stored in entity context (not in ECS registry)
@@ -221,7 +221,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
           = ::base::Optional<::flexnet::ws::WsChannel>;
 
         auto ecsView
-          = netRegistry->view<ECS::TcpConnection>(
+          = registry->view<ECS::TcpConnection>(
               entt::exclude<
                 // entity in destruction
                 ECS::NeedToDestroyTag
@@ -235,24 +235,24 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
         ::base::RepeatingCallback<void(ECS::Entity, ECS::Registry&)> doEofWebsocket
           = ::base::BindRepeating(
               []
-              (ECS::NetworkRegistry& netRegistry
+              (ECS::SafeRegistry& registry
                , ECS::Entity entity
-               , ECS::Registry& registry)
+               , ECS::Registry& ecs_registry)
         {
-          ignore_result(registry);
+          ignore_result(ecs_registry);
 
           using namespace ::flexnet::ws;
 
           LOG_CALL(DVLOG(99));
 
-          DCHECK(netRegistry.RunsTasksInCurrentSequence());
+          DCHECK_RUN_ON_REGISTRY(&registry);
 
-          DCHECK(netRegistry->valid(entity));
+          DCHECK(registry->valid(entity));
 
           // each entity representing tcp connection
           // must have that component
           ECS::TcpConnection& tcpComponent
-            = netRegistry->get<ECS::TcpConnection>(entity);
+            = registry->get<ECS::TcpConnection>(entity);
 
           LOG_CALL(DVLOG(99))
             << " for TcpConnection with id: "
@@ -282,7 +282,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
               << tcpComponent.debug_id;
           }
         }
-        , REFERENCED(netRegistry));
+        , REFERENCED(registry));
 
         if(ecsView.empty()) {
           DVLOG(99)
@@ -292,15 +292,15 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
           // execute callback `doEofWebsocket` per each entity,
           ecsView
           .each(
-            [&doEofWebsocket, &netRegistry]
+            [&doEofWebsocket, &registry]
             (const ECS::Entity& entity
              , const ECS::TcpConnection& component)
           {
-            doEofWebsocket.Run(entity, (*netRegistry));
+            doEofWebsocket.Run(entity, (*registry));
           });
         }
       }
-      , REFERENCED(*netRegistry_)
+      , REFERENCED(*registry_)
     )
   );
 }
@@ -310,7 +310,7 @@ void MainPluginLogic::validateAndFreeNetworkResources(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(periodicValidateUntil_);
 
@@ -331,19 +331,19 @@ void MainPluginLogic::validateAndFreeNetworkResources(
   /// we wait for scheduled tasks that will fully create entities.
   closeNetworkResources();
 
-   netRegistry_->taskRunner()->PostTask(
+   registry_->taskRunner()->PostTask(
     FROM_HERE
     , ::base::BindOnce(
       []
       (
-        ECS::NetworkRegistry& netRegistry
+        ECS::SafeRegistry& registry
         , COPIED() ::base::RepeatingClosure resolveCallback)
       {
         LOG_CALL(DVLOG(99));
 
-        DCHECK(netRegistry.RunsTasksInCurrentSequence());
+        DCHECK_RUN_ON_REGISTRY(&registry);
 
-        if(netRegistry->empty()) {
+        if(registry->empty()) {
           DVLOG(9)
             << "registry is empty";
           DCHECK(resolveCallback);
@@ -352,10 +352,10 @@ void MainPluginLogic::validateAndFreeNetworkResources(
         } else {
           DVLOG(9)
             << "registry is NOT empty with size:"
-            << netRegistry->size();
+            << registry->size();
         }
       }
-      , REFERENCED(*netRegistry_)
+      , REFERENCED(*registry_)
       , COPIED(resolveCallback)
     )
   );
@@ -375,9 +375,9 @@ MainPluginLogic::VoidPromise
   /// if `ioc_->stopped()`
   DCHECK(!ioc_->stopped()); // io_context::stopped is thread-safe
 
-  // Will check periodically if `netRegistry->empty()` and if true,
+  // Will check periodically if `registry->empty()` and if true,
   // than promise will be resolved.
-  // Periodic task will be redirected to `net_registry`.
+  // Periodic task will be redirected to `registry`.
   ::basis::PeriodicValidateUntil::ValidationTaskType validationTask
     = ::base::bindCheckedRepeating(
         DEBUG_BIND_CHECKS(

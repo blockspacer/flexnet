@@ -17,12 +17,12 @@
 namespace ECS {
 
 void updateDelayedConstruction(
-  ECS::NetworkRegistry& net_registry)
+  ECS::SafeRegistry& registry)
 {
-  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
   auto registry_group
-    = net_registry->view<ECS::DelayedConstruction>(
+    = registry->view<ECS::DelayedConstruction>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -44,14 +44,14 @@ void updateDelayedConstruction(
 
   registry_group
     .each(
-      [&net_registry]
+      [&registry]
       (const ECS::Entity& entity_id)
     {
-      DCHECK(net_registry->valid(entity_id));
-      DCHECK(net_registry->has<ECS::DelayedConstruction>(entity_id));
-      net_registry->remove<ECS::DelayedConstruction>(entity_id);
-      DCHECK(!net_registry->has<ECS::DelayedConstruction>(entity_id));
-      net_registry->emplace<ECS::DelayedConstructionJustDone>(entity_id);
+      DCHECK(registry->valid(entity_id));
+      DCHECK(registry->has<ECS::DelayedConstruction>(entity_id));
+      registry->remove<ECS::DelayedConstruction>(entity_id);
+      DCHECK(!registry->has<ECS::DelayedConstruction>(entity_id));
+      registry->emplace<ECS::DelayedConstructionJustDone>(entity_id);
     });
 }
 

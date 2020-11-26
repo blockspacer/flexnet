@@ -22,7 +22,7 @@
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
@@ -50,7 +50,7 @@ class NetworkEntityUpdater
 
   NetworkEntityUpdater(
     scoped_refptr<::base::SequencedTaskRunner> periodicAsioTaskRunner
-    , ECS::NetworkRegistry& netRegistry_
+    , ECS::SafeRegistry& registry_
     , boost::asio::io_context& ioc_);
 
   ~NetworkEntityUpdater();
@@ -69,8 +69,8 @@ class NetworkEntityUpdater
  private:
   SET_WEAK_POINTERS(NetworkEntityUpdater);
 
-  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  ::basis::UnownedRef<ECS::SafeRegistry> registry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(registry_);
 
   // The io_context is required for all I/O
   ::basis::UnownedRef<IoContext> ioc_

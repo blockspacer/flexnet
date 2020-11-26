@@ -43,7 +43,7 @@
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
@@ -183,8 +183,8 @@ class MainPluginLogic
   const EndpointType tcpEndpoint_
     GUARDED_BY(sequence_checker_);
 
-  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  ::basis::UnownedRef<ECS::SafeRegistry> registry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(registry_);
 
   ::backend::TcpEntityAllocator tcpEntityAllocator_;
     GUARD_MEMBER_DISALLOW_THREAD_COLLISION(tcpEntityAllocator_);

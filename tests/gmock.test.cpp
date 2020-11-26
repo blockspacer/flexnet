@@ -148,9 +148,9 @@
 #include <base/threading/platform_thread.h>
 
 #include <basis/ECS/tags.hpp>
-#include <basis/ECS/helpers/prepend_child_entity.hpp>
-#include <basis/ECS/helpers/foreach_child_entity.hpp>
-#include <basis/ECS/helpers/view_child_entities.hpp>
+#include <basis/ECS/helpers/relationship/prepend_child_entity.hpp>
+#include <basis/ECS/helpers/relationship/foreach_top_level_child.hpp>
+#include <basis/ECS/helpers/relationship/view_top_level_children.hpp>
 
 #include <flexnet/util/close_socket_unsafe.hpp>
 

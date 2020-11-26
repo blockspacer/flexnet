@@ -20,9 +20,9 @@ MainPluginLogic::MainPluginLogic(
   , ioc_(REFERENCED(
       ::backend::MainLoopRegistry::GetInstance()->registry()
         .set<::boost::asio::io_context>()))
-  , netRegistry_{
+  , registry_{
       REFERENCED(mainLoopRegistry_->registry()
-        .ctx<ECS::NetworkRegistry>())}
+        .ctx<ECS::SafeRegistry>())}
 {
   LOG_CALL(DVLOG(99));
 

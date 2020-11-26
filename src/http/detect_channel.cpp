@@ -32,7 +32,7 @@ namespace http {
 
 DetectChannel::DetectChannel(
   AsioTcp::socket&& socket
-  , ECS::NetworkRegistry& netRegistry
+  , ECS::SafeRegistry& registry
   , const ECS::Entity entity_id)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
@@ -45,7 +45,7 @@ DetectChannel::DetectChannel(
       /// \note `get_executor` returns copy
       stream_.value().get_executor())
   , atomicDetectDoneFlag_(false)
-  , netRegistry_(REFERENCED(netRegistry))
+  , registry_(REFERENCED(registry))
   , entity_id_(entity_id)
 {
   LOG_CALL(DVLOG(99));
@@ -222,7 +222,7 @@ void DetectChannel::onDetected(
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(stream_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(buffer_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(atomicDetectDoneFlag_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
 
   DCHECK(is_stream_valid_.load());
   DCHECK(is_buffer_valid_.load());
@@ -259,7 +259,7 @@ void DetectChannel::onDetected(
     << " forcing close of connection";
 
   // mark SSL detection completed
-  netRegistry_->taskRunner()->PostTask(
+  registry_->taskRunner()->PostTask(
     FROM_HERE
     , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
@@ -295,10 +295,10 @@ void DetectChannel::setSSLDetectResult(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
 
-  DCHECK(netRegistry_->RunsTasksInCurrentSequence());
+  DCHECK(registry_->RunsTasksInCurrentSequence());
 
   DVLOG(99)
     << " detected connection as "
@@ -309,12 +309,12 @@ void DetectChannel::setSSLDetectResult(
       = ::base::Optional<DetectChannel::SSLDetectResult>;
 
     // If the value already exists allow it to be re-used
-    (*netRegistry_)->remove_if_exists<
+    (*registry_)->remove_if_exists<
         ECS::UnusedSSLDetectResultTag
       >(entity_id_);
 
     UniqueSSLDetectComponent& detectResult
-      = (*netRegistry_).reset_or_create_component<UniqueSSLDetectComponent>(
+      = (*registry_).reset_or_create_component<UniqueSSLDetectComponent>(
             "UniqueSSLDetectComponent_" + ::base::GenerateGUID() // debug name
             , entity_id_
             , ::base::rvalue_cast(ec)

@@ -44,7 +44,7 @@
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
@@ -161,13 +161,13 @@ static CreateOrReuseCachedResult createOrReuseCached(
 }
 
 TcpEntityAllocator::TcpEntityAllocator(
-  ECS::NetworkRegistry& netRegistry)
+  ECS::SafeRegistry& registry)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , netRegistryRef_(REFERENCED(netRegistry))
+  , registryRef_(REFERENCED(registry))
 {
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
@@ -187,9 +187,9 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistryRef_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registryRef_);
 
-  DCHECK_RUN_ON_NET_REGISTRY(&(*netRegistryRef_));
+  DCHECK_RUN_ON_REGISTRY(&(*registryRef_));
 
   bool usedCache = false;
 
@@ -197,7 +197,7 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
   /// that were not fully created (see `ECS::DelayedConstruction`).
   /// \note Make sure that not fully created entities are properly freed
   /// (usually that means that they must have some relationship component
-  /// like `FirstChildComponent`, `ChildLinkedList` etc.
+  /// like `FirstChildComponent`, `ChildSiblings` etc.
   /// that will allow them to be freed upon parent entity destruction).
   CreateOrReuseCachedResult allocateResult
     = createOrReuseCached<
@@ -208,17 +208,17 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
         // components that must be ignored by filter
         , ECS::NeedToDestroyTag // ignore entity in destruction
       >(
-        (*netRegistryRef_).registryUnsafe()
+        (*registryRef_).registryUnsafe()
       );
 
-  DCHECK((*netRegistryRef_)->valid(allocateResult.entity_id));
+  DCHECK((*registryRef_)->valid(allocateResult.entity_id));
 
   /// \note `tcpComponent.context.empty()` may be false
   /// if unused `tcpComponent` found using `registry.get`
   /// i.e. we do not fully reset `tcpComponent`,
   /// so reset each type stored in context individually.
   ECS::TcpConnection& tcpComponent
-    = (*netRegistryRef_)->get_or_emplace<ECS::TcpConnection>(
+    = (*registryRef_)->get_or_emplace<ECS::TcpConnection>(
         allocateResult.entity_id
         , "TcpConnection_" + ::base::GenerateGUID() // debug name
       );
@@ -234,16 +234,16 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
   /// (i.e. app closes while some entity still not constructed).
   /// \note Make sure that not fully created entities are properly freed
   /// (usually that means that they must have some relationship component
-  /// like `FirstChildComponent`, `ChildLinkedList` etc.
+  /// like `FirstChildComponent`, `ChildSiblings` etc.
   /// that will allow them to be freed upon parent entity destruction).
   {
     // mark entity as not fully created
-    (*netRegistryRef_)->emplace_or_replace<
+    (*registryRef_)->emplace_or_replace<
         ECS::DelayedConstruction
       >(allocateResult.entity_id);
 
     // mark entity as not fully created
-    (*netRegistryRef_)->remove_if_exists<
+    (*registryRef_)->remove_if_exists<
         ECS::DelayedConstructionJustDone
       >(allocateResult.entity_id);
   }
@@ -252,47 +252,47 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
   {
     DVLOG(99)
       << "using preallocated network entity with id: "
-      << (*netRegistryRef_)->get<ECS::TcpConnection>(allocateResult.entity_id).debug_id;
+      << (*registryRef_)->get<ECS::TcpConnection>(allocateResult.entity_id).debug_id;
 
     /// \todo move `cached entity usage validator` to separate callback
     // Clear cached data.
     // We re-use some old network entity,
     // so need to reset entity state.
-    DCHECK((*netRegistryRef_)->valid(allocateResult.entity_id));
+    DCHECK((*registryRef_)->valid(allocateResult.entity_id));
 
     // sanity check
-    CHECK((*netRegistryRef_)->has<
+    CHECK((*registryRef_)->has<
         ECS::TcpConnection
       >(allocateResult.entity_id));
 
     // sanity check
-    CHECK(!(*netRegistryRef_)->has<
+    CHECK(!(*registryRef_)->has<
         ECS::UnusedTag
       >(allocateResult.entity_id));
 
     // sanity check
-    CHECK(!(*netRegistryRef_)->has<
+    CHECK(!(*registryRef_)->has<
         ECS::NeedToDestroyTag
       >(allocateResult.entity_id));
 
     // sanity check
-    if((*netRegistryRef_)->has<
+    if((*registryRef_)->has<
          ::base::Optional<DetectChannel::SSLDetectResult>
         >(allocateResult.entity_id))
     {
       // process result once (i.e. do not handle outdated result)
-      CHECK((*netRegistryRef_)->has<
+      CHECK((*registryRef_)->has<
           ECS::UnusedSSLDetectResultTag
         >(allocateResult.entity_id));
     }
 
     // sanity check
-    if((*netRegistryRef_)->has<
+    if((*registryRef_)->has<
          ::base::Optional<Listener::AcceptConnectionResult>
         >(allocateResult.entity_id))
     {
       // process result once (i.e. do not handle outdated result)
-      CHECK((*netRegistryRef_)->has<
+      CHECK((*registryRef_)->has<
           ECS::UnusedAcceptResultTag
         >(allocateResult.entity_id));
     }
@@ -326,7 +326,7 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
     };
 
     // visit entity and get the types of components it manages
-    (*netRegistryRef_)->visit(allocateResult.entity_id
+    (*registryRef_)->visit(allocateResult.entity_id
       , [this, &allocateResult]
       (const entt_type_info_id_type type_id)
       {

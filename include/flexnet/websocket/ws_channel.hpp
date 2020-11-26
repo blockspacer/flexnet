@@ -16,7 +16,7 @@
 #include <basis/checked_optional.hpp>
 #include <basis/core/debug_flag_macros.hpp>
 #include <basis/checks_and_guard_annotations.hpp>
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/status/statusor.hpp>
 #include <basis/task/task_util.hpp>
@@ -368,7 +368,7 @@ public:
   WsChannel(
     // Take ownership of the stream
     StreamType&& stream
-    , ECS::NetworkRegistry& netRegistry
+    , ECS::SafeRegistry& registry
     , const ECS::Entity entity_id);
 
   WsChannel(
@@ -485,7 +485,7 @@ private:
 
   void allocateRecievedDataComponent(
     std::string&& message) NO_EXCEPTION
-    PRIVATE_METHOD_RUN_ON(*netRegistry_);
+    PRIVATE_METHOD_RUN_ON(*registry_);
 
   /**
   * @brief starts async writing to client
@@ -539,7 +539,7 @@ private:
   /// (attempted to mark with `ECS::UnusedTag` twice).
   static void markUnused(
     /// \note take care of lifetime
-    ECS::NetworkRegistry& netRegistry
+    ECS::SafeRegistry& registry
     , ECS::EntityId entity_id) NO_EXCEPTION;
 
 private:
@@ -571,8 +571,8 @@ private:
     GUARDED_BY(perConnectionStrand_);
 
   // used by |entity_id_|
-  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  ::basis::UnownedRef<ECS::SafeRegistry> registry_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(registry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage

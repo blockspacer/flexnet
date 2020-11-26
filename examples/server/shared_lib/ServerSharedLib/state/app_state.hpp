@@ -1,6 +1,6 @@
 #pragma once
 
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/core/bitmask.hpp>
 
 #include <base/rvalue_cast.h>

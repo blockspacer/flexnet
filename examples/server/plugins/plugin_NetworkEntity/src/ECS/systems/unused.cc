@@ -17,18 +17,18 @@
 namespace ECS {
 
 void updateUnusedSystem(
-  ECS::NetworkRegistry& net_registry)
+  ECS::SafeRegistry& registry)
 {
-  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
   /// \note Also processes entities
   /// that were not fully created (see `ECS::DelayedConstruction`).
   /// \note Make sure that not fully created entities are properly freed
   /// (usually that means that they must have some relationship component
-  /// like `FirstChildComponent`, `ChildLinkedList` etc.
+  /// like `FirstChildComponent`, `ChildSiblings` etc.
   /// that will allow them to be freed upon parent entity destruction).
   auto registry_group
-    = net_registry->view<ECS::UnusedTag>(
+    = registry->view<ECS::UnusedTag>(
         entt::exclude<
           // entity in destruction
           ECS::NeedToDestroyTag
@@ -50,12 +50,12 @@ void updateUnusedSystem(
 
   registry_group
     .each(
-      [&net_registry]
+      [&registry]
       (const ECS::Entity& entity_id)
     {
-      DCHECK(net_registry->valid(entity_id));
-      DCHECK(!net_registry->has<ECS::NeedToDestroyTag>(entity_id));
-      net_registry->emplace<ECS::NeedToDestroyTag>(entity_id);
+      DCHECK(registry->valid(entity_id));
+      DCHECK(!registry->has<ECS::NeedToDestroyTag>(entity_id));
+      registry->emplace<ECS::NeedToDestroyTag>(entity_id);
     });
 }
 

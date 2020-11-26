@@ -148,12 +148,12 @@
 #include <base/threading/platform_thread.h>
 
 #include <basis/ECS/tags.hpp>
-#include <basis/ECS/helpers/prepend_child_entity.hpp>
-#include <basis/ECS/helpers/foreach_child_entity.hpp>
-#include <basis/ECS/helpers/view_child_entities.hpp>
-#include <basis/ECS/helpers/remove_all_children_from_view.hpp>
-#include <basis/ECS/helpers/remove_child_entity.hpp>
-#include <basis/ECS/helpers/has_child_in_linked_list.hpp>
+#include <basis/ECS/helpers/relationship/prepend_child_entity.hpp>
+#include <basis/ECS/helpers/relationship/foreach_top_level_child.hpp>
+#include <basis/ECS/helpers/relationship/view_top_level_children.hpp>
+#include <basis/ECS/helpers/relationship/remove_all_children_from_view.hpp>
+#include <basis/ECS/helpers/relationship/remove_child_from_top_level.hpp>
+#include <basis/ECS/helpers/relationship/has_child_at_top_level.hpp>
 
 #include <flexnet/util/close_socket_unsafe.hpp>
 
@@ -164,9 +164,9 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
   using TagType = TestTypeTag;
 
   using FirstChildComponent = ECS::FirstChildInLinkedList<TagType>;
-  using ChildrenComponent = ECS::ChildLinkedList<TagType>;
+  using ChildrenComponent = ECS::ChildSiblings<TagType>;
   /// \note we assume that size of all children can be stored in `size_t`
-  using ChildrenSizeComponent = ECS::ChildLinkedListSize<TagType, size_t>;
+  using ChildrenSizeComponent = ECS::TopLevelChildrenCount<TagType, size_t>;
   using ParentComponent = ECS::ParentEntity<TagType>;
 
   ECS::Registry registry;
@@ -197,8 +197,8 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 1);
 
-    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childId));
-    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, registry.create()));
+    DCHECK(hasChildAtTopLevel<TagType>(registry, parentId, childId));
+    DCHECK(!hasChildAtTopLevel<TagType>(registry, parentId, registry.create()));
 
     DCHECK_EQ(registry.get<ParentComponent>(childId).parentId, parentId);
     DCHECK_EQ(registry.get<ChildrenComponent>(childId).nextId, ECS::NULL_ENTITY);
@@ -208,7 +208,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
   {
     std::vector<ECS::Entity> iteratedEntities{};
 
-    ECS::foreachChildEntity<TagType>(
+    ECS::foreachTopLevelChild<TagType>(
       REFERENCED(registry)
       , parentId
       , ::base::BindRepeating(
@@ -245,9 +245,9 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childTwoId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 2);
 
-    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childId));
-    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childTwoId));
-    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, registry.create()));
+    DCHECK(hasChildAtTopLevel<TagType>(registry, parentId, childId));
+    DCHECK(hasChildAtTopLevel<TagType>(registry, parentId, childTwoId));
+    DCHECK(!hasChildAtTopLevel<TagType>(registry, parentId, registry.create()));
 
     DCHECK_EQ(registry.get<ParentComponent>(childId).parentId, parentId);
     DCHECK_EQ(registry.get<ChildrenComponent>(childId).nextId, ECS::NULL_ENTITY);
@@ -261,7 +261,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
   {
     std::vector<ECS::Entity> iteratedEntities{};
 
-    ECS::foreachChildEntity<TagType>(
+    ECS::foreachTopLevelChild<TagType>(
       REFERENCED(registry)
       , parentId
       , ::base::BindRepeating(
@@ -299,10 +299,10 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childThreeId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 3);
 
-    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childId));
-    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childTwoId));
-    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childThreeId));
-    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, registry.create()));
+    DCHECK(hasChildAtTopLevel<TagType>(registry, parentId, childId));
+    DCHECK(hasChildAtTopLevel<TagType>(registry, parentId, childTwoId));
+    DCHECK(hasChildAtTopLevel<TagType>(registry, parentId, childThreeId));
+    DCHECK(!hasChildAtTopLevel<TagType>(registry, parentId, registry.create()));
 
     DCHECK_EQ(registry.get<ParentComponent>(childId).parentId, parentId);
     DCHECK_EQ(registry.get<ChildrenComponent>(childId).nextId, ECS::NULL_ENTITY);
@@ -320,7 +320,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
   {
     std::vector<ECS::Entity> iteratedEntities{};
 
-    ECS::foreachChildEntity<TagType>(
+    ECS::foreachTopLevelChild<TagType>(
       REFERENCED(registry)
       , parentId
       , ::base::BindRepeating(
@@ -347,7 +347,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
 
   {
     bool removeOk
-      = ECS::removeChildEntity<
+      = ECS::removeChildFromTopLevel<
         TagType
       >(
         REFERENCED(registry)
@@ -363,10 +363,10 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childThreeId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 2);
 
-    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childId));
-    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childThreeId));
-    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, childTwoId));
-    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, registry.create()));
+    DCHECK(hasChildAtTopLevel<TagType>(registry, parentId, childId));
+    DCHECK(hasChildAtTopLevel<TagType>(registry, parentId, childThreeId));
+    DCHECK(!hasChildAtTopLevel<TagType>(registry, parentId, childTwoId));
+    DCHECK(!hasChildAtTopLevel<TagType>(registry, parentId, registry.create()));
 
     DCHECK_EQ(registry.get<ParentComponent>(childId).parentId, parentId);
     DCHECK_EQ(registry.get<ChildrenComponent>(childId).nextId, ECS::NULL_ENTITY);
@@ -380,7 +380,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
   {
     std::vector<ECS::Entity> iteratedEntities{};
 
-    ECS::foreachChildEntity<TagType>(
+    ECS::foreachTopLevelChild<TagType>(
       REFERENCED(registry)
       , parentId
       , ::base::BindRepeating(
@@ -406,7 +406,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
 
   {
     bool removeOk
-      = ECS::removeChildEntity<
+      = ECS::removeChildFromTopLevel<
         TagType
       >(
         REFERENCED(registry)
@@ -420,7 +420,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     ECS::Entity tmpId = registry.create();
 
     bool removeOk
-      = ECS::removeChildEntity<
+      = ECS::removeChildFromTopLevel<
         TagType
       >(
         REFERENCED(registry)
@@ -432,7 +432,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
 
   {
     bool removeOk
-      = ECS::removeChildEntity<
+      = ECS::removeChildFromTopLevel<
         TagType
       >(
         REFERENCED(registry)
@@ -449,10 +449,10 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK(!registry.has<ChildrenComponent>(childThreeId));
     DCHECK(!registry.has<ChildrenComponent>(childThreeId));
 
-    DCHECK(hasChildInLinkedList<TagType>(registry, parentId, childId));
-    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, childTwoId));
-    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, childThreeId));
-    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, registry.create()));
+    DCHECK(hasChildAtTopLevel<TagType>(registry, parentId, childId));
+    DCHECK(!hasChildAtTopLevel<TagType>(registry, parentId, childTwoId));
+    DCHECK(!hasChildAtTopLevel<TagType>(registry, parentId, childThreeId));
+    DCHECK(!hasChildAtTopLevel<TagType>(registry, parentId, registry.create()));
 
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 1);
@@ -467,7 +467,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     ECS::Entity tmpChildId = registry.create();
 
     bool removeOk1
-      = ECS::removeChildEntity<
+      = ECS::removeChildFromTopLevel<
         TagType
       >(
         REFERENCED(registry)
@@ -477,7 +477,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK(!removeOk1);
 
     bool removeOk2
-      = ECS::removeChildEntity<
+      = ECS::removeChildFromTopLevel<
         TagType
       >(
         REFERENCED(registry)
@@ -498,7 +498,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(tmpParentId).size, 1);
 
     bool removeOk3
-      = ECS::removeChildEntity<
+      = ECS::removeChildFromTopLevel<
         TagType
       >(
         REFERENCED(registry)
@@ -511,7 +511,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
   {
     std::vector<ECS::Entity> iteratedEntities{};
 
-    ECS::foreachChildEntity<TagType>(
+    ECS::foreachTopLevelChild<TagType>(
       REFERENCED(registry)
       , parentId
       , ::base::BindRepeating(
@@ -536,7 +536,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
 
   {
     bool removeOk
-      = ECS::removeChildEntity<
+      = ECS::removeChildFromTopLevel<
         TagType
       >(
         REFERENCED(registry)
@@ -564,7 +564,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
   {
     std::vector<ECS::Entity> iteratedEntities{};
 
-    ECS::foreachChildEntity<TagType>(
+    ECS::foreachTopLevelChild<TagType>(
       REFERENCED(registry)
       , parentId
       , ::base::BindRepeating(
@@ -587,8 +587,8 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
   }
 
   {
-    DCHECK(!hasChildInLinkedList<TagType>(registry, parentId, ECS::NULL_ENTITY));
-    DCHECK(!hasChildInLinkedList<TagType>(registry, ECS::NULL_ENTITY, childId));
+    DCHECK(!hasChildAtTopLevel<TagType>(registry, parentId, ECS::NULL_ENTITY));
+    DCHECK(!hasChildAtTopLevel<TagType>(registry, ECS::NULL_ENTITY, childId));
     DCHECK(!hasChildComponents<TagType>(registry, ECS::NULL_ENTITY));
     DCHECK(!hasParentComponents<TagType>(registry, ECS::NULL_ENTITY));
   }
@@ -607,23 +607,23 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childThreeId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 1);
 
-    CREATE_ECS_TAG(Internal_hasChildInLinkedListTag);
+    CREATE_ECS_TAG(Internal_hasChildAtTopLevelTag);
 
-    registry.emplace<Internal_hasChildInLinkedListTag>(parentId);
+    registry.emplace<Internal_hasChildAtTopLevelTag>(parentId);
 
     removeAllChildrenFromView<
       TagType
     >(
       REFERENCED(registry)
       , ECS::include<
-          Internal_hasChildInLinkedListTag
+          Internal_hasChildAtTopLevelTag
         >
       , ECS::exclude<>
     );
 
     std::vector<ECS::Entity> iteratedEntities{};
 
-    ECS::foreachChildEntity<TagType>(
+    ECS::foreachTopLevelChild<TagType>(
       REFERENCED(registry)
       , parentId
       , ::base::BindRepeating(

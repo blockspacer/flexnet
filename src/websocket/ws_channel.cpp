@@ -12,7 +12,7 @@
 #include <base/guid.h>
 #include <base/task/thread_pool/thread_pool.h>
 #include <basis/ECS/tags.hpp>
-#include <basis/ECS/helpers/prepend_child_entity.hpp>
+#include <basis/ECS/helpers/relationship/prepend_child_entity.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/task/task_util.hpp>
@@ -59,7 +59,7 @@ namespace ws {
 
 WsChannel::WsChannel(
   StreamType&& stream
-  , ECS::NetworkRegistry& netRegistry
+  , ECS::SafeRegistry& registry
   , const ECS::Entity entity_id)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
@@ -70,7 +70,7 @@ WsChannel::WsChannel(
   , perConnectionStrand_(
       /// \note `get_executor` returns copy
       ws_.get_executor())
-  , netRegistry_(REFERENCED(netRegistry))
+  , registry_(REFERENCED(registry))
   , entity_id_(entity_id)
   , sendBuffer_{kMaxSendQueueSize}
 {
@@ -315,7 +315,7 @@ void WsChannel::doEof() NO_EXCEPTION
   LOG_CALL(DVLOG(99));
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
@@ -357,35 +357,33 @@ void WsChannel::doEof() NO_EXCEPTION
       ));
   }
 
-  ECS::Registry* registryPtr = &(netRegistry_->registryUnsafe());
-
   DCHECK_NO_ATOMIC_FLAG(can_schedule_callbacks_);
-  netRegistry_->taskRunner()->PostTask(
+  registry_->taskRunner()->PostTask(
     FROM_HERE
     , ::base::BindOnce(
         &WsChannel::markUnused
-        , REFERENCED(*netRegistry_)
+        , REFERENCED(*registry_)
         , entity_id_
       )
   );
 }
 
 void WsChannel::markUnused(
-  ECS::NetworkRegistry& netRegistry
+  ECS::SafeRegistry& registry
   , ECS::EntityId entity_id) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK(netRegistry.RunsTasksInCurrentSequence());
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
   // If object was freed,
   // than no need to mark it as unused
-  if(!netRegistry->valid(entity_id)){
+  if(!registry->valid(entity_id)){
     return;
   }
 
-  if(!netRegistry->has<ECS::UnusedTag>(entity_id)) {
-    netRegistry->emplace<ECS::UnusedTag>(entity_id);
+  if(!registry->has<ECS::UnusedTag>(entity_id)) {
+    registry->emplace<ECS::UnusedTag>(entity_id);
   }
 }
 
@@ -396,7 +394,7 @@ void WsChannel::onRead(
   LOG_CALL(DVLOG(99));
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
@@ -428,7 +426,7 @@ void WsChannel::onRead(
   }
 
   DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
-  netRegistry_->taskRunner()->PostTask(
+  registry_->taskRunner()->PostTask(
     FROM_HERE
     , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
@@ -453,14 +451,14 @@ void WsChannel::allocateRecievedDataComponent(
   LOG_CALL(DVLOG(99));
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
 
-  DCHECK(netRegistry_->RunsTasksInCurrentSequence());
+  DCHECK((*registry_).RunsTasksInCurrentSequence());
 
   // We want to filter recieved messages individually,
   // so each message becomes separate entity.
-  ECS::Entity msg_entity_id = (*netRegistry_)->create();
+  ECS::Entity msg_entity_id = (*registry_)->create();
 
   DVLOG(99)
     << "Websocket message was read with id = "
@@ -473,17 +471,17 @@ void WsChannel::allocateRecievedDataComponent(
       = ::base::Optional<WsChannel::RecievedData>;
 
     RecievedDataComponent& recievedDataComponent
-      = (*netRegistry_)->emplace<RecievedDataComponent>(
+      = (*registry_)->emplace<RecievedDataComponent>(
             msg_entity_id // assign to entity with that id
             , ::base::rvalue_cast(message));
 
-    DCHECK((*netRegistry_)->valid(entity_id_));
-    DCHECK((*netRegistry_)->valid(msg_entity_id));
+    DCHECK((*registry_)->valid(entity_id_));
+    DCHECK((*registry_)->valid(msg_entity_id));
 
     ECS::prependChildEntity<
         WsChannel::RecievedData // unique type tag for all children
     >(
-      REFERENCED(netRegistry_->registryUnsafe())
+      REFERENCED(static_cast<ECS::Registry&>((*registry_)))
       , entity_id_ // parent
       , msg_entity_id // child
     );

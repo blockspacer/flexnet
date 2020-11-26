@@ -48,6 +48,7 @@
 #include <base/strings/substitute.h>
 #include <base/strings/utf_string_conversions.h>
 
+#include <basis/status/app_error_space.hpp>
 #include <basis/core/typed_enum.hpp>
 #include <basis/fail_point/fail_point.hpp>
 #include <basis/plug_point/plug_point.hpp>
@@ -63,7 +64,7 @@
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
@@ -81,7 +82,7 @@
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
 #include <basis/bind/callable_hook.hpp>
-#include <basis/core/with_details.hpp>
+#include <basis/status/with_details.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -123,6 +124,45 @@ static const char kPluginsDirSwitch[]
 //#define TODO_TESTS 1
 
 #if TODO_TESTS
+
+static ::basis::StatusOr<int> ParseInt(const std::string& str)
+{
+  using namespace ::app_error_space;
+
+  std::size_t index = 0;
+  int result = 0;
+  if(::base::StringToInt(str, &result)){
+    // successful conversion
+    return {FROM_HERE, result};
+  }
+
+  // something in the string stopped the conversion, at index
+  RETURN_ERROR(ERR_INVALID_PARAM).without_logging()
+    << "Invalid input string:"
+    << str;
+}
+
+static ::basis::Status GetContents(const std::string& path, std::string* data)
+{
+  using namespace ::app_error_space;
+
+  if(path.empty())
+    RETURN_ERROR(ERR_INVALID_PARAM)
+        << "Invalid path.";
+
+  *data = path; // for test purposes only
+
+  RETURN_OK();
+}
+
+static ::basis::StatusOr<int> ReadNumber(const std::string& path) {
+  std::string data;
+  RETURN_IF_ERROR(GetContents(path, &data));
+
+  ASSIGN_OR_RETURN(int number, ParseInt(data));
+  return {FROM_HERE, number};
+}
+
 static ::basis::Status testErrInternal()
 {
   ::basis::Status status =
@@ -175,6 +215,17 @@ static ::basis::StatusOr<std::string> or_testErrInternal2()
 {
   RETURN_ERROR(/*ERR_INVALID_PARAM*/)
       << "Unsupported or_testErrInternal2.";
+}
+
+static ::basis::StatusOr<std::string> or_testErr()
+{
+  using namespace ::app_error_space;
+
+  ::basis::StatusOr<std::string> status =
+    MAKE_ERROR(ERR_PERMISSION_DENIED)
+      << "testCustomErr";
+
+  return status;
 }
 
 static ::basis::StatusOr<std::string> or_testOk()
@@ -365,6 +416,8 @@ static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
       = or_testErrInternal2();
     ::basis::StatusOr<std::string> or_resErrInternal3
       = or_testErrInternal3();
+    ::basis::StatusOr<std::string> or_testErr1
+      = or_testErr();
     ::basis::StatusOr<std::string> or_resOk
       = or_testOk();
     ::basis::StatusOr<std::string> or_resOk2
@@ -379,12 +432,45 @@ static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
       << " or_resErrInternal3 "
       << or_resErrInternal3;
     DVLOG(99)
+      << " or_testErr1 "
+      << or_testErr1;
+    DVLOG(99)
       << " or_resOk "
       << or_resOk;
     DVLOG(99)
       << " or_resOk2 "
       << or_resOk2;
   }
+
+  DVLOG(99)
+    << " ReadNumber 327: "
+    << ReadNumber("327"); // OK
+
+  DVLOG(99)
+    << " ReadNumber abc: "
+    << ReadNumber("abc"); // ERR
+
+  DVLOG(99)
+    << " ReadNumber xyz: ";
+  ::basis::StatusOr<int> readNumberStatusOr = ReadNumber("xyz");
+  // `!status.ok()` required by APPEND_ERROR
+  DCHECK(!readNumberStatusOr.ok());
+  ::basis::Status readNumberStatus = readNumberStatusOr.status();
+  DVLOG(99)
+    << " Performing APPEND_ERROR ";
+  readNumberStatus = APPEND_ERROR(readNumberStatus)//.with_log_stack_trace()
+      << " Custom error appended.";
+  DVLOG(99)
+    << " Performing APPEND_ERROR ";
+  readNumberStatus = APPEND_ERROR(readNumberStatus).without_logging()
+      << " Another error appended.";
+  DVLOG(99)
+    << " Performing APPEND_STATUS_IF_ERROR ";
+  APPEND_STATUS_IF_ERROR(readNumberStatus, ParseInt("foo").status());
+  DVLOG(99)
+    << " Result xyz: "
+    << readNumberStatus; // ERR
+  LOG_IF_ERROR(readNumberStatus);
 
   exit(0);
 #endif

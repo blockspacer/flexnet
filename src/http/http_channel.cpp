@@ -307,7 +307,7 @@ namespace http {
 HttpChannel::HttpChannel(
   StreamType&& stream
   , MessageBufferType&& buffer
-  , ECS::NetworkRegistry& netRegistry
+  , ECS::SafeRegistry& registry
   , const ECS::Entity entity_id)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
@@ -319,7 +319,7 @@ HttpChannel::HttpChannel(
       stream_.get_executor())
   , is_stream_valid_(true)
   , buffer_(base::rvalue_cast(buffer))
-  , netRegistry_(REFERENCED(netRegistry))
+  , registry_(REFERENCED(registry))
   , entity_id_(entity_id)
 {
   LOG_CALL(DVLOG(99));
@@ -474,7 +474,7 @@ void HttpChannel::doEof() NO_EXCEPTION
 {
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
@@ -504,32 +504,32 @@ void HttpChannel::doEof() NO_EXCEPTION
     REFERENCED(socket));
 
   DCHECK_NO_ATOMIC_FLAG(can_schedule_callbacks_);
-  netRegistry_->taskRunner()->PostTask(
+  registry_->taskRunner()->PostTask(
     FROM_HERE
     , ::base::BindOnce(
         &HttpChannel::markUnused
-        , REFERENCED(*netRegistry_)
+        , REFERENCED(*registry_)
         , entity_id_
       )
   );
 }
 
 void HttpChannel::markUnused(
-  ECS::NetworkRegistry& netRegistry
+  ECS::SafeRegistry& registry
   , ECS::EntityId entity_id) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK(netRegistry.RunsTasksInCurrentSequence());
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
   // If object was freed,
   // than no need to mark it as unused
-  if(!netRegistry->valid(entity_id)){
+  if(!registry->valid(entity_id)){
     return;
   }
 
-  if(!netRegistry->has<ECS::UnusedTag>(entity_id)) {
-    netRegistry->emplace<ECS::UnusedTag>(entity_id);
+  if(!registry->has<ECS::UnusedTag>(entity_id)) {
+    registry->emplace<ECS::UnusedTag>(entity_id);
   }
 }
 
@@ -607,7 +607,7 @@ void HttpChannel::onRead(
   LOG_CALL(DVLOG(99));
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
 
@@ -652,7 +652,7 @@ void HttpChannel::onRead(
 
     // create websocket connection
     DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
-    netRegistry_->taskRunner()->PostTask(
+    registry_->taskRunner()->PostTask(
       FROM_HERE
       , ::base::bindCheckedOnce(
           DEBUG_BIND_CHECKS(
@@ -742,14 +742,14 @@ void HttpChannel::handleWebsocketUpgrade(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
 
-  DCHECK(netRegistry_->RunsTasksInCurrentSequence());
+  DCHECK(registry_->RunsTasksInCurrentSequence());
 
   ECS::TcpConnection& tcpComponent
-    = (*netRegistry_)->get<ECS::TcpConnection>(entity_id_);
+    = (*registry_)->get<ECS::TcpConnection>(entity_id_);
 
   DVLOG(99)
     << "using TcpConnection with id: "
@@ -764,7 +764,7 @@ void HttpChannel::handleWebsocketUpgrade(
     = &tcpComponent->reset_or_create_var<WsChannelComponent>(
         "Ctx_WsChannelComponent_" + ::base::GenerateGUID() // debug name
         , ::base::rvalue_cast(stream)
-        , REFERENCED(*netRegistry_)
+        , REFERENCED(*registry_)
         , entity_id_);
 
   // we moved `stream_` out

@@ -1,15 +1,15 @@
-#include "basis/ECS/network_registry.hpp"
+#include "basis/ECS/safe_registry.hpp"
 
 #include <basis/ECS/tags.hpp>
-#include <basis/ECS/helpers/foreach_child_entity.hpp>
-#include <basis/ECS/helpers/view_child_entities.hpp>
-#include <basis/ECS/helpers/remove_all_children_from_view.hpp>
-#include <basis/ECS/helpers/remove_parent_components.hpp>
-#include <basis/ECS/helpers/remove_child_components.hpp>
-#include <basis/ECS/components/child_linked_list.hpp>
-#include <basis/ECS/components/child_linked_list_size.hpp>
-#include <basis/ECS/components/first_child_in_linked_list.hpp>
-#include <basis/ECS/components/parent_entity.hpp>
+#include <basis/ECS/helpers/relationship/foreach_top_level_child.hpp>
+#include <basis/ECS/helpers/relationship/view_top_level_children.hpp>
+#include <basis/ECS/helpers/relationship/remove_all_children_from_view.hpp>
+#include <basis/ECS/helpers/relationship/remove_parent_components.hpp>
+#include <basis/ECS/helpers/relationship/remove_child_components.hpp>
+#include <basis/ECS/components/relationship/child_siblings.hpp>
+#include <basis/ECS/components/relationship/top_level_children_count.hpp>
+#include <basis/ECS/components/relationship/first_child_in_linked_list.hpp>
+#include <basis/ECS/components/relationship/parent_entity.hpp>
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
 
@@ -29,14 +29,14 @@ namespace ECS {
 
 template <typename TagT>
 auto groupParentsWithUnusedChilds(
-  ECS::NetworkRegistry& net_registry)
+  ECS::SafeRegistry& registry)
 {
   using FirstChildComponent = ECS::FirstChildInLinkedList<TagT>;
 
-  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
   return
-    net_registry->view<
+    registry->view<
       // unused entities
       ECS::UnusedTag
       // entities that have children
@@ -62,18 +62,18 @@ auto groupParentsWithUnusedChilds(
 // because performance is critical here.
 template <typename TagType>
 void updateUnusedChildList(
-  ECS::NetworkRegistry& net_registry)
+  ECS::SafeRegistry& registry)
 {
   using FirstChildComponent = ECS::FirstChildInLinkedList<TagType>;
-  using ChildrenComponent = ECS::ChildLinkedList<TagType>;
+  using ChildrenComponent = ECS::ChildSiblings<TagType>;
   /// \note we assume that size of all children can be stored in `size_t`
-  using ChildrenSizeComponent = ECS::ChildLinkedListSize<TagType, size_t>;
+  using ChildrenSizeComponent = ECS::TopLevelChildrenCount<TagType, size_t>;
   using ParentComponent = ECS::ParentEntity<TagType>;
 
-  DCHECK_RUN_ON_NET_REGISTRY(&net_registry);
+  DCHECK_RUN_ON_REGISTRY(&registry);
 
   auto registry_group
-    = groupParentsWithUnusedChilds<TagType>(net_registry);
+    = groupParentsWithUnusedChilds<TagType>(registry);
 
   if(registry_group.size()) {
     UMA_HISTOGRAM_COUNTS_1000("ECS.unusedChildListBatches",
@@ -100,8 +100,8 @@ void updateUnusedChildList(
       << " found unused entity with children. Entity id: "
       << parentEntityId;
 
-    ECS::foreachChildEntity<TagType>(
-      REFERENCED(net_registry.registryUnsafe())
+    ECS::foreachTopLevelChild<TagType>(
+      REFERENCED(registry.registryUnsafe())
       , parentEntityId
       , ::base::BindRepeating(
         [
@@ -125,18 +125,18 @@ void updateUnusedChildList(
 
   /// \note create new group to avoid iterator invalidation
   for(const ECS::Entity& childId:
-    net_registry->view<Internal_ChildrenToDestroy>())
+    registry->view<Internal_ChildrenToDestroy>())
   {
-    DCHECK(!net_registry->has<ECS::NeedToDestroyTag>(childId));
-    net_registry->emplace<ECS::NeedToDestroyTag>(childId);
+    DCHECK(!registry->has<ECS::NeedToDestroyTag>(childId));
+    registry->emplace<ECS::NeedToDestroyTag>(childId);
 
-    net_registry->remove<Internal_ChildrenToDestroy>(childId);
+    registry->remove<Internal_ChildrenToDestroy>(childId);
   }
 
   removeAllChildrenFromView<
     TagType
   >(
-    REFERENCED(net_registry.registryUnsafe())
+    REFERENCED(registry.registryUnsafe())
     , ECS::include<
         ECS::UnusedTag
       >

@@ -44,7 +44,7 @@ namespace ws {
 Listener::Listener(
   IoContext& ioc
   , EndpointType&& endpoint
-  , ECS::NetworkRegistry& netRegistry
+  , ECS::SafeRegistry& registry
   , EntityAllocatorCb entityAllocator)
   : ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_ptr_factory_(COPIED(this)))
@@ -53,7 +53,7 @@ Listener::Listener(
         weak_ptr_factory_.GetWeakPtr()))
   , ioc_(REFERENCED(ioc))
   , endpoint_(endpoint)
-  , netRegistry_(REFERENCED(netRegistry))
+  , registry_(REFERENCED(registry))
   , acceptorStrand_(
       /// \note `get_executor` returns copy
       ioc.get_executor())
@@ -283,7 +283,7 @@ void Listener::doAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
 
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
@@ -305,7 +305,7 @@ void Listener::doAccept()
   /// BEFORE anyone connected
   /// (before callback of `async_accept`)
 
-  netRegistry_->taskRunner()->PostTask(
+  registry_->taskRunner()->PostTask(
     FROM_HERE
     , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
@@ -320,16 +320,16 @@ void Listener::allocateTcpResourceAndAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
-  DCHECK(netRegistry_->RunsTasksInCurrentSequence());
+  DCHECK(registry_->RunsTasksInCurrentSequence());
 
   /// \todo make configurable
   const size_t kWarnBigRegistrySize = 100000;
   LOG_IF(WARNING
-    , (*netRegistry_)->size() > kWarnBigRegistrySize)
+    , (*registry_)->size() > kWarnBigRegistrySize)
    << "Asio registry has more than "
    << kWarnBigRegistrySize
    << " entities."
@@ -343,11 +343,11 @@ void Listener::allocateTcpResourceAndAccept()
   DCHECK(entityAllocator_);
   ECS::Entity tcp_entity_id
     = entityAllocator_.Run();
-  DCHECK((*netRegistry_)->valid(tcp_entity_id));
+  DCHECK((*registry_)->valid(tcp_entity_id));
 
-  DCHECK((*netRegistry_)->has<ECS::TcpConnection>(tcp_entity_id));
+  DCHECK((*registry_)->has<ECS::TcpConnection>(tcp_entity_id));
   ECS::TcpConnection& tcpComponent
-    = (*netRegistry_)->get<ECS::TcpConnection>(tcp_entity_id);
+    = (*registry_)->get<ECS::TcpConnection>(tcp_entity_id);
 
   DVLOG(99)
     << "using TcpConnection with id: "
@@ -579,7 +579,7 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
 
@@ -620,7 +620,7 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
   // mark connection as newly created
   // (or as failed with error code)
 
-  netRegistry_->taskRunner()->PostTask(
+  registry_->taskRunner()->PostTask(
     FROM_HERE
     , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
@@ -652,17 +652,17 @@ void Listener::setAcceptConnectionResult(
   , ErrorCode&& ec
   , SocketType&& socket)
 {
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(netRegistry_);
+  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
 
-  DCHECK(netRegistry_->RunsTasksInCurrentSequence());
+  DCHECK(registry_->RunsTasksInCurrentSequence());
 
-  DCHECK((*netRegistry_)->valid(tcp_entity_id));
+  DCHECK((*registry_)->valid(tcp_entity_id));
 
   DVLOG(99)
     << " added new connection";
 
   ECS::TcpConnection& tcpComponent
-    = (*netRegistry_)->get<ECS::TcpConnection>(tcp_entity_id);
+    = (*registry_)->get<ECS::TcpConnection>(tcp_entity_id);
 
   // `ECS::TcpConnection` must be valid
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
@@ -672,7 +672,7 @@ void Listener::setAcceptConnectionResult(
       = ::base::Optional<Listener::AcceptConnectionResult>;
 
     // If the value already exists allow it to be re-used
-    (*netRegistry_)->remove_if_exists<
+    (*registry_)->remove_if_exists<
         ECS::UnusedAcceptResultTag
       >(tcp_entity_id);
 
@@ -686,7 +686,7 @@ void Listener::setAcceptConnectionResult(
       << " forcing close of connection";
 
     UniqueAcceptComponent& acceptResult
-      = (*netRegistry_).reset_or_create_component<UniqueAcceptComponent>(
+      = (*registry_).reset_or_create_component<UniqueAcceptComponent>(
             "UniqueAcceptComponent_" + ::base::GenerateGUID() // debug name
             , tcp_entity_id
             , ::base::rvalue_cast(ec)
@@ -721,8 +721,8 @@ Listener::~Listener()
   // i.e. use check `registry.empty()`
   {
     /// \note (thread-safety) access from destructor when ioc->stopped
-    /// i.e. assume no running asio threads that use |netRegistry_|
-    DCHECK(netRegistry_->registryUnsafe().empty());
+    /// i.e. assume no running asio threads that use |registry_|
+    DCHECK(registry_->registryUnsafe().empty());
   }
 
   /// \note Callbacks posted on |io_context| can use |this|,

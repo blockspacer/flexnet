@@ -22,7 +22,7 @@
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
-#include <basis/ECS/network_registry.hpp>
+#include <basis/ECS/safe_registry.hpp>
 #include <basis/ECS/simulation_registry.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
@@ -44,7 +44,7 @@ class TcpEntityAllocator
 {
  public:
   TcpEntityAllocator(
-    ECS::NetworkRegistry& netRegistry);
+    ECS::SafeRegistry& registry);
 
   ~TcpEntityAllocator();
 
@@ -61,7 +61,7 @@ class TcpEntityAllocator
   // We prohibit any `unknown` types of entities that can be re-used.
   MUST_USE_RETURN_VALUE
   ECS::Entity allocateTcpEntity() NO_EXCEPTION
-    PUBLIC_METHOD_RUN_ON(&netRegistryRef_->taskRunner());
+    PUBLIC_METHOD_RUN_ON(&registryRef_->taskRunner());
 
   SET_WEAK_SELF(TcpEntityAllocator)
 
@@ -69,8 +69,8 @@ class TcpEntityAllocator
   SET_WEAK_POINTERS(TcpEntityAllocator);
 
 private:
-  ::basis::UnownedRef<ECS::NetworkRegistry> netRegistryRef_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(netRegistryRef_);
+  ::basis::UnownedRef<ECS::SafeRegistry> registryRef_
+    GUARD_MEMBER_OF_UNKNOWN_THREAD(registryRef_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 
