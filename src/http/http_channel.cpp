@@ -48,6 +48,8 @@
 
 namespace beast = ::boost::beast;
 
+ECS_DEFINE_METATYPE(::base::Optional<flexnet::http::HttpChannel>)
+
 namespace {
 
 using HttpChannel

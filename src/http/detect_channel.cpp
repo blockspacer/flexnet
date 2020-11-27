@@ -27,6 +27,12 @@
 
 namespace beast = ::boost::beast;
 
+ECS_DEFINE_METATYPE(UnusedSSLDetectResultTag)
+
+ECS_DEFINE_METATYPE(::base::Optional<::flexnet::http::DetectChannel::SSLDetectResult>)
+
+ECS_DEFINE_METATYPE(::base::Optional<::flexnet::http::DetectChannel>)
+
 namespace flexnet {
 namespace http {
 
@@ -254,6 +260,9 @@ void DetectChannel::onDetected(
   bool forceClosing
     = !stream_.has_value()
       || !stream_.value().socket().is_open();
+
+  GET_FAIL_POINT(failPointPtr, FailPoint_CloseOnDetectChannel);
+  SET_IF_FAIL_POINT(failPointPtr, forceClosing = true);
 
   DVLOG_IF(99, forceClosing)
     << " forcing close of connection";

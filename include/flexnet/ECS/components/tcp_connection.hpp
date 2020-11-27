@@ -23,7 +23,7 @@ namespace ECS {
 
 // Each entity representing tcp connection
 // must have that component.
-struct TcpConnection
+CREATE_ECS_COMPONENT(TcpConnection)
 {
   // Shortcut for `.context`
   //
@@ -72,3 +72,5 @@ struct TcpConnection
 };
 
 } // namespace ECS
+
+ECS_DECLARE_METATYPE(TcpConnection)

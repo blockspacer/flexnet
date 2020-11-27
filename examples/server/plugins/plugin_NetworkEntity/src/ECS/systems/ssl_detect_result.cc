@@ -1,6 +1,7 @@
 #include "ECS/systems/ssl_detect_result.hpp" // IWYU pragma: associated
 
 #include <basis/ECS/tags.hpp>
+#include <basis/ECS/helpers/lifetime/exclude_not_constructed.hpp>
 
 #include <flexnet/ECS/components/tcp_connection.hpp>
 #include <flexnet/http/http_channel.hpp>
@@ -151,15 +152,9 @@ void updateSSLDetection(
 
   auto registry_group
     = registry->view<view_component>(
-        entt::exclude<
-          // entity in destruction
-          ECS::NeedToDestroyTag
-          // entity not fully created
-          , ECS::DelayedConstruction
-          // entity is unused
-          , ECS::UnusedTag
+        ECS::exclude_not_constructed<
           // components related to SSL detection are unused
-          , ECS::UnusedSSLDetectResultTag
+          ECS::UnusedSSLDetectResultTag
         >
       );
 

@@ -20,6 +20,7 @@
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
+#include <basis/fail_point/fail_point.hpp>
 
 #include <boost/beast/core.hpp>
 
@@ -48,6 +49,8 @@ CREATE_ECS_TAG(UnusedSSLDetectResultTag)
 
 namespace flexnet {
 namespace http {
+
+STRONG_FAIL_POINT(FailPoint_CloseOnDetectChannel);
 
 // Detect a TLS client handshake on a stream.
 //
@@ -387,3 +390,9 @@ private:
 
 } // namespace http
 } // namespace flexnet
+
+ECS_DECLARE_METATYPE(UnusedSSLDetectResultTag)
+
+ECS_DECLARE_METATYPE(::base::Optional<::flexnet::http::DetectChannel::SSLDetectResult>)
+
+ECS_DECLARE_METATYPE(::base::Optional<::flexnet::http::DetectChannel>)

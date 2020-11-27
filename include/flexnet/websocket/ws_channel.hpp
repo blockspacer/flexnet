@@ -24,6 +24,7 @@
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
+#include <basis/plug_point/plug_point.hpp>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -50,18 +51,48 @@ namespace util { template <class T> class UnownedPtr; }
 
 namespace util { template <class T> class UnownedRef; }
 
-namespace ECS {
-
-// Used to process component only once
-// i.e. mark already processed components
-// that can be re-used by memory pool.
-/// \todo
-//CREATE_ECS_TAG(UnusedSSLDetectResultTag)
-
-} // namespace ECS
-
 namespace flexnet {
 namespace ws {
+
+// result of |acceptor_.async_accept(...)|
+// i.e. stores created socket
+CREATE_ECS_COMPONENT(RecievedData)
+{
+  RecievedData(
+    std::string&& _data)
+    : data(base::rvalue_cast(_data))
+    {}
+
+  RecievedData(
+    RecievedData&& other)
+    : RecievedData(
+        ::base::rvalue_cast(other.data))
+    {}
+
+  // Move assignment operator
+  //
+  // MOTIVATION
+  //
+  // To use type as ECS component
+  // it must be `move-constructible` and `move-assignable`
+  RecievedData& operator=(
+    RecievedData&& rhs)
+  {
+    if (this != &rhs)
+    {
+      data = ::base::rvalue_cast(rhs.data);
+    }
+
+    return *this;
+  }
+
+  ~RecievedData()
+  {}
+
+  std::string data;
+};
+
+STRONG_PLUG_POINT(PlugPoint_RecievedData, base::Optional<bool>(const std::string&));
 
 /// \todo support both SslWebsocketSession and PlainWebsocketSession
 /// as in github.com/iotaledger/hub/blob/master/common/http_server_base.cc#L203
@@ -285,84 +316,6 @@ public:
 
     DISALLOW_COPY_AND_ASSIGN(CircularMessageBuffer);
   };
-
-  // result of |acceptor_.async_accept(...)|
-  // i.e. stores created socket
-  struct RecievedData {
-    RecievedData(
-      std::string&& _data)
-      : data(base::rvalue_cast(_data))
-      {}
-
-    RecievedData(
-      RecievedData&& other)
-      : RecievedData(
-          ::base::rvalue_cast(other.data))
-      {}
-
-    // Move assignment operator
-    //
-    // MOTIVATION
-    //
-    // To use type as ECS component
-    // it must be `move-constructible` and `move-assignable`
-    RecievedData& operator=(
-      RecievedData&& rhs)
-    {
-      if (this != &rhs)
-      {
-        data = ::base::rvalue_cast(rhs.data);
-      }
-
-      return *this;
-    }
-
-    ~RecievedData()
-    {
-      LOG_CALL(DVLOG(99));
-    }
-
-    std::string data;
-  };
-
-  /*// result of |acceptor_.async_accept(...)|
-  // i.e. stores created socket
-  struct RecievedFrom {
-    RecievedFrom(
-      ECS::EntityId _entity_id)
-      : entity_id(_entity_id)
-      {}
-
-    RecievedFrom(
-      RecievedFrom&& other)
-      : RecievedFrom(
-          ::base::rvalue_cast(other.entity_id))
-      {}
-
-    // Move assignment operator
-    //
-    // MOTIVATION
-    //
-    // To use type as ECS component
-    // it must be `move-constructible` and `move-assignable`
-    RecievedFrom& operator=(
-      RecievedFrom&& rhs)
-    {
-      if (this != &rhs)
-      {
-        entity_id = ::base::rvalue_cast(rhs.entity_id);
-      }
-
-      return *this;
-    }
-
-    ~RecievedFrom()
-    {
-      LOG_CALL(DVLOG(99));
-    }
-
-    ECS::EntityId entity_id;
-  };*/
 
 public:
   WsChannel(
@@ -617,3 +570,7 @@ private:
 
 } // namespace ws
 } // namespace flexnet
+
+ECS_DECLARE_METATYPE(::flexnet::ws::RecievedData);
+
+ECS_DECLARE_METATYPE(::base::Optional<::flexnet::ws::WsChannel>);

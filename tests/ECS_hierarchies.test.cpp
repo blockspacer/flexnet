@@ -157,12 +157,21 @@
 
 #include <flexnet/util/close_socket_unsafe.hpp>
 
+CREATE_ECS_TAG(Internal_hasChildAtTopLevelTag);
+ECS_DECLARE_METATYPE(Internal_hasChildAtTopLevelTag);
+ECS_DEFINE_METATYPE(Internal_hasChildAtTopLevelTag)
+
+class TestTypeTag{};
+
+using TagType = TestTypeTag;
+
+ECS_DEFINE_METATYPE_TEMPLATE(ECS::ChildSiblings<TagType>);
+ECS_DEFINE_METATYPE_TEMPLATE(ECS::TopLevelChildrenCount<TagType, size_t>);
+ECS_DEFINE_METATYPE_TEMPLATE(ECS::ParentEntity<TagType>);
+ECS_DEFINE_METATYPE_TEMPLATE(ECS::FirstChildInLinkedList<TagType>);
+
 TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
 {
-  class TestTypeTag{};
-
-  using TagType = TestTypeTag;
-
   using FirstChildComponent = ECS::FirstChildInLinkedList<TagType>;
   using ChildrenComponent = ECS::ChildSiblings<TagType>;
   /// \note we assume that size of all children can be stored in `size_t`
@@ -606,8 +615,6 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
 
     DCHECK_EQ(registry.get<FirstChildComponent>(parentId).firstId, childThreeId);
     DCHECK_EQ(registry.get<ChildrenSizeComponent>(parentId).size, 1);
-
-    CREATE_ECS_TAG(Internal_hasChildAtTopLevelTag);
 
     registry.emplace<Internal_hasChildAtTopLevelTag>(parentId);
 

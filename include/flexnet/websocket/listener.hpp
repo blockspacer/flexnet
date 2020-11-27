@@ -447,3 +447,9 @@ private:
 
 } // namespace ws
 } // namespace flexnet
+
+ECS_DECLARE_METATYPE(UnusedAcceptResultTag)
+
+ECS_DECLARE_METATYPE(::base::Optional<::flexnet::ws::Listener::AcceptConnectionResult>)
+
+ECS_DECLARE_METATYPE(::base::Optional<::flexnet::ws::Listener::StrandComponent>)

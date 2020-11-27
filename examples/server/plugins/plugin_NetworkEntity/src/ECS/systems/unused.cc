@@ -12,7 +12,20 @@
 #include <base/trace_event/trace_buffer.h>
 #include <base/trace_event/trace_log.h>
 #include <base/logging.h>
+#include <base/feature_list.h>
 #include <base/trace_event/trace_event.h>
+
+namespace {
+
+constexpr char kFeatureDisableUnusedSystemForTestingName[]
+  = "disable_unused_system_for_testing";
+
+// --enable-features=disable_unused_system_for_testing,...
+const base::Feature kFeatureDisableUnusedSystemForTesting {
+  kFeatureDisableUnusedSystemForTestingName, base::FEATURE_DISABLED_BY_DEFAULT
+};
+
+} // namespace
 
 namespace ECS {
 
@@ -20,6 +33,11 @@ void updateUnusedSystem(
   ECS::SafeRegistry& registry)
 {
   DCHECK_RUN_ON_REGISTRY(&registry);
+
+  if(UNLIKELY(base::FeatureList::IsEnabled(kFeatureDisableUnusedSystemForTesting)))
+  {
+    return;
+  }
 
   /// \note Also processes entities
   /// that were not fully created (see `ECS::DelayedConstruction`).

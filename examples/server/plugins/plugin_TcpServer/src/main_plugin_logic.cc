@@ -14,6 +14,7 @@
 #include <basis/strong_types/strong_alias.hpp>
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
+#include <basis/ECS/helpers/lifetime/exclude_not_constructed.hpp>
 
 #include <entt/entity/registry.hpp>
 #include <entt/signal/dispatcher.hpp>
@@ -222,14 +223,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
 
         auto ecsView
           = registry->view<ECS::TcpConnection>(
-              entt::exclude<
-                // entity in destruction
-                ECS::NeedToDestroyTag
-                // entity not fully created
-                , ECS::DelayedConstruction
-                // entity is unused
-                , ECS::UnusedTag
-              >
+              ECS::exclude_not_constructed<>
             );
 
         ::base::RepeatingCallback<void(ECS::Entity, ECS::Registry&)> doEofWebsocket

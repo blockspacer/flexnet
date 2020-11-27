@@ -149,7 +149,7 @@ void NetworkEntityUpdater::update() NO_EXCEPTION
         ECS::updateUnusedChildList<
           // drop recieved messages
           // if websocket session is unused i.e. closed
-          ::flexnet::ws::WsChannel::RecievedData
+          ::flexnet::ws::RecievedData
         >(registry);
 
         /// \note Removes `DelayedConstructionJustDone` component from any entity.

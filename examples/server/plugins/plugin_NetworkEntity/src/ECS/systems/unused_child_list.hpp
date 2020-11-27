@@ -51,6 +51,11 @@ auto groupParentsWithUnusedChilds(
     );
 }
 
+// To work around issues during iterations we store aside
+// the entities and the components to be removed
+// and perform the operations at the end of the iteration.
+CREATE_ECS_TAG(Internal_ChildrenToDestroy);
+
 // For each unused entity that have children:
 // 1. Marks all children with `ECS::NeedToDestroyTag`
 // 2. Removes all children from entity.
@@ -88,11 +93,6 @@ void updateUnusedChildList(
       << registry_group.size();
   }
 #endif // NDEBUG
-
-  // To work around issues during iterations we store aside
-  // the entities and the components to be removed
-  // and perform the operations at the end of the iteration.
-  CREATE_ECS_TAG(Internal_ChildrenToDestroy);
 
   for(const ECS::Entity& parentEntityId: registry_group)
   {
@@ -150,3 +150,5 @@ void updateUnusedChildList(
 }
 
 } // namespace ECS
+
+ECS_DECLARE_METATYPE(Internal_ChildrenToDestroy);

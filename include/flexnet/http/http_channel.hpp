@@ -44,16 +44,6 @@ namespace util { template <class T> class UnownedPtr; }
 
 namespace util { template <class T> class UnownedRef; }
 
-namespace ECS {
-
-// Used to process component only once
-// i.e. mark already processed components
-// that can be re-used by memory pool.
-/// \todo
-//CREATE_ECS_TAG(UnusedSSLDetectResultTag)
-
-} // namespace ECS
-
 namespace flexnet {
 namespace http {
 
@@ -345,3 +335,5 @@ private:
 
 } // namespace http
 } // namespace flexnet
+
+ECS_DECLARE_METATYPE(::base::Optional<flexnet::http::HttpChannel>)

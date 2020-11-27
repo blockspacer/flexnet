@@ -4,6 +4,7 @@
 #include <basis/task/task_util.hpp>
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
+#include <basis/ECS/helpers/lifetime/exclude_not_constructed.hpp>
 
 #include <flexnet/util/close_socket_unsafe.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
@@ -148,15 +149,8 @@ void updateNewConnections(
   /// \note do not forget to free some memory in pool periodically
   auto registry_group
     = registry->view<view_component>(
-        entt::exclude<
-          // entity in destruction
-          ECS::NeedToDestroyTag
-          // entity not fully created
-          , ECS::DelayedConstruction
-          // entity is unused
-          , ECS::UnusedTag
-          // components related to acceptor are unused
-          , ECS::UnusedAcceptResultTag
+        ECS::exclude_not_constructed<
+          ECS::UnusedAcceptResultTag
         >
       );
 

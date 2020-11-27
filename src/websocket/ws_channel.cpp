@@ -19,7 +19,6 @@
 #include <basis/promise/post_promise.h>
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
-
 #include <boost/asio.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/assert.hpp>
@@ -53,6 +52,13 @@ namespace websocket = beast::websocket;
 using IpTcp = boost::asio::ip::tcp;
 // from <boost/system/error_code.hpp>
 using SystemErrorCode = boost::system::error_code;
+
+ECS_DEFINE_METATYPE_TEMPLATE(ECS::ChildSiblings<flexnet::ws::RecievedData>);
+ECS_DEFINE_METATYPE_TEMPLATE(ECS::TopLevelChildrenCount<flexnet::ws::RecievedData, size_t>);
+ECS_DEFINE_METATYPE_TEMPLATE(ECS::ParentEntity<flexnet::ws::RecievedData>);
+ECS_DEFINE_METATYPE_TEMPLATE(ECS::FirstChildInLinkedList<flexnet::ws::RecievedData>);
+
+ECS_DEFINE_METATYPE(::base::Optional<::flexnet::ws::WsChannel>);
 
 namespace flexnet {
 namespace ws {
@@ -456,6 +462,10 @@ void WsChannel::allocateRecievedDataComponent(
 
   DCHECK((*registry_).RunsTasksInCurrentSequence());
 
+  // plugins can extend API
+  GET_PLUG_POINT(plugPointPtr, ::flexnet::ws::PlugPoint_RecievedData);
+  RETURN_IF_PLUG_POINT_HAS_VALUE(plugPointPtr, REFERENCED(message));
+
   // We want to filter recieved messages individually,
   // so each message becomes separate entity.
   ECS::Entity msg_entity_id = (*registry_)->create();
@@ -467,11 +477,8 @@ void WsChannel::allocateRecievedDataComponent(
     << message.substr(0, 1024);
 
   {
-    using RecievedDataComponent
-      = ::base::Optional<WsChannel::RecievedData>;
-
-    RecievedDataComponent& recievedDataComponent
-      = (*registry_)->emplace<RecievedDataComponent>(
+    RecievedData& recievedDataComponent
+      = (*registry_)->emplace<RecievedData>(
             msg_entity_id // assign to entity with that id
             , ::base::rvalue_cast(message));
 
@@ -479,7 +486,7 @@ void WsChannel::allocateRecievedDataComponent(
     DCHECK((*registry_)->valid(msg_entity_id));
 
     ECS::prependChildEntity<
-        WsChannel::RecievedData // unique type tag for all children
+      RecievedData // unique type tag for all children
     >(
       REFERENCED(static_cast<ECS::Registry&>((*registry_)))
       , entity_id_ // parent

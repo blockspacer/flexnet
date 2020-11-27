@@ -13,6 +13,19 @@
 #include <base/trace_event/trace_log.h>
 #include <base/logging.h>
 #include <base/trace_event/trace_event.h>
+#include <base/feature_list.h>
+
+namespace {
+
+constexpr char kFeatureDisableCleanupSystemForTestingName[]
+  = "disable_cleanup_system_for_testing";
+
+// --enable-features=disable_cleanup_system_for_testing,...
+const base::Feature kFeatureDisableCleanupSystemForTesting {
+  kFeatureDisableCleanupSystemForTestingName, base::FEATURE_DISABLED_BY_DEFAULT
+};
+
+} // namespace
 
 namespace ECS {
 
@@ -22,6 +35,11 @@ void updateCleanupSystem(
   ECS::SafeRegistry& registry)
 {
   DCHECK_RUN_ON_REGISTRY(&registry);
+
+  if(UNLIKELY(base::FeatureList::IsEnabled(kFeatureDisableCleanupSystemForTesting)))
+  {
+    return;
+  }
 
   auto registry_group
     = registry->view<ECS::NeedToDestroyTag>();

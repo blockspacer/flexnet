@@ -38,6 +38,12 @@
 #include <iostream>
 #include <memory>
 
+ECS_DEFINE_METATYPE(UnusedAcceptResultTag)
+
+ECS_DEFINE_METATYPE(::base::Optional<::flexnet::ws::Listener::AcceptConnectionResult>)
+
+ECS_DEFINE_METATYPE(::base::Optional<::flexnet::ws::Listener::StrandComponent>)
+
 namespace flexnet {
 namespace ws {
 

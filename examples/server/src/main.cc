@@ -79,6 +79,7 @@
 #include <basis/strong_types/strong_size_units.hpp>
 #include <basis/strong_types/strong_time_units.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
+#include <basis/ECS/components/relationship/child_siblings.hpp>
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
 #include <basis/bind/callable_hook.hpp>
@@ -471,6 +472,15 @@ static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
     << " Result xyz: "
     << readNumberStatus; // ERR
   LOG_IF_ERROR(readNumberStatus);
+
+
+  ECS::Registry registry;
+
+  //ECS::Entity entity1 = registry.create();
+  //registry.emplace<ECS::UnusedTag>(entity1);
+
+  LOG(INFO) << "findTypeMeta " << ECS::setOrFindTypeMeta(
+    entt::type_info<ECS::ChildSiblings<int>>::id(), ECS::TypeMeta{}).name;
 
   exit(0);
 #endif
