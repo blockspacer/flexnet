@@ -91,9 +91,9 @@ public:
   //    , State next_state
   //    , Event* recovery_event)
   //   {
-  //     ignore_result(event);
-  //     ignore_result(next_state);
-  //     ignore_result(recovery_event);
+  //     UNREFERENCED_PARAMETER(event);
+  //     UNREFERENCED_PARAMETER(next_state);
+  //     UNREFERENCED_PARAMETER(recovery_event);
   //     return ::basis::OkStatus(FROM_HERE);
   //   });
   // sm_->AddExitAction(UNINITIALIZED, okStateCallback);

@@ -101,9 +101,9 @@ AppState::VoidPromise
     {
       LOG_CALL(DVLOG(99));
 
-      ignore_result(event);
-      ignore_result(next_state);
-      ignore_result(recovery_event);
+      UNREFERENCED_PARAMETER(event);
+      UNREFERENCED_PARAMETER(next_state);
+      UNREFERENCED_PARAMETER(recovery_event);
 
       /// \note `AddEntryAction` will add repeating callback,
       /// but we want to execute it only once
@@ -142,9 +142,9 @@ AppState::VoidPromise
     {
       LOG_CALL(DVLOG(99));
 
-      ignore_result(event);
-      ignore_result(next_state);
-      ignore_result(recovery_event);
+      UNREFERENCED_PARAMETER(event);
+      UNREFERENCED_PARAMETER(next_state);
+      UNREFERENCED_PARAMETER(recovery_event);
 
       /// \note `AddEntryAction` will add repeating callback,
       /// but we want to execute it only once

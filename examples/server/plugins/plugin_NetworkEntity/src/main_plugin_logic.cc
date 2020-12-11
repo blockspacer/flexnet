@@ -47,13 +47,11 @@ static void setNetworkEntityPeriodicTaskExecutorOnSequence(
   // Can not register same data type twice.
   // Forces users to call `sequenceLocalContext->unset`.
   DCHECK(!sequenceLocalContext->try_ctx<NetworkEntityPeriodicTaskExecutor>(FROM_HERE));
-  NetworkEntityPeriodicTaskExecutor& result
-    = sequenceLocalContext->set_once<NetworkEntityPeriodicTaskExecutor>(
+  ignore_result(sequenceLocalContext->set_once<NetworkEntityPeriodicTaskExecutor>(
         from_here
         , "Timeout.NetworkEntityPeriodicTaskExecutor." + from_here.ToString()
         , std::move(updateCallback)
-      );
-  ignore_result(result);
+      ));
 }
 
 static void startNetworkEntityPeriodicTaskExecutorOnSequence(

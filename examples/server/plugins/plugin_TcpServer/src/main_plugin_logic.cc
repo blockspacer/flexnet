@@ -233,7 +233,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
                , ECS::Entity entity
                , ECS::Registry& ecs_registry)
         {
-          ignore_result(ecs_registry);
+          UNREFERENCED_PARAMETER(ecs_registry);
 
           using namespace ::flexnet::ws;
 

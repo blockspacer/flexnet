@@ -98,13 +98,11 @@ static void setConsolePeriodicTaskExecutorOnSequence(
   // Can not register same data type twice.
   // Forces users to call `sequenceLocalContext->unset`.
   DCHECK(!sequenceLocalContext->try_ctx<ConsolePeriodicTaskExecutor>(FROM_HERE));
-  ConsolePeriodicTaskExecutor& result
-    = sequenceLocalContext->set_once<ConsolePeriodicTaskExecutor>(
+  ignore_result(sequenceLocalContext->set_once<ConsolePeriodicTaskExecutor>(
         from_here
         , "Timeout.ConsolePeriodicTaskExecutor." + from_here.ToString()
         , std::move(updateCallback)
-      );
-  ignore_result(result);
+      ));
 }
 
 static void startConsolePeriodicTaskExecutorOnSequence(
