@@ -51,7 +51,6 @@
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/safe_registry.hpp>
-#include <basis/ECS/simulation_registry.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/ECS/helpers/algorithm/find_entity.hpp>
 #include <basis/ECS/helpers/lifetime/populate_associated_components.hpp>

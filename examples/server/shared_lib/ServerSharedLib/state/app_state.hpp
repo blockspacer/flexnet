@@ -18,7 +18,6 @@
 #include <basis/status/status.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
-#include <basis/ECS/simulation_registry.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>

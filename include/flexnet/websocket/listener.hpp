@@ -19,7 +19,6 @@
 #include <basis/status/status.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
-#include <basis/ECS/simulation_registry.hpp>
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
 

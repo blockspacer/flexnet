@@ -54,7 +54,6 @@
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/safe_registry.hpp>
-#include <basis/ECS/simulation_registry.hpp>
 #include <basis/unowned_ptr.hpp>
 #include <basis/unowned_ref.hpp>
 #include <basis/base_environment.hpp>
