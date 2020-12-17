@@ -635,7 +635,7 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
         , &Listener::setAcceptConnectionResult
         , ::base::Unretained(this)
         , COPIED(tcp_entity_id)
-        , CAN_COPY_ON_MOVE("moving const") std::move(ec)
+        , COPY_OR_MOVE(ec)
         , ::base::rvalue_cast(socket)
       )
   );

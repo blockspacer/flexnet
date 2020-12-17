@@ -278,7 +278,7 @@ void DetectChannel::onDetected(
         , ::base::Unretained(this)
         /// \note do not forget to free allocated resources
         /// in case of error code
-        , CAN_COPY_ON_MOVE("moving const") std::move(ec)
+        , COPY_OR_MOVE(ec)
         , handshakeResult
         , MAKES_INVALID(stream_) ::base::rvalue_cast(stream_.value())
         , MAKES_INVALID(buffer_) ::base::rvalue_cast(buffer_)
