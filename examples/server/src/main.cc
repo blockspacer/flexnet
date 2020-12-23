@@ -71,12 +71,6 @@
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/task/periodic_check.hpp>
-#include <basis/strong_types/strong_alias.hpp>
-#include <basis/strong_types/strong_bool.hpp>
-#include <basis/strong_types/strong_string.hpp>
-#include <basis/strong_types/strong_int.hpp>
-#include <basis/strong_types/strong_size_units.hpp>
-#include <basis/strong_types/strong_time_units.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/ECS/components/relationship/child_siblings.hpp>
 #include <basis/bind/bind_checked.hpp>
@@ -107,156 +101,24 @@ using PluginManager
       ::plugin::PluginInterface
     >;
 
-static const char kDefaultPluginsConfigFilesDir[]
+namespace {
+
+const char kDefaultPluginsConfigFilesDir[]
   = "resources/configuration_files";
 
 // example: --plugins_conf=$PWD/conf/plugins.conf
-static const char kPluginsConfigFileSwitch[]
+const char kPluginsConfigFileSwitch[]
   = "plugins_conf";
 
-static const char kRelativePluginsDir[]
+const char kRelativePluginsDir[]
   = "plugins";
 
 // example: --plugins_dir=$PWD/plugins
-static const char kPluginsDirSwitch[]
+const char kPluginsDirSwitch[]
   = "plugins_dir";
 
-//#define TODO_TESTS 1
-
-#if TODO_TESTS
-
-static ::basis::StatusOr<int> ParseInt(const std::string& str)
-{
-  using namespace ::app_error_space;
-
-  std::size_t index = 0;
-  int result = 0;
-  if(::base::StringToInt(str, &result)){
-    // successful conversion
-    return {FROM_HERE, result};
-  }
-
-  // something in the string stopped the conversion, at index
-  RETURN_ERROR(ERR_INVALID_PARAM).without_logging()
-    << "Invalid input string:"
-    << str;
-}
-
-static ::basis::Status GetContents(const std::string& path, std::string* data)
-{
-  using namespace ::app_error_space;
-
-  if(path.empty())
-    RETURN_ERROR(ERR_INVALID_PARAM)
-        << "Invalid path.";
-
-  *data = path; // for test purposes only
-
-  RETURN_OK();
-}
-
-static ::basis::StatusOr<int> ReadNumber(const std::string& path) {
-  std::string data;
-  RETURN_IF_ERROR(GetContents(path, &data));
-
-  ASSIGN_OR_RETURN(int number, ParseInt(data));
-  return {FROM_HERE, number};
-}
-
-static ::basis::Status testErrInternal()
-{
-  ::basis::Status status =
-    MAKE_ERROR()
-      << "testErrInternal_text";
-  return status;
-}
-
-static ::basis::Status testErrInternal2()
-{
-  RETURN_ERROR(/*ERR_INVALID_PARAM*/)
-      << "testErrInternal2_text";
-}
-
-static ::basis::Status testErrInternal3()
-{
-  int port = -1;
-
-  RETURN_ERR_IF_FALSE(port >= 0)
-      << "Port ID must be non-negative. Attempted to get port " << port;
-
-  NOTREACHED();
-
-  //RETURN_ERROR(/*ERR_INVALID_PARAM*/);
-  ::basis::Status status =
-    MAKE_ERROR()
-      << "testErrInternal3_text";
-  return status;
-}
-
-static ::basis::Status testOk()
-{
-  RETURN_OK();
-}
-
-static ::basis::Status testOk2()
-{
-  return ::basis::OkStatus(FROM_HERE);
-}
-
-static ::basis::StatusOr<std::string> or_testErrInternal()
-{
-  ::basis::StatusOr<std::string> status =
-    MAKE_ERROR()
-      << "or_testErrInternal_text";
-  return status;
-}
-
-static ::basis::StatusOr<std::string> or_testErrInternal2()
-{
-  RETURN_ERROR(/*ERR_INVALID_PARAM*/)
-      << "Unsupported or_testErrInternal2.";
-}
-
-static ::basis::StatusOr<std::string> or_testErr()
-{
-  using namespace ::app_error_space;
-
-  ::basis::StatusOr<std::string> status =
-    MAKE_ERROR(ERR_PERMISSION_DENIED)
-      << "testCustomErr";
-
-  return status;
-}
-
-static ::basis::StatusOr<std::string> or_testOk()
-{
-  return {FROM_HERE, "or_testOk!!"};
-}
-
-static ::basis::StatusOr<std::string> or_testErrInternal3()
-{
-  int port = -1;
-
-  RETURN_ERR_IF_FALSE(port >= 0)
-      << "Port ID must be non-negative. Attempted to get port " << port;
-
-  NOTREACHED();
-
-  //RETURN_ERROR(/*ERR_INVALID_PARAM*/);
-  ::basis::Status status =
-    MAKE_ERROR()
-      << "or_testErrInternal3_text";
-  return status;
-}
-
-static ::basis::StatusOr<std::string> or_testOk2()
-{
-  return {FROM_HERE, "or_testOk2!!"};
-}
-#endif
-
 MUST_USE_RESULT
-static VoidPromise startPluginManager() NO_EXCEPTION
+VoidPromise startPluginManager() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -307,7 +169,7 @@ static VoidPromise startPluginManager() NO_EXCEPTION
 }
 
 MUST_USE_RESULT
-static VoidPromise shutdownPluginManager() NO_EXCEPTION
+VoidPromise shutdownPluginManager() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -325,24 +187,22 @@ static VoidPromise shutdownPluginManager() NO_EXCEPTION
 }
 
 // Add objects into global storage.
-static void setGlobals() NO_EXCEPTION
+void setGlobals() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK(base::RunLoop::IsRunningOnCurrentThread());
 
-  AppState& appState =
-    MainLoopRegistry::GetInstance()->registry()
-      .set<AppState>(AppState::UNINITIALIZED);
+  ignore_result(MainLoopRegistry::GetInstance()->registry()
+    .set<AppState>(AppState::UNINITIALIZED));
 
-  PluginManager& pluginManager =
-    MainLoopRegistry::GetInstance()->registry()
-      .set<PluginManager>();
+ ignore_result(MainLoopRegistry::GetInstance()->registry()
+      .set<PluginManager>());
 }
 
 // Remove objects from global storage.
 /// \note `unset` in order reverse to `set`.
-static void unsetGlobals() NO_EXCEPTION
+void unsetGlobals() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -356,7 +216,7 @@ static void unsetGlobals() NO_EXCEPTION
 }
 
 MUST_USE_RESULT
-static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
+VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
@@ -379,110 +239,6 @@ static VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
   ignore_result(
     startPluginManager()
   );
-
-#if TODO_TESTS
-  {
-    ::basis::Status resErrInternal
-      = testErrInternal();
-    ::basis::Status resErrInternal2
-      = testErrInternal2();
-    ::basis::Status resErrInternal3
-      = testErrInternal3();
-    ::basis::Status resOk
-      = testOk();
-    ::basis::Status resOk2
-      = testOk2();
-    DVLOG(99)
-      << " resErrInternal "
-      << resErrInternal;
-    DVLOG(99)
-      << " resErrInternal2 "
-      << resErrInternal2;
-    DVLOG(99)
-      << " resErrInternal3 "
-      << resErrInternal3;
-    DVLOG(99)
-      << " resOk "
-      << resOk;
-    DVLOG(99)
-      << " resOk2 "
-      << resOk2;
-  }
-
-  {
-    ::basis::StatusOr<std::string> or_resErrInternal
-      = or_testErrInternal();
-    ::basis::StatusOr<std::string> or_resErrInternal2
-      = or_testErrInternal2();
-    ::basis::StatusOr<std::string> or_resErrInternal3
-      = or_testErrInternal3();
-    ::basis::StatusOr<std::string> or_testErr1
-      = or_testErr();
-    ::basis::StatusOr<std::string> or_resOk
-      = or_testOk();
-    ::basis::StatusOr<std::string> or_resOk2
-      = or_testOk2();
-    DVLOG(99)
-      << " or_resErrInternal "
-      << or_resErrInternal;
-    DVLOG(99)
-      << " or_resErrInternal2 "
-      << or_resErrInternal2;
-    DVLOG(99)
-      << " or_resErrInternal3 "
-      << or_resErrInternal3;
-    DVLOG(99)
-      << " or_testErr1 "
-      << or_testErr1;
-    DVLOG(99)
-      << " or_resOk "
-      << or_resOk;
-    DVLOG(99)
-      << " or_resOk2 "
-      << or_resOk2;
-  }
-
-  DVLOG(99)
-    << " ReadNumber 327: "
-    << ReadNumber("327"); // OK
-
-  DVLOG(99)
-    << " ReadNumber abc: "
-    << ReadNumber("abc"); // ERR
-
-  DVLOG(99)
-    << " ReadNumber xyz: ";
-  ::basis::StatusOr<int> readNumberStatusOr = ReadNumber("xyz");
-  // `!status.ok()` required by APPEND_ERROR
-  DCHECK(!readNumberStatusOr.ok());
-  ::basis::Status readNumberStatus = readNumberStatusOr.status();
-  DVLOG(99)
-    << " Performing APPEND_ERROR ";
-  readNumberStatus = APPEND_ERROR(readNumberStatus)//.with_log_stack_trace()
-      << " Custom error appended.";
-  DVLOG(99)
-    << " Performing APPEND_ERROR ";
-  readNumberStatus = APPEND_ERROR(readNumberStatus).without_logging()
-      << " Another error appended.";
-  DVLOG(99)
-    << " Performing APPEND_STATUS_IF_ERROR ";
-  APPEND_STATUS_IF_ERROR(readNumberStatus, ParseInt("foo").status());
-  DVLOG(99)
-    << " Result xyz: "
-    << readNumberStatus; // ERR
-  LOG_IF_ERROR(readNumberStatus);
-
-
-  ECS::Registry registry;
-
-  //ECS::Entity entity1 = registry.create();
-  //registry.emplace<ECS::UnusedTag>(entity1);
-
-  LOG(INFO) << "findTypeMeta " << ECS::setOrFindTypeMeta(
-    entt::type_info<ECS::ChildSiblings<int>>::id(), ECS::TypeMeta{}).name;
-
-  exit(0);
-#endif
 
   return
   // async-wait for termination event
@@ -543,7 +299,7 @@ void finishProcessMetrics() NO_EXCEPTION
     const int kHistogramBucketCount = 50;
 
     UMA_HISTOGRAM_CUSTOM_COUNTS(
-        "App.AverageCPUUsage", cpu_usage,
+        "App.AverageCPUUsage", static_cast<base::HistogramBase::Sample>(cpu_usage),
         kHistogramMin, kHistogramMax, kHistogramBucketCount);
   }
 
@@ -623,6 +379,8 @@ void finishProcessMetrics() NO_EXCEPTION
     }
   }
 }
+
+} // namespace
 
 int main(int argc, char* argv[])
 {

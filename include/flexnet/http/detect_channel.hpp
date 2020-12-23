@@ -123,15 +123,15 @@ public:
   // result of |beast::async_detect_ssl|
   struct SSLDetectResult {
     SSLDetectResult(
-      ErrorCode&& ec
-      , const bool handshakeResult
-      , StreamType&& stream
-      , MessageBufferType&& buffer
+      ErrorCode&& _ec
+      , const bool _handshakeResult
+      , StreamType&& _stream
+      , MessageBufferType&& _buffer
       , const bool _need_close)
-      : ec(base::rvalue_cast(ec))
-      , handshakeResult(handshakeResult)
-      , stream(base::rvalue_cast(stream))
-      , buffer(base::rvalue_cast(buffer))
+      : ec(base::rvalue_cast(_ec))
+      , handshakeResult(_handshakeResult)
+      , stream(base::rvalue_cast(_stream))
+      , buffer(base::rvalue_cast(_buffer))
       , need_close(_need_close)
       {}
 

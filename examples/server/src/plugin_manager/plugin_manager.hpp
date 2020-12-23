@@ -806,7 +806,7 @@ public:
 
     unloadCount_[nameOrPath]++;
     UMA_HISTOGRAM_COUNTS_1000("PluginManager.onUnloaded",
-      unloadCount_[nameOrPath]);
+      static_cast<base::HistogramBase::Sample>(unloadCount_[nameOrPath]));
 
     return VoidPromise::CreateResolved(FROM_HERE);
   }
