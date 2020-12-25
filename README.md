@@ -61,6 +61,9 @@ cmake \
   -DENABLE_LLVM_TOOLS=FALSE \
   -DENABLE_CLING=FALSE \
   -P tools/buildConanThirdparty.cmake
+
+# clean build cache
+conan remove "*" --build --force
 ```
 
 - llvm_tools package
@@ -83,6 +86,9 @@ conan create . \
   -s build_type=Release \
   --profile clang \
   --build missing
+
+# clean build cache
+conan remove "*" --build --force
 ```
 
 Up-to-date instructions are found here: [https://github.com/blockspacer/llvm_tools](https://github.com/blockspacer/llvm_tools)
@@ -107,6 +113,9 @@ GIT_SSL_NO_VERIFY=true \
       --profile clang \
           -o flexnet:shared=False \
           -e flexnet:enable_tests=True
+
+# clean build cache
+conan remove "*" --build --force
 ```
 
 ## How to increase log level
@@ -242,7 +251,6 @@ cmake -E time cmake .. \
   -DENABLE_TSAN=ON \
   -DENABLE_TESTS=TRUE \
   -DBASE_NEED_GEN_BUILD_DATE=FALSE \
-  -DBASE_NEED_GEN_BUILDFLAGS=FALSE \
   -DBUILD_SHARED_LIBS=FALSE \
   -DCONAN_AUTO_INSTALL=OFF \
   -DCMAKE_BUILD_TYPE=${build_type} \
@@ -514,7 +522,6 @@ cmake -E time cmake . \
   -DENABLE_MSAN=ON \
   -DENABLE_TESTS=TRUE \
   -DBASE_NEED_GEN_BUILD_DATE=FALSE \
-  -DBASE_NEED_GEN_BUILDFLAGS=FALSE \
   -DENABLE_DOCTEST=ON \
   -DBUILD_SHARED_LIBS=FALSE \
   -DCONAN_AUTO_INSTALL=OFF \
@@ -603,7 +610,6 @@ cmake -E time cmake . \
   -DCMAKE_VERBOSE_MAKEFILE=TRUE \
   -DENABLE_TESTS=TRUE \
   -DBASE_NEED_GEN_BUILD_DATE=FALSE \
-  -DBASE_NEED_GEN_BUILDFLAGS=FALSE \
   -DENABLE_DOCTEST=ON \
   -DBUILD_SHARED_LIBS=FALSE \
   -DCONAN_AUTO_INSTALL=OFF \

@@ -89,7 +89,9 @@
 #include <utility>
 #include <chrono>
 #include <string>
-
+#ifdef HAVE_INTTYPES_H
+#include <inttypes.h> // for PRIxPTR
+#endif
 using namespace flexnet;
 using namespace backend;
 
@@ -368,8 +370,6 @@ void finishProcessMetrics() NO_EXCEPTION
         VLOG(1)
           << "module GetBaseAddress: "
           << ::base::StringPrintf(
-                // PRIxPTR from <base/basictypes.h>
-                // i.e. <inttypes.h>
                 "0x%" PRIxPTR
                , module->GetBaseAddress());
         VLOG(1)

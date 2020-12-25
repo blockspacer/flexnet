@@ -639,8 +639,10 @@ message(STATUS
 set(STATIC_PLUGINS_HEADER_LOCATION
   ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/static_plugins.hpp)
 
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/codegen/static_plugins.hpp.in
-  ${STATIC_PLUGINS_HEADER_LOCATION})
+configure_file_if_changed(
+  INPUT ${CMAKE_CURRENT_SOURCE_DIR}/codegen/static_plugins.hpp.in
+  OUTPUT ${STATIC_PLUGINS_HEADER_LOCATION}
+  TMP_FILE ${CMAKE_CURRENT_BINARY_DIR}/codegen_static_plugins.tmp)
 
 set_source_files_properties(${STATIC_PLUGINS_HEADER_LOCATION}
   PROPERTIES GENERATED 1)

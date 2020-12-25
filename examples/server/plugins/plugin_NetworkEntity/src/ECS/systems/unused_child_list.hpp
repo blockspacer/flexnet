@@ -3,7 +3,7 @@
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/helpers/relationship/foreach_top_level_child.hpp>
 #include <basis/ECS/helpers/relationship/view_top_level_children.hpp>
-#include <basis/ECS/helpers/relationship/remove_all_children_from_view.hpp>
+#include <basis/ECS/helpers/relationship/remove_top_level_children_from_view.hpp>
 #include <basis/ECS/helpers/relationship/remove_parent_components.hpp>
 #include <basis/ECS/helpers/relationship/remove_child_components.hpp>
 #include <basis/ECS/components/relationship/child_siblings.hpp>
@@ -133,7 +133,7 @@ void updateUnusedChildList(
     registry->remove<Internal_ChildrenToDestroy>(childId);
   }
 
-  removeAllChildrenFromView<
+  removeTopLevelChildrenFromView<
     TagType
   >(
     REFERENCED(registry.registryUnsafe())

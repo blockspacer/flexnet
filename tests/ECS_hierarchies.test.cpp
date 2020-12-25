@@ -151,7 +151,7 @@
 #include <basis/ECS/helpers/relationship/prepend_child_entity.hpp>
 #include <basis/ECS/helpers/relationship/foreach_top_level_child.hpp>
 #include <basis/ECS/helpers/relationship/view_top_level_children.hpp>
-#include <basis/ECS/helpers/relationship/remove_all_children_from_view.hpp>
+#include <basis/ECS/helpers/relationship/remove_top_level_children_from_view.hpp>
 #include <basis/ECS/helpers/relationship/remove_child_from_top_level.hpp>
 #include <basis/ECS/helpers/relationship/has_child_at_top_level.hpp>
 
@@ -618,7 +618,7 @@ TEST(ECSChildrenTest, test_hierarchies_in_ECS_model)
 
     registry.emplace<Internal_hasChildAtTopLevelTag>(parentId);
 
-    removeAllChildrenFromView<
+    removeTopLevelChildrenFromView<
       TagType
     >(
       REFERENCED(registry)

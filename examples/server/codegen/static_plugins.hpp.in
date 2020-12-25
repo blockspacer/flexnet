@@ -26,7 +26,7 @@ automatic call
 */
 inline void loadStaticPlugins()
 {
-  ${GENERATE_CORRADE_PLUGIN_IMPORT}
+  @GENERATE_CORRADE_PLUGIN_IMPORT@
 }
 
 /** Eject a previously imported static plugins
@@ -43,5 +43,5 @@ of application exection. It's also safe to call this macro more than once.
 */
 inline void unloadStaticPlugins()
 {
-  ${GENERATE_CORRADE_PLUGIN_EJECT}
+  @GENERATE_CORRADE_PLUGIN_EJECT@
 }
