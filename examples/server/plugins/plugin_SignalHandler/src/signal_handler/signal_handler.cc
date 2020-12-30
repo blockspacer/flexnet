@@ -133,7 +133,7 @@ SignalHandler::SignalHandler(
   : signals_set_(
       /// \note will not handle signals if ioc stopped
       ioc, SIGINT, SIGTERM)
-    , quitCb_(base::rvalue_cast(quitCb))
+    , quitCb_(RVALUE_CAST(quitCb))
     , signalsRecievedCount_(0)
 {
   DETACH_FROM_SEQUENCE(sequence_checker_);
@@ -260,7 +260,7 @@ void SignalHandler::handleQuitSignal(
     return;
   }
 
-  ::base::rvalue_cast(quitCb_).Run();
+  RVALUE_CAST(quitCb_).Run();
 }
 
 SignalHandler::~SignalHandler()

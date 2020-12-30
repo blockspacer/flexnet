@@ -167,17 +167,17 @@ public:
       ErrorCode&& _ec
       , SocketType&& _socket
       , bool _need_close)
-      : ec(base::rvalue_cast(_ec))
-        , socket(base::rvalue_cast(_socket))
+      : ec(RVALUE_CAST(_ec))
+        , socket(RVALUE_CAST(_socket))
         , need_close(_need_close)
       {}
 
     AcceptConnectionResult(
       AcceptConnectionResult&& other)
       : AcceptConnectionResult(
-          ::base::rvalue_cast(other.ec)
-          , ::base::rvalue_cast(other.socket)
-          , ::base::rvalue_cast(other.need_close))
+          RVALUE_CAST(other.ec)
+          , RVALUE_CAST(other.socket)
+          , RVALUE_CAST(other.need_close))
       {}
 
     // Move assignment operator
@@ -191,9 +191,9 @@ public:
     {
       if (this != &rhs)
       {
-        ec = ::base::rvalue_cast(rhs.ec);
-        socket = ::base::rvalue_cast(rhs.socket);
-        need_close = ::base::rvalue_cast(rhs.need_close);
+        ec = RVALUE_CAST(rhs.ec);
+        socket = RVALUE_CAST(rhs.socket);
+        need_close = RVALUE_CAST(rhs.need_close);
       }
 
       return *this;
@@ -247,7 +247,7 @@ public:
       from_here
       // Post our work to the strand, to prevent data race
       , *acceptorStrand_
-      , std::forward<CallbackT>(task)
+      , FORWARD(task)
       , isNestedPromise);
   }
 

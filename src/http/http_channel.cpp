@@ -274,7 +274,7 @@ handleRequest(
 
     res.keep_alive(req.keep_alive());
 
-    return sendCallback(base::rvalue_cast(res));
+    return sendCallback(RVALUE_CAST(res));
   }
 
   // Respond to GET request
@@ -283,7 +283,7 @@ handleRequest(
       << "HTTPChannel detected `get` request";
   HttpChannel::ResponseFileType res{
     std::piecewise_construct,
-    std::make_tuple(base::rvalue_cast(fileBody))
+    std::make_tuple(RVALUE_CAST(fileBody))
     , std::make_tuple(
         beast::http::status::ok
         , req.version())};
@@ -298,7 +298,7 @@ handleRequest(
 
   res.keep_alive(req.keep_alive());
 
-  return sendCallback(base::rvalue_cast(res));
+  return sendCallback(RVALUE_CAST(res));
 }
 
 } // namespace
@@ -315,12 +315,12 @@ HttpChannel::HttpChannel(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
-  , stream_(base::rvalue_cast(stream))
+  , stream_(RVALUE_CAST(stream))
   , perConnectionStrand_(
       /// \note `get_executor` returns copy
       stream_.get_executor())
   , is_stream_valid_(true)
-  , buffer_(base::rvalue_cast(buffer))
+  , buffer_(RVALUE_CAST(buffer))
   , registry_(REFERENCED(registry))
   , entity_id_(entity_id)
 {
@@ -664,8 +664,8 @@ void HttpChannel::onRead(
           , ::base::Unretained(this)
           , ec
           , bytes_transferred
-          , ::base::rvalue_cast(stream_)
-          , ::base::Passed(base::rvalue_cast(parser_->release()))
+          , RVALUE_CAST(stream_)
+          , ::base::Passed(RVALUE_CAST(parser_->release()))
         )
     );
 
@@ -706,7 +706,7 @@ void HttpChannel::onRead(
 
       /// \todo remove shared_ptr
       auto sp = std::make_shared<ResponseType>(
-        std::forward<decltype(response)>(response));
+        FORWARD(response));
 
       // Write the response
       // The lifetime of the message `response` has to extend
@@ -765,7 +765,7 @@ void HttpChannel::handleWebsocketUpgrade(
   WsChannelComponent* wsChannelCtx
     = &tcpComponent->reset_or_create_var<WsChannelComponent>(
         "Ctx_WsChannelComponent_" + ::base::GenerateGUID() // debug name
-        , ::base::rvalue_cast(stream)
+        , RVALUE_CAST(stream)
         , REFERENCED(*registry_)
         , entity_id_);
 
@@ -782,7 +782,7 @@ void HttpChannel::handleWebsocketUpgrade(
   ::flexnet::ws::WsChannel& wsChannel
     = const_cast<::flexnet::ws::WsChannel&>(wsChannelCtx->value());
 
-  wsChannel.startAcceptAsync(base::rvalue_cast(req));
+  wsChannel.startAcceptAsync(RVALUE_CAST(req));
 }
 
 void HttpChannel::onWrite(

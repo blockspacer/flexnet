@@ -71,7 +71,7 @@ WsChannel::WsChannel(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
-  , ws_(base::rvalue_cast(COPY_ON_MOVE(stream)))
+  , ws_(RVALUE_CAST(COPY_ON_MOVE(stream)))
   , isSendBusy_(false)
   , perConnectionStrand_(
       /// \note `get_executor` returns copy
@@ -480,7 +480,7 @@ void WsChannel::allocateRecievedDataComponent(
     RecievedData& recievedDataComponent
       = (*registry_)->emplace<RecievedData>(
             msg_entity_id // assign to entity with that id
-            , ::base::rvalue_cast(message));
+            , RVALUE_CAST(message));
 
     DCHECK((*registry_)->valid(entity_id_));
     DCHECK((*registry_)->valid(msg_entity_id));

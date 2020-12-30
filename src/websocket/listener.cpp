@@ -636,7 +636,7 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
         , ::base::Unretained(this)
         , COPIED(tcp_entity_id)
         , COPY_OR_MOVE(ec)
-        , ::base::rvalue_cast(socket)
+        , RVALUE_CAST(socket)
       )
   );
 
@@ -695,8 +695,8 @@ void Listener::setAcceptConnectionResult(
       = (*registry_).reset_or_create_component<UniqueAcceptComponent>(
             "UniqueAcceptComponent_" + ::base::GenerateGUID() // debug name
             , tcp_entity_id
-            , ::base::rvalue_cast(ec)
-            , ::base::rvalue_cast(socket)
+            , RVALUE_CAST(ec)
+            , RVALUE_CAST(socket)
             , forceClosing);
   }
 }

@@ -107,7 +107,7 @@ void handleAcceptResult(
   DetectChannelCtxComponent* detectChannelCtx
     = &tcpComponent->reset_or_create_var<DetectChannelCtxComponent>(
         "Ctx_DetectChannel_" + ::base::GenerateGUID() // debug name
-        , ::base::rvalue_cast(acceptResult.socket)
+        , RVALUE_CAST(acceptResult.socket)
         , REFERENCED(registry)
         , entity_id);
 

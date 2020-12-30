@@ -44,7 +44,7 @@ DetectChannel::DetectChannel(
       weak_ptr_factory_(COPIED(this)))
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(weak_ptr_factory_.GetWeakPtr()))
-  , stream_(base::rvalue_cast(COPY_ON_MOVE(socket)))
+  , stream_(RVALUE_CAST(COPY_ON_MOVE(socket)))
   , is_stream_valid_(true)
   , is_buffer_valid_(true)
   , perConnectionStrand_(
@@ -208,7 +208,7 @@ void DetectChannel::runDetector(
     RAW_REFERENCED(buffer_), // The dynamic buffer to use
     boost::asio::bind_executor(
       *perConnectionStrand_
-      , ::base::rvalue_cast(onDetectedCb))
+      , RVALUE_CAST(onDetectedCb))
     );
 }
 
@@ -280,8 +280,8 @@ void DetectChannel::onDetected(
         /// in case of error code
         , COPY_OR_MOVE(ec)
         , handshakeResult
-        , MAKES_INVALID(stream_) ::base::rvalue_cast(stream_.value())
-        , MAKES_INVALID(buffer_) ::base::rvalue_cast(buffer_)
+        , MAKES_INVALID(stream_) RVALUE_CAST(stream_.value())
+        , MAKES_INVALID(buffer_) RVALUE_CAST(buffer_)
         , forceClosing
       )
   );
@@ -326,10 +326,10 @@ void DetectChannel::setSSLDetectResult(
       = (*registry_).reset_or_create_component<UniqueSSLDetectComponent>(
             "UniqueSSLDetectComponent_" + ::base::GenerateGUID() // debug name
             , entity_id_
-            , ::base::rvalue_cast(ec)
+            , RVALUE_CAST(ec)
             , handshakeResult
-            , ::base::rvalue_cast(stream)
-            , ::base::rvalue_cast(buffer)
+            , RVALUE_CAST(stream)
+            , RVALUE_CAST(buffer)
             , need_close);
   }
 }

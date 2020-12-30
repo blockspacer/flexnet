@@ -124,8 +124,8 @@ void handleSSLDetectResult(
     HttpChannelCtxComponent* channelCtx
       = &tcpComponent->reset_or_create_var<HttpChannelCtxComponent>(
           "Ctx_http_Channel_" + ::base::GenerateGUID() // debug name
-          , ::base::rvalue_cast(detectResult.stream.value())
-          , ::base::rvalue_cast(detectResult.buffer)
+          , RVALUE_CAST(detectResult.stream.value())
+          , RVALUE_CAST(detectResult.buffer)
           , REFERENCED(registry)
           , entity_id);
 

@@ -128,21 +128,21 @@ public:
       , StreamType&& _stream
       , MessageBufferType&& _buffer
       , const bool _need_close)
-      : ec(base::rvalue_cast(_ec))
+      : ec(RVALUE_CAST(_ec))
       , handshakeResult(_handshakeResult)
-      , stream(base::rvalue_cast(_stream))
-      , buffer(base::rvalue_cast(_buffer))
+      , stream(RVALUE_CAST(_stream))
+      , buffer(RVALUE_CAST(_buffer))
       , need_close(_need_close)
       {}
 
     SSLDetectResult(
       SSLDetectResult&& other)
       : SSLDetectResult(
-          ::base::rvalue_cast(other.ec)
-          , ::base::rvalue_cast(other.handshakeResult)
-          , ::base::rvalue_cast(other.stream.value())
-          , ::base::rvalue_cast(other.buffer)
-          , ::base::rvalue_cast(other.need_close))
+          RVALUE_CAST(other.ec)
+          , RVALUE_CAST(other.handshakeResult)
+          , RVALUE_CAST(other.stream.value())
+          , RVALUE_CAST(other.buffer)
+          , RVALUE_CAST(other.need_close))
       {}
 
     // Copy assignment operator
@@ -164,12 +164,12 @@ public:
     {
       if (this != &rhs)
       {
-        ec = ::base::rvalue_cast(rhs.ec);
-        handshakeResult = ::base::rvalue_cast(rhs.handshakeResult);
+        ec = RVALUE_CAST(rhs.ec);
+        handshakeResult = RVALUE_CAST(rhs.handshakeResult);
         DCHECK(rhs.stream.has_value());
-        stream.emplace(base::rvalue_cast(rhs.stream.value()));
-        buffer = ::base::rvalue_cast(rhs.buffer);
-        need_close = ::base::rvalue_cast(rhs.need_close);
+        stream.emplace(RVALUE_CAST(rhs.stream.value()));
+        buffer = RVALUE_CAST(rhs.buffer);
+        need_close = RVALUE_CAST(rhs.need_close);
       }
 
       return *this;
@@ -264,7 +264,7 @@ public:
       from_here
       // Post our work to the strand, to prevent data race
       , *perConnectionStrand_
-      , std::forward<CallbackT>(task)
+      , FORWARD(task)
       , isNestedPromise);
   }
 

@@ -164,9 +164,9 @@ VoidPromise startPluginManager() NO_EXCEPTION
       .ctx<PluginManager>();
 
   return pluginManager.startup(
-    ::base::rvalue_cast(pathToDirWithPlugins)
-    , ::base::rvalue_cast(pathToPluginsConfFile)
-    , ::base::rvalue_cast(pathsToExtraPluginFiles)
+    RVALUE_CAST(pathToDirWithPlugins)
+    , RVALUE_CAST(pathToPluginsConfFile)
+    , RVALUE_CAST(pathsToExtraPluginFiles)
   );
 }
 

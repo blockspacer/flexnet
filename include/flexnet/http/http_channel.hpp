@@ -172,7 +172,7 @@ public:
       from_here
       // Post our work to the strand, to prevent data race
       , *perConnectionStrand_
-      , std::forward<CallbackT>(task)
+      , FORWARD(task)
       , isNestedPromise);
   }
 

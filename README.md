@@ -659,3 +659,13 @@ export CC=clang-6.0
 # creates local build in separate folder and runs cmake targets
 cmake -DIWYU="ON" -DCLEAN_OLD="ON" -P tools/run_tool.cmake
 ```
+
+## Disclaimer
+
+That open source project based on the Google Chromium project.
+
+This is not official Google product.
+
+Portions Copyright (c) Google Inc.
+
+See LICENSE files.

@@ -108,7 +108,7 @@ AppState::VoidPromise
       /// \note `AddEntryAction` will add repeating callback,
       /// but we want to execute it only once
       if(resolveCb) {
-        ::base::rvalue_cast(resolveCb).Run();
+        RVALUE_CAST(resolveCb).Run();
       }
 
       return ::basis::OkStatus(FROM_HERE);
@@ -149,7 +149,7 @@ AppState::VoidPromise
       /// \note `AddEntryAction` will add repeating callback,
       /// but we want to execute it only once
       if(resolveCb) {
-        ::base::rvalue_cast(resolveCb).Run();
+        RVALUE_CAST(resolveCb).Run();
       }
 
       return ::basis::OkStatus(FROM_HERE);

@@ -60,13 +60,13 @@ CREATE_ECS_COMPONENT(RecievedData)
 {
   RecievedData(
     std::string&& _data)
-    : data(base::rvalue_cast(_data))
+    : data(RVALUE_CAST(_data))
     {}
 
   RecievedData(
     RecievedData&& other)
     : RecievedData(
-        ::base::rvalue_cast(other.data))
+        RVALUE_CAST(other.data))
     {}
 
   // Move assignment operator
@@ -80,7 +80,7 @@ CREATE_ECS_COMPONENT(RecievedData)
   {
     if (this != &rhs)
     {
-      data = ::base::rvalue_cast(rhs.data);
+      data = RVALUE_CAST(rhs.data);
     }
 
     return *this;
@@ -198,7 +198,7 @@ public:
   /// \note we want to reduce copies for performance reasons,
   /// so force user to use `std::shared_ptr` copies
   /// or moves like so:
-  /// std::make_shared<const std::string>(base::rvalue_cast(some_text));
+  /// std::make_shared<const std::string>(RVALUE_CAST(some_text));
   using SharedMessageData
     = std::shared_ptr<const std::string>;
 
@@ -233,7 +233,7 @@ public:
    {
      DCHECK_RUN_ON(&sequence_checker_);
 
-     storage_.push_back(std::forward<Args>(args)...);
+     storage_.push_back(FORWARD(args)...);
    }
 
    MUST_USE_RESULT
@@ -351,7 +351,7 @@ public:
             )
             , &WsChannel::startAccept<Body, Allocator>
             , ::base::Unretained(this)
-            , ::base::Passed(base::rvalue_cast(req))
+            , ::base::Passed(RVALUE_CAST(req))
           ))
     );
   }
@@ -378,7 +378,7 @@ public:
       from_here
       // Post our work to the strand, to prevent data race
       , *perConnectionStrand_
-      , std::forward<CallbackT>(task)
+      , FORWARD(task)
       , isNestedPromise);
   }
 

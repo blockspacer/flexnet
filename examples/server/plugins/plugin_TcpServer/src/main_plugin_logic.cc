@@ -392,7 +392,7 @@ MainPluginLogic::VoidPromise
     , "Destruction of allocated connections hanged."
       "ECS registry must become empty after some time (during app termination)."
       "Not empty registry indicates bugs that need to be reported."
-    , ::base::rvalue_cast(validationTask)
+    , RVALUE_CAST(validationTask)
   )
   .ThenHere(
     FROM_HERE

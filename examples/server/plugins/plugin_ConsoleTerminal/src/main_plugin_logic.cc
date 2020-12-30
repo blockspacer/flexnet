@@ -75,7 +75,7 @@ static void postOnRunnerDispatcherEvent(
         EventType
       >(event);
     }
-    , ::base::rvalue_cast(event)
+    , RVALUE_CAST(event)
     )
   );
 }
@@ -224,7 +224,7 @@ static void updateConsoleInput(
       std::string // event type
       , backend::ConsoleTerminalEventDispatcher // dispatcher type
     >(mainLoopRunner
-      , ::base::rvalue_cast(line));
+      , RVALUE_CAST(line));
   } else {
     DVLOG(99)
       << "no console input";

@@ -139,7 +139,7 @@ void AsioThreadsManager::startThreads(
     DCHECK(asio_task_runners_[i]);
 
     asio_threads_.push_back(
-      ::base::rvalue_cast(asio_thread));
+      RVALUE_CAST(asio_thread));
 
     asio_task_runners_[i]->PostTask(
       FROM_HERE
