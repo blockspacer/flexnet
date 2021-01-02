@@ -8,7 +8,7 @@ arch=x86_64
 build_type=Debug
 
 compiler=clang
-compiler.version=6.0
+compiler.version=10
 compiler.libcxx=libstdc++11
 
 [options]
@@ -20,8 +20,8 @@ compiler.libcxx=libstdc++11
 cmake_installer/3.15.5@conan/stable
 
 [env]
-CC=/usr/bin/clang
-CXX=/usr/bin/clang++
+CC=/usr/bin/clang-10
+CXX=/usr/bin/clang++-10
 #CONAN_CACERT_PATH=...
 #CXXFLAGS="-DNOMINMAX=1"
 #CFLAGS=""

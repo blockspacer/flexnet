@@ -33,12 +33,12 @@ arch_build=x86_64
 arch=x86_64
 
 compiler=clang
-compiler.version=6.0
+compiler.version=10
 compiler.libcxx=libstdc++11
 
 [env]
-CC=/usr/bin/clang-6.0
-CXX=/usr/bin/clang++-6.0
+CC=/usr/bin/clang-10
+CXX=/usr/bin/clang++-10
 
 [build_requires]
 cmake_installer/3.15.5@conan/stable
@@ -59,12 +59,14 @@ cmake \
 ;-s;llvm_tools:build_type=Release\
 ;--build;missing" \
   -DENABLE_LLVM_TOOLS=FALSE \
-  -DENABLE_CLING=FALSE \
+  -DENABLE_CLING=TRUE \
   -P tools/buildConanThirdparty.cmake
 
 # clean build cache
 conan remove "*" --build --force
 ```
+
+NOTE: set `-DENABLE_CLING=FALSE` if you already installed Cling using `tools/buildConanThirdparty.cmake` above.
 
 - llvm_tools package
 
@@ -96,8 +98,8 @@ Up-to-date instructions are found here: [https://github.com/blockspacer/llvm_too
 ## Installation
 
 ```bash
-export CXX=clang++-6.0
-export CC=clang-6.0
+export CXX=clang++-10
+export CC=clang-10
 
 # NOTE: change `build_type=Debug` to `build_type=Release` in production
 # NOTE: use --build=missing if you got error `ERROR: Missing prebuilt package`
@@ -185,7 +187,7 @@ CONAN_REVISIONS_ENABLED=1 \
         -o llvm_tools:enable_tsan=True \
         -o llvm_tools:include_what_you_use=False \
         -s llvm_tools:compiler=clang \
-        -s llvm_tools:compiler.version=6.0 \
+        -s llvm_tools:compiler.version=10 \
         -s llvm_tools:compiler.libcxx=libstdc++11 \
         -e chromium_base:enable_tests=True \
         -o chromium_base:enable_tsan=True \
@@ -453,7 +455,7 @@ conan workspace install \
         -o llvm_tools:include_what_you_use=False \
         -o llvm_tools:enable_msan=True \
         -s llvm_tools:compiler=clang \
-        -s llvm_tools:compiler.version=6.0 \
+        -s llvm_tools:compiler.version=10 \
         -s llvm_tools:compiler.libcxx=libstdc++11 \
         -e chromium_base:enable_tests=True \
         -e chromium_base:enable_llvm_tools=True \
@@ -575,8 +577,8 @@ Because `CMAKE_BINARY_DIR` will point to folder created by `conan workspace inst
 Example if you want to build code without sanitizers:
 
 ```bash
-export CXX=clang++-6.0
-export CC=clang-6.0
+export CXX=clang++-10
+export CC=clang-10
 
 # NOTE: change `build_type=Debug` to `build_type=Release` in production
 export build_type=Debug
@@ -586,12 +588,12 @@ conan workspace install \
   ../flexnetws.yml \
         --profile=clang \
         -s compiler=clang \
-        -s compiler.version=6.0 \
+        -s compiler.version=10 \
         -s llvm_tools:compiler.libcxx=libstdc++11 \
         -s build_type=${build_type} \
         -s llvm_tools:build_type=Release \
         -s llvm_tools:compiler=clang \
-        -s llvm_tools:compiler.version=6.0 \
+        -s llvm_tools:compiler.version=10 \
         -s llvm_tools:compiler.libcxx=libstdc++11 \
         --build missing \
         --build cascade \
@@ -653,8 +655,8 @@ See for details [https://include-what-you-use.org/](https://include-what-you-use
 Usage (runs cmake with `-DENABLE_IWYU=ON`):
 
 ```bash
-export CXX=clang++-6.0
-export CC=clang-6.0
+export CXX=clang++-10
+export CC=clang-10
 
 # creates local build in separate folder and runs cmake targets
 cmake -DIWYU="ON" -DCLEAN_OLD="ON" -P tools/run_tool.cmake
