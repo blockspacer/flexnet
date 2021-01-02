@@ -38,6 +38,35 @@
 namespace backend {
 
 /// \todo make configurable
+const char DEFAULT_EVENT_CATEGORIES[]
+  = "-sequence_manager"
+    ",-thread_pool"
+    ",-base"
+    ",-toplevel"
+    ",profiler"
+    ",user_timing"
+    ",ui"
+    ",browser"
+    ",latency"
+    ",latencyInfo"
+    ",loading"
+    ",skia"
+    ",task_scheduler"
+    ",native"
+    ",benchmark"
+    ",ipc"
+    ",mojom"
+    ",media"
+    ",disabled-by-default-lifecycles"
+    ",disabled-by-default-renderer.scheduler"
+    ",disabled-by-default-v8.gc"
+    ",disabled-by-default-blink_gc"
+    ",disabled-by-default-system_stats"
+    ",disabled-by-default-network"
+    ",disabled-by-default-cpu_profiler"
+    ",disabled-by-default-memory-infra";
+
+/// \todo make configurable
 static constexpr ::base::FilePath::CharType kIcuDataFileName[]
   = FILE_PATH_LITERAL(R"raw(./resources/icu/optimal/icudt64l.dat)raw");
 
@@ -65,7 +94,7 @@ base::Optional<int> initEnv(
           argc
           , argv
           , false // AutoStartTracer
-          , "" // tracingCategories
+          , DEFAULT_EVENT_CATEGORIES // tracingCategories
           , dir_exe // current working dir
           , kIcuDataFileName
           , kTraceReportFileName
