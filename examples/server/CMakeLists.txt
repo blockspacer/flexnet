@@ -53,7 +53,7 @@ macro(add_server_lib LIBRARY_NAME)
 
   set_target_properties(${LIBRARY_NAME} PROPERTIES
       POSITION_INDEPENDENT_CODE ON
-      CXX_STANDARD 20
+      CXX_STANDARD 17
       CXX_EXTENSIONS OFF
       CMAKE_CXX_STANDARD_REQUIRED ON
       RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/${CMAKE_BUILD_TYPE}/${LIBRARY_NAME}"
@@ -204,7 +204,7 @@ set_target_properties(server_executable PROPERTIES
     # see https://stackoverflow.com/a/8626922
     ENABLE_EXPORTS ON
     POSITION_INDEPENDENT_CODE ON
-    CXX_STANDARD 20
+    CXX_STANDARD 17
     CXX_EXTENSIONS OFF
     CMAKE_CXX_STANDARD_REQUIRED ON
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/${CMAKE_BUILD_TYPE}/server_executable"
@@ -365,7 +365,7 @@ macro(add_server_plugin PLUGIN_NAME PLUGIN_RELATIVE_DIR)
   )
   set_target_properties(${PLUGIN_NAME} PROPERTIES
       POSITION_INDEPENDENT_CODE ON
-      CXX_STANDARD 20
+      CXX_STANDARD 17
       CXX_EXTENSIONS OFF
       # Plugins don't have any prefix (e.g. 'lib' on Linux)
       PREFIX ""
