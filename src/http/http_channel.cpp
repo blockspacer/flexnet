@@ -543,7 +543,7 @@ void HttpChannel::onFail(
 
   DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
 
-  DCHECK_PTR(what);
+  DCHECK_VALID_PTR_OR(what);
 
   DCHECK(is_stream_valid_.load());
 

@@ -84,7 +84,7 @@ bool parsePluginsConfig(
   // configurations for all plugins
   ConfigurationGroup* configurationGroup
     = conf.group(plugin::kAllPluginsConfigCategory);
-  DCHECK_PTR(configurationGroup);
+  DCHECK_VALID_PTR_OR(configurationGroup);
 
   if(configurationGroup) {
     // configurations for individual plugins
@@ -109,7 +109,7 @@ std::map<std::string, PluginMetadata> loadPluginsMetadata(
   for(const ConfigurationGroup* plugin_group
       : plugin_groups)
   {
-    DCHECK_PTR(plugin_group);
+    DCHECK_VALID_PTR_OR(plugin_group);
 
     std::vector<std::string> dependsOn;
 

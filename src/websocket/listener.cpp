@@ -81,7 +81,7 @@ void Listener::logFailure(
 
   DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(logFailure);
 
-  DCHECK_PTR(what);
+  DCHECK_VALID_PTR_OR(what);
 
   // NOTE: If you got logFailure: accept: Too many open files
   // set ulimit -n 4096, see stackoverflow.com/a/8583083/10904212
@@ -262,10 +262,10 @@ Listener::StatusPromise Listener::configureAndRun()
     << " current state:"
     << sm_.currentState();
 
-  RETURN_IF_ERROR(
+  RETURN_IF_NOT_OK(
     openAcceptor());
 
-  RETURN_IF_ERROR(
+  RETURN_IF_NOT_OK(
     configureAcceptor());
 
   if(!isAcceptorOpen())

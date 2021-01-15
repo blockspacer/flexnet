@@ -12,7 +12,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , pluginInterface_{REFERENCED(*DCHECK_PTR(pluginInterface))}
+  , pluginInterface_{REFERENCED(*DCHECK_VALID_PTR_OR(pluginInterface))}
   , mainLoopRunner_{
       ::base::MessageLoop::current()->task_runner()}
   , mainLoopRegistry_(

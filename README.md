@@ -113,6 +113,8 @@ GIT_SSL_NO_VERIFY=true \
       -s build_type=Debug \
       -s llvm_tools:build_type=Release \
       --profile clang \
+          -o chromium_base:use_alloc_shim=True \
+          -o chromium_tcmalloc:use_alloc_shim=True \
           -o flexnet:shared=False \
           -e flexnet:enable_tests=True
 
@@ -661,6 +663,24 @@ export CC=clang-10
 # creates local build in separate folder and runs cmake targets
 cmake -DIWYU="ON" -DCLEAN_OLD="ON" -P tools/run_tool.cmake
 ```
+
+## System configuration (Linux for high loads)
+
+```bash
+sysctl -w 'fs.nr_open=10000000'
+
+sysctl -w  'net.core.rmem_max=12582912'
+sysctl -w 'net.core.wmem_max=12582912'
+
+sysctl -w 'net.ipv4.tcp_mem=10240 87380 12582912'
+sysctl -w 'net.ipv4.tcp_rmem=10240 87380 12582912'
+sysctl -w 'net.ipv4.tcp_wmem=10240 87380 12582912'
+sysctl -w 'net.core.somaxconn=15000'
+```
+
+See:
+* https://medium.com/@pawilon/tuning-your-linux-kernel-and-haproxy-instance-for-high-loads-1a2105ea553e
+* https://gist.github.com/mustafaturan/47268d8ad6d56cadda357e4c438f51ca
 
 ## Disclaimer
 
