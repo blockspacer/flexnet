@@ -117,7 +117,7 @@ void Listener::logFailure(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(logFailure);
+  DCHECK_NOT_THREAD_BOUND_METHOD(logFailure);
 
   DCHECK_VALID_PTR_OR(what);
 

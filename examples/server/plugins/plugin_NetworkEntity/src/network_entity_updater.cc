@@ -173,7 +173,7 @@ MUST_USE_RETURN_VALUE
 basis::PeriodicTaskExecutor&
   NetworkEntityUpdater::periodicTaskExecutor() NO_EXCEPTION
 {
-  DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(periodicTaskExecutor);
+  DCHECK_NOT_THREAD_BOUND_METHOD(periodicTaskExecutor);
 
   DCHECK_NOT_THREAD_BOUND(periodicTaskExecutor_);
   return periodicTaskExecutor_;

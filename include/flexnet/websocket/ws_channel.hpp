@@ -362,7 +362,7 @@ public:
   void sendAsync(
     SharedMessageData message
     , bool is_binary = true) NO_EXCEPTION
-    GUARD_METHOD_ON_UNKNOWN_THREAD(send);
+    GUARD_NOT_THREAD_BOUND_METHOD(send);
 
   template <typename CallbackT>
   MUST_USE_RETURN_VALUE

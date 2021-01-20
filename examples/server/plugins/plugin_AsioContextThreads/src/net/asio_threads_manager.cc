@@ -159,7 +159,7 @@ void AsioThreadsManager::runIoc(boost::asio::io_context& ioc)
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(runIoc);
+  DCHECK_NOT_THREAD_BOUND_METHOD(runIoc);
 
   if(ioc.stopped()) // io_context::stopped is thread-safe
   {

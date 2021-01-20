@@ -513,7 +513,7 @@ void WsChannel::sendAsync(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(send);
+  DCHECK_NOT_THREAD_BOUND_METHOD(send);
   DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
   DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 

@@ -73,7 +73,7 @@ public:
 
 private:
   void runIoc(boost::asio::io_context& ioc)
-    GUARD_METHOD_ON_UNKNOWN_THREAD(runIoc);
+    GUARD_NOT_THREAD_BOUND_METHOD(runIoc);
 
 private:
   SET_WEAK_POINTERS(AsioThreadsManager);

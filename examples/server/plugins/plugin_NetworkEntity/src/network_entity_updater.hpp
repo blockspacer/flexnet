@@ -61,7 +61,7 @@ class NetworkEntityUpdater
 
   MUST_USE_RETURN_VALUE
   ::basis::PeriodicTaskExecutor& periodicTaskExecutor() NO_EXCEPTION
-    GUARD_METHOD_ON_UNKNOWN_THREAD(periodicTaskExecutor);
+    GUARD_NOT_THREAD_BOUND_METHOD(periodicTaskExecutor);
 
   SET_WEAK_SELF(NetworkEntityUpdater)
 

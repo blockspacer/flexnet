@@ -321,7 +321,7 @@ private:
   // Report a failure
   /// \note not thread-safe, so keep it for logging purposes only
   void logFailure(const ErrorCode& ec, char const* what)
-    GUARD_METHOD_ON_UNKNOWN_THREAD(logFailure);
+    GUARD_NOT_THREAD_BOUND_METHOD(logFailure);
 
   MUST_USE_RETURN_VALUE
     ::basis::Status configureAcceptor();

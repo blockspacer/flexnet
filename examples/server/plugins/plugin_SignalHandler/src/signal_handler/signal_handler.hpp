@@ -61,10 +61,10 @@ class SignalHandler
 
  private:
   void handleSignal(::boost::system::error_code const&, int)
-    GUARD_METHOD_ON_UNKNOWN_THREAD(handleSignal);
+    GUARD_NOT_THREAD_BOUND_METHOD(handleSignal);
 
   void handleQuitSignal(::boost::system::error_code const&, int)
-    GUARD_METHOD_ON_UNKNOWN_THREAD(handleQuitSignal);
+    GUARD_NOT_THREAD_BOUND_METHOD(handleQuitSignal);
 
  private:
   // Capture SIGINT and SIGTERM to perform a clean shutdown
