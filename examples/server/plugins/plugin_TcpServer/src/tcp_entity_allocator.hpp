@@ -69,7 +69,7 @@ class TcpEntityAllocator
 
 private:
   ::basis::UnownedRef<ECS::SafeRegistry> registryRef_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(registryRef_);
+    GUARD_NOT_THREAD_BOUND(registryRef_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

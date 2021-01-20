@@ -84,6 +84,8 @@ WsChannel::WsChannel(
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
+  pp_RecievedData_ = PLUG_POINT_INSTANCE(PlugPoint_RecievedData);
+
   SET_DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
 
   /// \note we assume that configuring stream
@@ -188,7 +190,7 @@ void WsChannel::onFail(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
 
   DCHECK_VALID_PTR_OR(what);
 
@@ -257,7 +259,7 @@ void WsChannel::onAccept(ErrorCode ec) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -275,8 +277,8 @@ void WsChannel::doRead() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -303,7 +305,7 @@ void WsChannel::onClose(ErrorCode ec) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -320,10 +322,10 @@ void WsChannel::doEof() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND(entity_id_);
+  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 
   // prohibit callback execution while performing object invalidation.
   UNSET_DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
@@ -399,9 +401,9 @@ void WsChannel::onRead(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -456,15 +458,14 @@ void WsChannel::allocateRecievedDataComponent(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND(entity_id_);
 
   DCHECK((*registry_).RunsTasksInCurrentSequence());
 
   // plugins can extend API
-  GET_PLUG_POINT(plugPointPtr, ::flexnet::ws::PlugPoint_RecievedData);
-  RETURN_IF_PLUG_POINT_HAS_VALUE(plugPointPtr, REFERENCED(message));
+  RETURN_IF_PLUG_POINT_HAS_VALUE(pp_RecievedData_, REFERENCED(message));
 
   // We want to filter recieved messages individually,
   // so each message becomes separate entity.
@@ -499,7 +500,7 @@ bool WsChannel::isOpen() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -513,8 +514,8 @@ void WsChannel::sendAsync(
   LOG_CALL(DVLOG(99));
 
   DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(send);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 
   DCHECK(message);
 
@@ -554,7 +555,7 @@ void WsChannel::send(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -595,8 +596,8 @@ void WsChannel::writeQueued() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -658,7 +659,7 @@ void WsChannel::onWrite(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 

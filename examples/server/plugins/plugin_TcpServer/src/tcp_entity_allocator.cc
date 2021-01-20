@@ -213,7 +213,7 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registryRef_);
+  DCHECK_NOT_THREAD_BOUND(registryRef_);
 
   DCHECK_RUN_ON_REGISTRY(&(*registryRef_));
 

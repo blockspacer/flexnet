@@ -200,9 +200,9 @@ void SignalHandler::handleSignal(
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(quitCb_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(signalsRecievedCount_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(signalCallbacks_);
+  DCHECK_NOT_THREAD_BOUND(quitCb_);
+  DCHECK_NOT_THREAD_BOUND(signalsRecievedCount_);
+  DCHECK_NOT_THREAD_BOUND(signalCallbacks_);
 
   DVLOG(9)
     << "got signum "
@@ -232,9 +232,9 @@ void SignalHandler::handleQuitSignal(
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(quitCb_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(signalsRecievedCount_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(signalCallbacks_);
+  DCHECK_NOT_THREAD_BOUND(quitCb_);
+  DCHECK_NOT_THREAD_BOUND(signalsRecievedCount_);
+  DCHECK_NOT_THREAD_BOUND(signalCallbacks_);
 
   signalsRecievedCount_.store(
     signalsRecievedCount_.load() + 1);

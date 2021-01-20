@@ -1,5 +1,6 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 #include "flexnet/ECS/components/tcp_connection.hpp"
+#include "flexnet/websocket/listener_switches.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/bind.h>
@@ -10,6 +11,8 @@
 #include <base/guid.h>
 #include <base/threading/thread.h>
 #include <base/task/thread_pool/thread_pool.h>
+#include <base/command_line.h>
+#include <base/strings/string_number_conversions.h>
 
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/ecs.hpp>
@@ -20,7 +23,6 @@
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
-
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/error.hpp>
 #include <boost/asio/io_context_strand.hpp>
@@ -68,10 +70,46 @@ Listener::Listener(
   , sm_(UNINITIALIZED, fillStateTransitionTable())
 #endif // DCHECK_IS_ON()
   , entityAllocator_(entityAllocator)
+  , warnBigRegistrySize_(100000)
+  , warnBigRegistryFreqMs_(100)
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
+
+  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+
+  if (command_line->HasSwitch(::switches::kWarnBigRegistrySize)) {
+    auto value
+      = command_line->GetSwitchValueASCII(::switches::kWarnBigRegistrySize);
+    if (!base::StringToSizeT(value, &warnBigRegistrySize_))
+    {
+      LOG(WARNING)
+        << "Invalid value for "
+        << ::switches::kWarnBigRegistrySize
+        << " Fallback to "
+        << warnBigRegistrySize_;
+    }
+  }
+
+  if (command_line->HasSwitch(::switches::kWarnBigRegistryFreqMs)) {
+    auto value
+      = command_line->GetSwitchValueASCII(::switches::kWarnBigRegistryFreqMs);
+    if (!base::StringToInt(value, &warnBigRegistryFreqMs_))
+    {
+      LOG(WARNING)
+        << "Invalid value for "
+        << ::switches::kWarnBigRegistryFreqMs
+        << " Fallback to "
+        << warnBigRegistryFreqMs_;
+    }
+  }
+
+  fp_AcceptedConnectionAborted_ = FAIL_POINT_INSTANCE(FP_AcceptedConnectionAborted);
+  if (command_line->HasSwitch(::switches::kFailPointAcceptedConnectionAborted)) {
+    fp_AcceptedConnectionAborted_->setFailure();
+    fp_AcceptedConnectionAborted_->enable();
+  }
 }
 
 void Listener::logFailure(
@@ -289,7 +327,7 @@ void Listener::doAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
 
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
@@ -326,18 +364,19 @@ void Listener::allocateTcpResourceAndAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND(acceptorStrand_);
+  DCHECK_NOT_THREAD_BOUND(ioc_);
+  DCHECK_NOT_THREAD_BOUND(warnBigRegistryFreqMs_);
+  DCHECK_NOT_THREAD_BOUND(warnBigRegistrySize_);
 
   DCHECK(registry_->RunsTasksInCurrentSequence());
 
-  /// \todo make configurable
-  const size_t kWarnBigRegistrySize = 100000;
-  LOG_IF(WARNING
-    , (*registry_)->size() > kWarnBigRegistrySize)
+  LOG_IF_EVERY_N_MS(WARNING
+                    , (*registry_)->size() > warnBigRegistrySize_
+                    , warnBigRegistryFreqMs_)
    << "Asio registry has more than "
-   << kWarnBigRegistrySize
+   << warnBigRegistrySize_
    << " entities."
    << " That may signal about some problem in code"
    << " or DDOS."
@@ -529,6 +568,7 @@ void Listener::asyncAccept(
   return ::basis::OkStatus(FROM_HERE);
 }
 
+#if DCHECK_IS_ON()
 basis::Status Listener::processStateChange(
   const ::base::Location &from_here
   , const Listener::Event &processEvent)
@@ -553,6 +593,7 @@ basis::Status Listener::processStateChange(
   }
   return stateProcessed;
 }
+#endif // DCHECK_IS_ON()
 
 Listener::StatusPromise Listener::stopAcceptorAsync()
 {
@@ -585,17 +626,24 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND(acceptorStrand_);
+  DCHECK_NOT_THREAD_BOUND(ioc_);
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(unownedPerConnectionStrand
          && unownedPerConnectionStrand->running_in_this_thread());
 
-  if (ec)
+  ErrorCode errorCode = ec;
+  if(UNLIKELY(fp_AcceptedConnectionAborted_->checkFail()))
   {
-    logFailure(ec, "accept");
+    errorCode = ::boost::asio::error::connection_aborted;
+    // `setAcceptConnectionResult` must free ECS::Entity, socket, etc.
+  }
+
+  if (errorCode)
+  {
+    logFailure(errorCode, "accept");
   }
 
   if (!socket.is_open())
@@ -635,7 +683,7 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
         , &Listener::setAcceptConnectionResult
         , ::base::Unretained(this)
         , COPIED(tcp_entity_id)
-        , COPY_OR_MOVE(ec)
+        , COPY_OR_MOVE(errorCode)
         , RVALUE_CAST(socket)
       )
   );
@@ -658,7 +706,7 @@ void Listener::setAcceptConnectionResult(
   , ErrorCode&& ec
   , SocketType&& socket)
 {
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
 
   DCHECK(registry_->RunsTasksInCurrentSequence());
 
@@ -751,7 +799,7 @@ bool Listener::isAcceptorOpen() const
 
 bool Listener::isAcceptingInThisThread() const NO_EXCEPTION
 {
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
+  DCHECK_NOT_THREAD_BOUND(acceptorStrand_);
 
   /// \note `running_in_this_thread()` assumed to be thread-safe
   return acceptorStrand_->running_in_this_thread();

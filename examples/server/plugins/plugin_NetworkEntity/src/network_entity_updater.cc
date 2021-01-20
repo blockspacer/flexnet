@@ -106,9 +106,9 @@ NetworkEntityUpdater::~NetworkEntityUpdater()
 
 void NetworkEntityUpdater::update() NO_EXCEPTION
 {
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(periodicAsioTaskRunner_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND(periodicAsioTaskRunner_);
+  DCHECK_NOT_THREAD_BOUND(ioc_);
 
   DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
 
@@ -175,7 +175,7 @@ basis::PeriodicTaskExecutor&
 {
   DCHECK_METHOD_RUN_ON_UNKNOWN_THREAD(periodicTaskExecutor);
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(periodicTaskExecutor_);
+  DCHECK_NOT_THREAD_BOUND(periodicTaskExecutor_);
   return periodicTaskExecutor_;
 }
 

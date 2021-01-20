@@ -72,13 +72,13 @@ class SignalHandler
     GUARDED_BY(sequence_checker_);
 
   ::base::OnceClosure quitCb_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(quitCb_);
+    GUARD_NOT_THREAD_BOUND(quitCb_);
 
   std::atomic<size_t> signalsRecievedCount_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(signalsRecievedCount_);
+    GUARD_NOT_THREAD_BOUND(signalsRecievedCount_);
 
   SignalHandlerMap signalCallbacks_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(signalCallbacks_);
+    GUARD_NOT_THREAD_BOUND(signalCallbacks_);
 
   /// \note can be called from any thread
   CREATE_METHOD_GUARD(handleSignal);

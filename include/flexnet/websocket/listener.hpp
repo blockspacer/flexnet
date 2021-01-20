@@ -21,6 +21,7 @@
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
+#include <basis/fail_point/fail_point.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -46,6 +47,8 @@ CREATE_ECS_TAG(UnusedAcceptResultTag)
 namespace flexnet {
 
 namespace ws {
+
+STRONG_FAIL_POINT(FP_AcceptedConnectionAborted);
 
 // Accepts incoming connections
 //
@@ -238,8 +241,8 @@ public:
     , CallbackT&& task
     , ::base::IsNestedPromise isNestedPromise = ::base::IsNestedPromise())
   {
-    DCHECK_MEMBER_OF_UNKNOWN_THREAD(acceptorStrand_);
-    DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
+    DCHECK_NOT_THREAD_BOUND(acceptorStrand_);
+    DCHECK_NOT_THREAD_BOUND(ioc_);
 
     // unable to `::boost::asio::post` on stopped ioc
     DCHECK(!ioc_->stopped());
@@ -288,10 +291,12 @@ private:
                 , const ErrorCode& ec
                 , SocketType&& socket);
 
+#if DCHECK_IS_ON()
   MUST_USE_RETURN_VALUE
   ::basis::Status processStateChange(
     const ::base::Location& from_here
     , const Listener::Event& processEvent);
+#endif // DCHECK_IS_ON()
 
   // uses provided `per-connection entity`
   // to accept new connection
@@ -329,6 +334,7 @@ private:
   MUST_USE_RETURN_VALUE
     ::basis::Status configureAndRunAcceptor();
 
+#if DCHECK_IS_ON()
   // Defines all valid transitions for the state machine.
   // The transition table represents the following state diagram:
   /**
@@ -377,11 +383,12 @@ private:
 
     return sm_table_;
   }
+#endif // DCHECK_IS_ON()
 
   MUST_USE_RETURN_VALUE
   bool isIocRunning() const NO_EXCEPTION
   {
-    DCHECK_MEMBER_OF_UNKNOWN_THREAD(ioc_);
+    DCHECK_NOT_THREAD_BOUND(ioc_);
     return !ioc_->stopped();
   }
 
@@ -390,7 +397,7 @@ private:
 
   // Provides I/O functionality
   const ::basis::UnownedRef<IoContext> ioc_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(ioc_);
+    GUARD_NOT_THREAD_BOUND(ioc_);
 
   // acceptor will listen that address
   const EndpointType endpoint_
@@ -398,7 +405,7 @@ private:
 
   // used to create `per-connection entity`
   ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(registry_);
+    GUARD_NOT_THREAD_BOUND(registry_);
 
   // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
@@ -437,6 +444,17 @@ private:
 
   /// \note can be called from any thread
   CREATE_METHOD_GUARD(logFailure);
+
+  // Warn about large ECS registry.
+  size_t warnBigRegistrySize_
+    GUARD_NOT_THREAD_BOUND(warnBigRegistrySize_);
+
+  // Max. log frequency in millis.
+  // See `warnBigRegistrySize_`.
+  int warnBigRegistryFreqMs_
+    GUARD_NOT_THREAD_BOUND(warnBigRegistryFreqMs_);
+
+  FP_AcceptedConnectionAborted* fp_AcceptedConnectionAborted_ = nullptr;
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

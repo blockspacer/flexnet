@@ -174,16 +174,16 @@ class MainPluginLogic
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(mainLoopRunner_);
+    GUARD_NOT_THREAD_BOUND(mainLoopRunner_);
 
   ::basis::UnownedRef<::boost::asio::io_context> ioc_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(ioc_);
+    GUARD_NOT_THREAD_BOUND(ioc_);
 
   const EndpointType tcpEndpoint_
     GUARDED_BY(sequence_checker_);
 
   ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(registry_);
+    GUARD_NOT_THREAD_BOUND(registry_);
 
   ::backend::TcpEntityAllocator tcpEntityAllocator_;
     GUARD_MEMBER_DISALLOW_THREAD_COLLISION(tcpEntityAllocator_);

@@ -367,8 +367,8 @@ bool HttpChannel::isOpen() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -380,8 +380,8 @@ void HttpChannel::startReadAsync() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 
   DCHECK(!perConnectionStrand_->running_in_this_thread())
     << "use HttpChannel::doRead()";
@@ -405,7 +405,7 @@ void HttpChannel::startRead() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -418,9 +418,9 @@ void HttpChannel::doRead() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -474,11 +474,11 @@ void HttpChannel::doRead() NO_EXCEPTION
 
 void HttpChannel::doEof() NO_EXCEPTION
 {
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND(entity_id_);
+  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -541,7 +541,7 @@ void HttpChannel::onFail(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
 
   DCHECK_VALID_PTR_OR(what);
 
@@ -608,10 +608,10 @@ void HttpChannel::onRead(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -694,9 +694,9 @@ void HttpChannel::onRead(
     std::nullopt, // optional custom response
     [this](auto&& response)
     {
-      DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
-      DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-      DCHECK_MEMBER_OF_UNKNOWN_THREAD(can_schedule_callbacks_);
+      DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+      DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+      DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
 
       DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -744,9 +744,9 @@ void HttpChannel::handleWebsocketUpgrade(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND(entity_id_);
 
   DCHECK(registry_->RunsTasksInCurrentSequence());
 
@@ -792,8 +792,8 @@ void HttpChannel::onWrite(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 

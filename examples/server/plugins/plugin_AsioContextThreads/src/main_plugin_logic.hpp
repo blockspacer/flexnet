@@ -90,7 +90,7 @@ class MainPluginLogic
     GUARDED_BY(sequence_checker_);
 
   ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_MEMBER_OF_UNKNOWN_THREAD(registry_);
+    GUARD_NOT_THREAD_BOUND(registry_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

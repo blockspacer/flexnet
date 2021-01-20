@@ -50,8 +50,6 @@
 
 #include <basis/status/app_error_space.hpp>
 #include <basis/core/typed_enum.hpp>
-#include <basis/fail_point/fail_point.hpp>
-#include <basis/plug_point/plug_point.hpp>
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/dummy_checker.hpp>
 #include <basis/bind/ptr_checker.hpp>

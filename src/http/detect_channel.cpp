@@ -71,7 +71,7 @@ void DetectChannel::configureDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(stream_);
+  DCHECK_NOT_THREAD_BOUND(stream_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -99,11 +99,11 @@ void DetectChannel::runDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(perConnectionStrand_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(stream_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(buffer_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_buffer_valid_);
+  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND(stream_);
+  DCHECK_NOT_THREAD_BOUND(buffer_);
+  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND(is_buffer_valid_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -223,12 +223,12 @@ void DetectChannel::onDetected(
 
   DCHECK(isDetectingInThisThread());
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_stream_valid_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(is_buffer_valid_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(stream_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(buffer_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(atomicDetectDoneFlag_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
+  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND(is_buffer_valid_);
+  DCHECK_NOT_THREAD_BOUND(stream_);
+  DCHECK_NOT_THREAD_BOUND(buffer_);
+  DCHECK_NOT_THREAD_BOUND(atomicDetectDoneFlag_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
 
   DCHECK(is_stream_valid_.load());
   DCHECK(is_buffer_valid_.load());
@@ -261,7 +261,7 @@ void DetectChannel::onDetected(
     = !stream_.has_value()
       || !stream_.value().socket().is_open();
 
-  GET_FAIL_POINT(failPointPtr, FailPoint_CloseOnDetectChannel);
+  ASSIGN_FAIL_POINT(failPointPtr, FailPoint_CloseOnDetectChannel);
   SET_IF_FAIL_POINT(failPointPtr, forceClosing = true);
 
   DVLOG_IF(99, forceClosing)
@@ -304,8 +304,8 @@ void DetectChannel::setSSLDetectResult(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(registry_);
-  DCHECK_MEMBER_OF_UNKNOWN_THREAD(entity_id_);
+  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND(entity_id_);
 
   DCHECK(registry_->RunsTasksInCurrentSequence());
 
