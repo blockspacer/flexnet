@@ -555,6 +555,8 @@ private:
 
   PlugPoint_RecievedData* pp_RecievedData_ = nullptr;
 
+  PlugPoint_RecievedData* pp_RecievedData_ = nullptr;
+
   // detect infinite recursion
   FUNCTION_RECURSION_CHECKER_LIMIT_999(doEof);
 

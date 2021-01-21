@@ -442,6 +442,17 @@ private:
 
   EntityAllocatorCb entityAllocator_;
 
+  // Warn about large ECS registry.
+  size_t warnBigRegistrySize_
+    GUARDED_BY(*registry_);
+
+  // Max. log frequency in millis.
+  // See `warnBigRegistrySize_`.
+  int warnBigRegistryFreqMs_
+    GUARDED_BY(*registry_);
+
+  FP_AcceptedConnectionAborted* fp_AcceptedConnectionAborted_ = nullptr;
+
   /// \note can be called from any thread
   CREATE_METHOD_GUARD(logFailure);
 
