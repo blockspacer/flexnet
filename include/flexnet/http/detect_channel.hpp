@@ -207,8 +207,8 @@ public:
   MUST_USE_RETURN_VALUE
   bool isDetectingInThisThread() const NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
-    DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
     /// \note |perConnectionStrand_|
     /// is valid as long as |stream_| valid
@@ -224,8 +224,8 @@ public:
   MUST_USE_RETURN_VALUE
   const StrandType& perConnectionStrand() NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
-    DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
     /// \note |perConnectionStrand_|
     /// is valid as long as |stream_| valid
@@ -241,7 +241,7 @@ public:
   /// and thread-safe when you call |executor()|
   boost::asio::executor executor() NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(stream_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(stream_);
 
     DCHECK(stream_.has_value());
     return /// \note `get_executor` returns copy
@@ -255,8 +255,8 @@ public:
     , CallbackT&& task
     , ::base::IsNestedPromise isNestedPromise = ::base::IsNestedPromise())
   {
-    DCHECK_NOT_THREAD_BOUND(stream_);
-    DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(stream_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
     DCHECK(stream_.has_value()
       && stream_.value().socket().is_open());
@@ -274,13 +274,13 @@ public:
   /// `ECS::Entity` is just number, so can be copied freely.
   ECS::Entity entityId() const
   {
-    DCHECK_NOT_THREAD_BOUND(entity_id_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
     return entity_id_;
   }
 
   bool isDetected()
   {
-    DCHECK_NOT_THREAD_BOUND(atomicDetectDoneFlag_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(atomicDetectDoneFlag_);
     return atomicDetectDoneFlag_.load();
   }
 
@@ -317,7 +317,7 @@ private:
   MUST_USE_RETURN_VALUE
   bool isStreamValid() const NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
     return is_stream_valid_.load();
   }
 
@@ -329,23 +329,23 @@ private:
   ::base::Optional<StreamType> stream_
     /// \note moved between threads,
     /// take care of thread-safety!
-    GUARD_NOT_THREAD_BOUND(stream_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(stream_);
 
   // |stream_| moved in |onDetected|
   std::atomic<bool> is_stream_valid_
     // assumed to be thread-safe
-    GUARD_NOT_THREAD_BOUND(is_stream_valid_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
 
   // The dynamic buffer to use during `beast::async_detect_ssl`
   MessageBufferType buffer_
     /// \note moved between threads,
     /// take care of thread-safety!
-    GUARD_NOT_THREAD_BOUND(buffer_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(buffer_);
 
   // |buffer_| moved in |onDetected|
   std::atomic<bool> is_buffer_valid_
     // assumed to be thread-safe
-    GUARD_NOT_THREAD_BOUND(is_buffer_valid_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(is_buffer_valid_);
 
   // |stream_| and calls to |async_detect*| are guarded by strand
   ::basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
@@ -371,16 +371,16 @@ private:
   // will be set by |onDetected|
   std::atomic<bool> atomicDetectDoneFlag_
     // assumed to be thread-safe
-    GUARD_NOT_THREAD_BOUND(atomicDetectDoneFlag_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(atomicDetectDoneFlag_);
 
   // used by |entity_id_|
   ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_NOT_THREAD_BOUND(registry_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(registry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
-    GUARD_NOT_THREAD_BOUND(entity_id_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(entity_id_);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

@@ -166,7 +166,7 @@ public:
     , ::base::IsNestedPromise isNestedPromise = ::base::IsNestedPromise())
   NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
     return ::base::PostPromiseOnAsioExecutor(
       from_here
@@ -183,7 +183,7 @@ public:
   MUST_USE_RETURN_VALUE
   bool isStreamValid() const NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
     return is_stream_valid_.load();
   }
 
@@ -194,7 +194,7 @@ public:
   MUST_USE_RETURN_VALUE
   ECS::Entity entityId() const NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(entity_id_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
     return entity_id_;
   }
 
@@ -212,7 +212,7 @@ private:
   {
     LOG_CALL(DVLOG(99));
 
-    DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
 
     DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -295,12 +295,12 @@ private:
   /// while performing object invalidation.
   DEBUG_ATOMIC_FLAG(can_schedule_callbacks_)
     // assumed to be thread-safe
-    GUARD_NOT_THREAD_BOUND(can_schedule_callbacks_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   /// \note `stream_` can be moved to websocket session from http session
   std::atomic<bool> is_stream_valid_
     // assumed to be thread-safe
-    GUARD_NOT_THREAD_BOUND(is_stream_valid_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
 
   // The dynamic buffer to store recieved data
   MessageBufferType buffer_
@@ -308,12 +308,12 @@ private:
 
   // used by |entity_id_|
   ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_NOT_THREAD_BOUND(registry_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(registry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
-    GUARD_NOT_THREAD_BOUND(entity_id_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(entity_id_);
 
   // The parser is stored in an optional container so we can
   // construct it from scratch at the beginning

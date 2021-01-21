@@ -61,7 +61,7 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::load()");
 
-  DCHECK_NOT_THREAD_BOUND(mainLoopRunner_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(mainLoopRunner_);
 
   return VoidPromise::CreateResolved(FROM_HERE);
 }
@@ -73,7 +73,7 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::unload()");
 
-  DCHECK_NOT_THREAD_BOUND(mainLoopRunner_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(mainLoopRunner_);
 
   return VoidPromise::CreateResolved(FROM_HERE);
 }

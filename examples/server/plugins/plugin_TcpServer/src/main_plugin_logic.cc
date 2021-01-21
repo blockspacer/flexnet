@@ -88,7 +88,7 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::load()");
 
-  DCHECK_NOT_THREAD_BOUND(mainLoopRunner_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(mainLoopRunner_);
 
   return VoidPromise::CreateResolved(FROM_HERE)
   .ThenOn(mainLoopRunner_
@@ -110,7 +110,7 @@ MainPluginLogic::VoidPromise
 
   TRACE_EVENT0("headless", "plugin::MainPluginLogic::unload()");
 
-  DCHECK_NOT_THREAD_BOUND(mainLoopRunner_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(mainLoopRunner_);
 
   return VoidPromise::CreateResolved(FROM_HERE)
   .ThenOn(mainLoopRunner_
@@ -196,9 +196,9 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(registry_);
-  DCHECK_NOT_THREAD_BOUND(ioc_);
-  DCHECK_NOT_THREAD_BOUND(periodicValidateUntil_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(periodicValidateUntil_);
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -304,9 +304,9 @@ void MainPluginLogic::validateAndFreeNetworkResources(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(registry_);
-  DCHECK_NOT_THREAD_BOUND(ioc_);
-  DCHECK_NOT_THREAD_BOUND(periodicValidateUntil_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(periodicValidateUntil_);
 
   DCHECK(periodicValidateUntil_.RunsVerifierInCurrentSequence());
 
@@ -360,8 +360,8 @@ MainPluginLogic::VoidPromise
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(ioc_);
-  DCHECK_NOT_THREAD_BOUND(periodicValidateUntil_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(periodicValidateUntil_);
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -412,7 +412,7 @@ MainPluginLogic::VoidPromise
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(mainLoopRunner_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(mainLoopRunner_);
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -433,7 +433,7 @@ void MainPluginLogic::stopIOContext() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(ioc_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 

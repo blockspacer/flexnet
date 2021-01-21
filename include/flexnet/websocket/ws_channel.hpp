@@ -338,8 +338,8 @@ public:
     // asking for a WebSocket connection
     UpgradeRequestType<Body, Allocator>&& req) NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
-    DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
     DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
     ::boost::asio::post(
@@ -372,7 +372,7 @@ public:
     , ::base::IsNestedPromise isNestedPromise
         = ::base::IsNestedPromise()) NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
     return ::base::PostPromiseOnAsioExecutor(
       from_here
@@ -393,7 +393,7 @@ public:
   MUST_USE_RETURN_VALUE
   ECS::Entity entityId() const NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(entity_id_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
     return entity_id_;
   }
 
@@ -411,8 +411,8 @@ private:
     UpgradeRequestType<Body, Allocator>&& req) NO_EXCEPTION
     PRIVATE_METHOD_RUN_ON(&perConnectionStrand_)
   {
-    DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
-    DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
     DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -517,7 +517,7 @@ private:
 
   // |stream_| and calls to |async_*| are guarded by strand
   ::basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
-    GUARD_NOT_THREAD_BOUND(perConnectionStrand_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
   // The dynamic buffer to store recieved data
   MessageBufferType readBuffer_
@@ -525,12 +525,12 @@ private:
 
   // used by |entity_id_|
   ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_NOT_THREAD_BOUND(registry_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(registry_);
 
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_
-    GUARD_NOT_THREAD_BOUND(entity_id_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(entity_id_);
 
   /// \todo SSL support
   /// ::boost::asio::ssl::context
@@ -551,9 +551,7 @@ private:
   /// while performing object invalidation.
   DEBUG_ATOMIC_FLAG(can_schedule_callbacks_)
     // assumed to be thread-safe
-    GUARD_NOT_THREAD_BOUND(can_schedule_callbacks_);
-
-  PlugPoint_RecievedData* pp_RecievedData_ = nullptr;
+    GUARD_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   PlugPoint_RecievedData* pp_RecievedData_ = nullptr;
 

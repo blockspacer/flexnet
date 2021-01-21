@@ -241,8 +241,8 @@ public:
     , CallbackT&& task
     , ::base::IsNestedPromise isNestedPromise = ::base::IsNestedPromise())
   {
-    DCHECK_NOT_THREAD_BOUND(acceptorStrand_);
-    DCHECK_NOT_THREAD_BOUND(ioc_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(acceptorStrand_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
 
     // unable to `::boost::asio::post` on stopped ioc
     DCHECK(!ioc_->stopped());
@@ -388,7 +388,7 @@ private:
   MUST_USE_RETURN_VALUE
   bool isIocRunning() const NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND(ioc_);
+    DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
     return !ioc_->stopped();
   }
 
@@ -397,7 +397,7 @@ private:
 
   // Provides I/O functionality
   const ::basis::UnownedRef<IoContext> ioc_
-    GUARD_NOT_THREAD_BOUND(ioc_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(ioc_);
 
   // acceptor will listen that address
   const EndpointType endpoint_
@@ -405,7 +405,7 @@ private:
 
   // used to create `per-connection entity`
   ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_NOT_THREAD_BOUND(registry_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(registry_);
 
   // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
@@ -455,17 +455,6 @@ private:
 
   /// \note can be called from any thread
   CREATE_METHOD_GUARD(logFailure);
-
-  // Warn about large ECS registry.
-  size_t warnBigRegistrySize_
-    GUARD_NOT_THREAD_BOUND(warnBigRegistrySize_);
-
-  // Max. log frequency in millis.
-  // See `warnBigRegistrySize_`.
-  int warnBigRegistryFreqMs_
-    GUARD_NOT_THREAD_BOUND(warnBigRegistryFreqMs_);
-
-  FP_AcceptedConnectionAborted* fp_AcceptedConnectionAborted_ = nullptr;
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

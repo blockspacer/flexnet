@@ -23,6 +23,7 @@
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
+
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/error.hpp>
 #include <boost/asio/io_context_strand.hpp>
@@ -327,7 +328,7 @@ void Listener::doAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
 
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
@@ -364,11 +365,9 @@ void Listener::allocateTcpResourceAndAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(registry_);
-  DCHECK_NOT_THREAD_BOUND(acceptorStrand_);
-  DCHECK_NOT_THREAD_BOUND(ioc_);
-  DCHECK_NOT_THREAD_BOUND(warnBigRegistryFreqMs_);
-  DCHECK_NOT_THREAD_BOUND(warnBigRegistrySize_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(acceptorStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
 
   DCHECK(registry_->RunsTasksInCurrentSequence());
 
@@ -626,9 +625,9 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(registry_);
-  DCHECK_NOT_THREAD_BOUND(acceptorStrand_);
-  DCHECK_NOT_THREAD_BOUND(ioc_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(acceptorStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(unownedPerConnectionStrand
@@ -706,7 +705,7 @@ void Listener::setAcceptConnectionResult(
   , ErrorCode&& ec
   , SocketType&& socket)
 {
-  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
 
   DCHECK(registry_->RunsTasksInCurrentSequence());
 
@@ -799,7 +798,7 @@ bool Listener::isAcceptorOpen() const
 
 bool Listener::isAcceptingInThisThread() const NO_EXCEPTION
 {
-  DCHECK_NOT_THREAD_BOUND(acceptorStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(acceptorStrand_);
 
   /// \note `running_in_this_thread()` assumed to be thread-safe
   return acceptorStrand_->running_in_this_thread();

@@ -190,7 +190,7 @@ void WsChannel::onFail(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
   DCHECK_VALID_PTR_OR(what);
 
@@ -259,7 +259,7 @@ void WsChannel::onAccept(ErrorCode ec) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -277,8 +277,8 @@ void WsChannel::doRead() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -305,7 +305,7 @@ void WsChannel::onClose(ErrorCode ec) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -322,10 +322,10 @@ void WsChannel::doEof() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND(registry_);
-  DCHECK_NOT_THREAD_BOUND(entity_id_);
-  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   // prohibit callback execution while performing object invalidation.
   UNSET_DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
@@ -401,9 +401,9 @@ void WsChannel::onRead(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND(registry_);
-  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -458,9 +458,9 @@ void WsChannel::allocateRecievedDataComponent(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND(registry_);
-  DCHECK_NOT_THREAD_BOUND(entity_id_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
 
   DCHECK((*registry_).RunsTasksInCurrentSequence());
 
@@ -500,7 +500,7 @@ bool WsChannel::isOpen() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -514,8 +514,8 @@ void WsChannel::sendAsync(
   LOG_CALL(DVLOG(99));
 
   DCHECK_NOT_THREAD_BOUND_METHOD(send);
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   DCHECK(message);
 
@@ -555,7 +555,7 @@ void WsChannel::send(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -596,8 +596,8 @@ void WsChannel::writeQueued() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND(can_schedule_callbacks_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -659,7 +659,7 @@ void WsChannel::onWrite(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 

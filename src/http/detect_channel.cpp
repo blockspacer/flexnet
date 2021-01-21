@@ -71,7 +71,7 @@ void DetectChannel::configureDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(stream_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(stream_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -99,11 +99,11 @@ void DetectChannel::runDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND(stream_);
-  DCHECK_NOT_THREAD_BOUND(buffer_);
-  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
-  DCHECK_NOT_THREAD_BOUND(is_buffer_valid_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(stream_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(buffer_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(is_buffer_valid_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -223,12 +223,12 @@ void DetectChannel::onDetected(
 
   DCHECK(isDetectingInThisThread());
 
-  DCHECK_NOT_THREAD_BOUND(is_stream_valid_);
-  DCHECK_NOT_THREAD_BOUND(is_buffer_valid_);
-  DCHECK_NOT_THREAD_BOUND(stream_);
-  DCHECK_NOT_THREAD_BOUND(buffer_);
-  DCHECK_NOT_THREAD_BOUND(atomicDetectDoneFlag_);
-  DCHECK_NOT_THREAD_BOUND(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(is_buffer_valid_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(stream_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(buffer_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(atomicDetectDoneFlag_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
 
   DCHECK(is_stream_valid_.load());
   DCHECK(is_buffer_valid_.load());
@@ -304,8 +304,8 @@ void DetectChannel::setSSLDetectResult(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND(registry_);
-  DCHECK_NOT_THREAD_BOUND(entity_id_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
+  DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
 
   DCHECK(registry_->RunsTasksInCurrentSequence());
 

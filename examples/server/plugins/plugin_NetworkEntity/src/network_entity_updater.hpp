@@ -69,19 +69,19 @@ class NetworkEntityUpdater
   SET_WEAK_POINTERS(NetworkEntityUpdater);
 
   ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_NOT_THREAD_BOUND(registry_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(registry_);
 
   // The io_context is required for all I/O
   ::basis::UnownedRef<IoContext> ioc_
-    GUARD_NOT_THREAD_BOUND(ioc_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(ioc_);
 
   // Task sequence used to update `network-ECS`
   scoped_refptr<::base::SequencedTaskRunner> periodicAsioTaskRunner_
-    GUARD_NOT_THREAD_BOUND(periodicAsioTaskRunner_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(periodicAsioTaskRunner_);
 
   /// \note will stop periodic timer on scope exit
   ::basis::PeriodicTaskExecutor periodicTaskExecutor_
-    GUARD_NOT_THREAD_BOUND(periodicTaskExecutor_);
+    GUARD_NOT_THREAD_BOUND_MEMBER(periodicTaskExecutor_);
 
   /// \note can be called from any thread
   CREATE_METHOD_GUARD(periodicTaskExecutor);
