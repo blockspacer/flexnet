@@ -73,6 +73,7 @@ Listener::Listener(
   , entityAllocator_(entityAllocator)
   , warnBigRegistrySize_(100000)
   , warnBigRegistryFreqMs_(100)
+  , fp_AcceptedConnectionAborted_(nullptr)
 {
   LOG_CALL(DVLOG(99));
 
@@ -118,9 +119,7 @@ void Listener::logFailure(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_METHOD(logFailure);
-
-  DCHECK_VALID_PTR_OR(what);
+  DCHECK_VALID_PTR(what);
 
   // NOTE: If you got logFailure: accept: Too many open files
   // set ulimit -n 4096, see stackoverflow.com/a/8583083/10904212
@@ -328,8 +327,6 @@ void Listener::doAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-
   DCHECK_RUN_ON_STRAND(&acceptorStrand_, ExecutorType);
 
   // prevent infinite recursion
@@ -350,7 +347,7 @@ void Listener::doAccept()
   /// BEFORE anyone connected
   /// (before callback of `async_accept`)
 
-  registry_->taskRunner()->PostTask(
+  registry_.taskRunner()->PostTask(
     FROM_HERE
     , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
@@ -365,14 +362,12 @@ void Listener::allocateTcpResourceAndAccept()
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(acceptorStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
+  DCHECK_MEMBER_GUARD(acceptorStrand_);
 
-  DCHECK(registry_->RunsTasksInCurrentSequence());
+  DCHECK(registry_.RunsTasksInCurrentSequence());
 
   LOG_IF_EVERY_N_MS(WARNING
-                    , (*registry_)->size() > warnBigRegistrySize_
+                    , registry_->size() > warnBigRegistrySize_
                     , warnBigRegistryFreqMs_)
    << "Asio registry has more than "
    << warnBigRegistrySize_
@@ -387,11 +382,11 @@ void Listener::allocateTcpResourceAndAccept()
   DCHECK(entityAllocator_);
   ECS::Entity tcp_entity_id
     = entityAllocator_.Run();
-  DCHECK((*registry_)->valid(tcp_entity_id));
+  DCHECK(registry_->valid(tcp_entity_id));
 
-  DCHECK((*registry_)->has<ECS::TcpConnection>(tcp_entity_id));
+  DCHECK(registry_->has<ECS::TcpConnection>(tcp_entity_id));
   ECS::TcpConnection& tcpComponent
-    = (*registry_)->get<ECS::TcpConnection>(tcp_entity_id);
+    = registry_->get<ECS::TcpConnection>(tcp_entity_id);
 
   DVLOG(99)
     << "using TcpConnection with id: "
@@ -401,7 +396,7 @@ void Listener::allocateTcpResourceAndAccept()
     = &tcpComponent->reset_or_create_var<StrandComponent>(
         "Ctx_StrandComponent_" + ::base::GenerateGUID() // debug name
         /// \note `get_executor` returns copy
-        , ioc_->get_executor());
+        , ioc_.get_executor());
 
   // Check that if the value already existed
   // it was overwritten
@@ -409,9 +404,9 @@ void Listener::allocateTcpResourceAndAccept()
   // have same io context executor
   DCHECK(asioStrandCtx->value().get_inner_executor()
     /// \note `get_executor` returns copy
-    == ioc_->get_executor());
+    == ioc_.get_executor());
 
-  if(ioc_->stopped())
+  if(ioc_.stopped())
   {
     LOG_CALL(LOG(WARNING))
       << "unable to `::boost::asio::post` on stopped ioc";
@@ -625,9 +620,8 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(acceptorStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
+  DCHECK_MEMBER_GUARD(acceptorStrand_);
+  DCHECK_MEMBER_GUARD(fp_AcceptedConnectionAborted_);
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(unownedPerConnectionStrand
@@ -662,7 +656,7 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
         << remote_endpoint;
   }
 
-  if(ioc_->stopped())
+  if(ioc_.stopped())
   {
     LOG_CALL(LOG(WARNING))
       << "unable to `::boost::asio::post` on stopped ioc";
@@ -673,7 +667,7 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
   // mark connection as newly created
   // (or as failed with error code)
 
-  registry_->taskRunner()->PostTask(
+  registry_.taskRunner()->PostTask(
     FROM_HERE
     , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
@@ -705,17 +699,15 @@ void Listener::setAcceptConnectionResult(
   , ErrorCode&& ec
   , SocketType&& socket)
 {
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
+  DCHECK(registry_.RunsTasksInCurrentSequence());
 
-  DCHECK(registry_->RunsTasksInCurrentSequence());
-
-  DCHECK((*registry_)->valid(tcp_entity_id));
+  DCHECK(registry_->valid(tcp_entity_id));
 
   DVLOG(99)
     << " added new connection";
 
   ECS::TcpConnection& tcpComponent
-    = (*registry_)->get<ECS::TcpConnection>(tcp_entity_id);
+    = registry_->get<ECS::TcpConnection>(tcp_entity_id);
 
   // `ECS::TcpConnection` must be valid
   DCHECK(tcpComponent->try_ctx_var<Listener::StrandComponent>());
@@ -725,7 +717,7 @@ void Listener::setAcceptConnectionResult(
       = ::base::Optional<Listener::AcceptConnectionResult>;
 
     // If the value already exists allow it to be re-used
-    (*registry_)->remove_if_exists<
+    registry_->remove_if_exists<
         ECS::UnusedAcceptResultTag
       >(tcp_entity_id);
 
@@ -739,7 +731,7 @@ void Listener::setAcceptConnectionResult(
       << " forcing close of connection";
 
     UniqueAcceptComponent& acceptResult
-      = (*registry_).reset_or_create_component<UniqueAcceptComponent>(
+      = registry_.reset_or_create_component<UniqueAcceptComponent>(
             "UniqueAcceptComponent_" + ::base::GenerateGUID() // debug name
             , tcp_entity_id
             , RVALUE_CAST(ec)
@@ -775,13 +767,13 @@ Listener::~Listener()
   {
     /// \note (thread-safety) access from destructor when ioc->stopped
     /// i.e. assume no running asio threads that use |registry_|
-    DCHECK(registry_->registryUnsafe().empty());
+    DCHECK(registry_.registryUnsafe().empty());
   }
 
   /// \note Callbacks posted on |io_context| can use |this|,
   /// so make sure that |this| outlives |io_context|
   /// (callbacks expected to NOT execute on stopped |io_context|).
-  DCHECK(ioc_->stopped());
+  DCHECK(ioc_.stopped());
 
   DVLOG(99)
     << "asio acceptor was freed";
@@ -798,7 +790,7 @@ bool Listener::isAcceptorOpen() const
 
 bool Listener::isAcceptingInThisThread() const NO_EXCEPTION
 {
-  DCHECK_NOT_THREAD_BOUND_MEMBER(acceptorStrand_);
+  DCHECK_MEMBER_GUARD(acceptorStrand_);
 
   /// \note `running_in_this_thread()` assumed to be thread-safe
   return acceptorStrand_->running_in_this_thread();

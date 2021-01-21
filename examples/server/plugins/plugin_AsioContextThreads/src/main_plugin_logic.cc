@@ -66,26 +66,27 @@ MainPluginLogic::VoidPromise
 
   return
     ::base::PostPromise(FROM_HERE
-      , UNOWNED_LIFETIME(mainLoopRunner_.get())
-      , ::base::BindOnce(
-        [
-        ](
-        ){
-           {
-             VLOG(1)
-               << "stopping io context";
+      , mainLoopRunner_.get()
+      , ::base::bindCheckedOnce(
+          DEBUG_BIND_CHECKS(
+            PTR_CHECKER(mainLoopRunner_.get())
+          )
+          , []() {
+             {
+               VLOG(1)
+                 << "stopping io context";
 
-             ::boost::asio::io_context& ioc =
-               ::backend::MainLoopRegistry::GetInstance()->registry()
-                 .ctx<::boost::asio::io_context>();
+               ::boost::asio::io_context& ioc =
+                 ::backend::MainLoopRegistry::GetInstance()->registry()
+                   .ctx<::boost::asio::io_context>();
 
-             // Stop the `io_context`. This will cause `io_context.run()`
-             // to return immediately, eventually destroying the
-             // io_context and any remaining handlers in it.
-             ioc.stop(); // io_context::stop is thread-safe
-             DCHECK(ioc.stopped()); // io_context::stopped is thread-safe
-           }
-        })
+               // Stop the `io_context`. This will cause `io_context.run()`
+               // to return immediately, eventually destroying the
+               // io_context and any remaining handlers in it.
+               ioc.stop(); // io_context::stop is thread-safe
+               DCHECK(ioc.stopped()); // io_context::stopped is thread-safe
+             }
+          })
     );
 }
 

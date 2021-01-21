@@ -60,31 +60,20 @@ class SignalHandler
     PUBLIC_METHOD_RUN_ON(&sequence_checker_);
 
  private:
-  void handleSignal(::boost::system::error_code const&, int)
-    GUARD_NOT_THREAD_BOUND_METHOD(handleSignal);
+  void handleSignal(::boost::system::error_code const&, int);
 
-  void handleQuitSignal(::boost::system::error_code const&, int)
-    GUARD_NOT_THREAD_BOUND_METHOD(handleQuitSignal);
+  void handleQuitSignal(::boost::system::error_code const&, int);
 
  private:
   // Capture SIGINT and SIGTERM to perform a clean shutdown
   ::boost::asio::signal_set signals_set_
     GUARDED_BY(sequence_checker_);
 
-  ::base::OnceClosure quitCb_
-    GUARD_NOT_THREAD_BOUND_MEMBER(quitCb_);
+  ::base::OnceClosure quitCb_;
 
-  std::atomic<size_t> signalsRecievedCount_
-    GUARD_NOT_THREAD_BOUND_MEMBER(signalsRecievedCount_);
+  std::atomic<size_t> signalsRecievedCount_;
 
-  SignalHandlerMap signalCallbacks_
-    GUARD_NOT_THREAD_BOUND_MEMBER(signalCallbacks_);
-
-  /// \note can be called from any thread
-  CREATE_METHOD_GUARD(handleSignal);
-
-  /// \note can be called from any thread
-  CREATE_METHOD_GUARD(handleQuitSignal);
+  SignalHandlerMap signalCallbacks_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

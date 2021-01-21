@@ -367,8 +367,7 @@ bool HttpChannel::isOpen() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  DCHECK_MEMBER_GUARD(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -380,8 +379,7 @@ void HttpChannel::startReadAsync() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
+  DCHECK_MEMBER_GUARD(perConnectionStrand_);
 
   DCHECK(!perConnectionStrand_->running_in_this_thread())
     << "use HttpChannel::doRead()";
@@ -405,7 +403,7 @@ void HttpChannel::startRead() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  DCHECK_MEMBER_GUARD(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -418,9 +416,7 @@ void HttpChannel::doRead() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
+  DCHECK_MEMBER_GUARD(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -474,11 +470,7 @@ void HttpChannel::doRead() NO_EXCEPTION
 
 void HttpChannel::doEof() NO_EXCEPTION
 {
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
+  DCHECK_MEMBER_GUARD(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -506,11 +498,11 @@ void HttpChannel::doEof() NO_EXCEPTION
     REFERENCED(socket));
 
   DCHECK_NO_ATOMIC_FLAG(can_schedule_callbacks_);
-  registry_->taskRunner()->PostTask(
+  registry_.taskRunner()->PostTask(
     FROM_HERE
     , ::base::BindOnce(
         &HttpChannel::markUnused
-        , REFERENCED(*registry_)
+        , REFERENCED(registry_)
         , entity_id_
       )
   );
@@ -541,9 +533,7 @@ void HttpChannel::onFail(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-
-  DCHECK_VALID_PTR_OR(what);
+  DCHECK_VALID_PTR(what);
 
   DCHECK(is_stream_valid_.load());
 
@@ -608,10 +598,7 @@ void HttpChannel::onRead(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
+  DCHECK_MEMBER_GUARD(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -654,7 +641,7 @@ void HttpChannel::onRead(
 
     // create websocket connection
     DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
-    registry_->taskRunner()->PostTask(
+    registry_.taskRunner()->PostTask(
       FROM_HERE
       , ::base::bindCheckedOnce(
           DEBUG_BIND_CHECKS(
@@ -694,9 +681,7 @@ void HttpChannel::onRead(
     std::nullopt, // optional custom response
     [this](auto&& response)
     {
-      DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-      DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-      DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
+      DCHECK_MEMBER_GUARD(perConnectionStrand_);
 
       DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
@@ -744,14 +729,10 @@ void HttpChannel::handleWebsocketUpgrade(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
-
-  DCHECK(registry_->RunsTasksInCurrentSequence());
+  DCHECK(registry_.RunsTasksInCurrentSequence());
 
   ECS::TcpConnection& tcpComponent
-    = (*registry_)->get<ECS::TcpConnection>(entity_id_);
+    = registry_->get<ECS::TcpConnection>(entity_id_);
 
   DVLOG(99)
     << "using TcpConnection with id: "
@@ -766,7 +747,7 @@ void HttpChannel::handleWebsocketUpgrade(
     = &tcpComponent->reset_or_create_var<WsChannelComponent>(
         "Ctx_WsChannelComponent_" + ::base::GenerateGUID() // debug name
         , RVALUE_CAST(stream)
-        , REFERENCED(*registry_)
+        , REFERENCED(registry_)
         , entity_id_);
 
   // we moved `stream_` out
@@ -792,8 +773,7 @@ void HttpChannel::onWrite(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  DCHECK_MEMBER_GUARD(perConnectionStrand_);
 
   DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 

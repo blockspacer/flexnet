@@ -71,7 +71,7 @@ void DetectChannel::configureDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(stream_);
+  DCHECK_NOT_THREAD_BOUND_GUARD(stream_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -99,11 +99,9 @@ void DetectChannel::runDetector(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(stream_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(buffer_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_buffer_valid_);
+  DCHECK_NOT_THREAD_BOUND_GUARD(stream_);
+  DCHECK_NOT_THREAD_BOUND_GUARD(buffer_);
+  DCHECK_MEMBER_GUARD(perConnectionStrand_);
 
   DCHECK(isDetectingInThisThread());
 
@@ -223,12 +221,8 @@ void DetectChannel::onDetected(
 
   DCHECK(isDetectingInThisThread());
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(is_buffer_valid_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(stream_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(buffer_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(atomicDetectDoneFlag_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
+  DCHECK_NOT_THREAD_BOUND_GUARD(stream_);
+  DCHECK_NOT_THREAD_BOUND_GUARD(buffer_);
 
   DCHECK(is_stream_valid_.load());
   DCHECK(is_buffer_valid_.load());
@@ -268,7 +262,7 @@ void DetectChannel::onDetected(
     << " forcing close of connection";
 
   // mark SSL detection completed
-  registry_->taskRunner()->PostTask(
+  registry_.taskRunner()->PostTask(
     FROM_HERE
     , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
@@ -304,10 +298,7 @@ void DetectChannel::setSSLDetectResult(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
-
-  DCHECK(registry_->RunsTasksInCurrentSequence());
+  DCHECK(registry_.RunsTasksInCurrentSequence());
 
   DVLOG(99)
     << " detected connection as "
@@ -318,12 +309,12 @@ void DetectChannel::setSSLDetectResult(
       = ::base::Optional<DetectChannel::SSLDetectResult>;
 
     // If the value already exists allow it to be re-used
-    (*registry_)->remove_if_exists<
+    registry_->remove_if_exists<
         ECS::UnusedSSLDetectResultTag
       >(entity_id_);
 
     UniqueSSLDetectComponent& detectResult
-      = (*registry_).reset_or_create_component<UniqueSSLDetectComponent>(
+      = registry_.reset_or_create_component<UniqueSSLDetectComponent>(
             "UniqueSSLDetectComponent_" + ::base::GenerateGUID() // debug name
             , entity_id_
             , RVALUE_CAST(ec)

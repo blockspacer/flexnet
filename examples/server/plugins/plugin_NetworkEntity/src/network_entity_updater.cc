@@ -106,10 +106,6 @@ NetworkEntityUpdater::~NetworkEntityUpdater()
 
 void NetworkEntityUpdater::update() NO_EXCEPTION
 {
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(periodicAsioTaskRunner_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
-
   DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
 
   /// \note you can not use `::boost::asio::post`
@@ -173,9 +169,6 @@ MUST_USE_RETURN_VALUE
 basis::PeriodicTaskExecutor&
   NetworkEntityUpdater::periodicTaskExecutor() NO_EXCEPTION
 {
-  DCHECK_NOT_THREAD_BOUND_METHOD(periodicTaskExecutor);
-
-  DCHECK_NOT_THREAD_BOUND_MEMBER(periodicTaskExecutor_);
   return periodicTaskExecutor_;
 }
 

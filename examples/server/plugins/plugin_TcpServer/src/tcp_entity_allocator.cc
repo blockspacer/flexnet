@@ -193,7 +193,7 @@ TcpEntityAllocator::TcpEntityAllocator(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , registryRef_(REFERENCED(registry))
+  , registry_(REFERENCED(registry))
 {
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
@@ -213,11 +213,9 @@ ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION
 
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registryRef_);
+  DCHECK_RUN_ON_REGISTRY(&registry_);
 
-  DCHECK_RUN_ON_REGISTRY(&(*registryRef_));
-
-  ECS::Registry& registry = *registryRef_;
+  ECS::Registry& registry = *registry_;
 
   // Avoid extra allocations
   // with memory pool in ECS style using |Include...|

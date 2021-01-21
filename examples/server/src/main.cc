@@ -134,7 +134,7 @@ VoidPromise startPluginManager() NO_EXCEPTION
 
   ::base::CommandLine* cmdLine
     = ::base::CommandLine::ForCurrentProcess();
-  DCHECK_VALID_PTR_OR(cmdLine);
+  DCHECK_VALID_PTR(cmdLine);
 
   ::base::FilePath pathToDirWithPlugins
     = cmdLine->HasSwitch(kPluginsDirSwitch)
@@ -318,11 +318,11 @@ void finishProcessMetrics() NO_EXCEPTION
         frames.reserve(sample.stack.size());
         for (const void* frame : sample.stack)
         {
-          DCHECK_VALID_PTR_OR(frame);
+          DCHECK_VALID_PTR(frame);
           uintptr_t address = reinterpret_cast<uintptr_t>(frame);
           const ::base::ModuleCache::Module* module =
               module_cache.GetModuleForAddress(address);
-          DCHECK_VALID_PTR_OR(module);
+          DCHECK_VALID_PTR(module);
           frames.emplace_back(address, module);
         }
         size_t count = std::max<size_t>(
@@ -357,7 +357,7 @@ void finishProcessMetrics() NO_EXCEPTION
 
       for (const auto* module : module_cache.GetModules())
       {
-        DCHECK_VALID_PTR_OR(module);
+        DCHECK_VALID_PTR(module);
         VLOG(1)
           << "module GetDebugBasename: "
           << ::base::StringPrintf(

@@ -31,7 +31,7 @@
 #include <atomic>
 #include <memory>
 
-namespace util { template <class T> class UnownedRef; }
+namespace util { template <class T> class UnownedPtr; }
 
 namespace base { struct NoReject; }
 
@@ -241,11 +241,10 @@ public:
     , CallbackT&& task
     , ::base::IsNestedPromise isNestedPromise = ::base::IsNestedPromise())
   {
-    DCHECK_NOT_THREAD_BOUND_MEMBER(acceptorStrand_);
-    DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
+    DCHECK_MEMBER_GUARD(acceptorStrand_);
 
     // unable to `::boost::asio::post` on stopped ioc
-    DCHECK(!ioc_->stopped());
+    DCHECK(!ioc_.stopped());
     return ::base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
@@ -307,7 +306,7 @@ private:
     , ECS::Entity tcp_entity_id);
 
   void allocateTcpResourceAndAccept()
-    PRIVATE_METHOD_RUN_ON(*registry_);
+    PRIVATE_METHOD_RUN_ON(registry_);
 
   // store result of |acceptor_.async_accept(...)|
   // in `per-connection entity`
@@ -316,12 +315,11 @@ private:
     ECS::Entity tcp_entity_id
     , ErrorCode&& ec
     , SocketType&& socket)
-    PRIVATE_METHOD_RUN_ON(*registry_);
+    PRIVATE_METHOD_RUN_ON(registry_);
 
   // Report a failure
   /// \note not thread-safe, so keep it for logging purposes only
-  void logFailure(const ErrorCode& ec, char const* what)
-    GUARD_NOT_THREAD_BOUND_METHOD(logFailure);
+  void logFailure(const ErrorCode& ec, char const* what);
 
   MUST_USE_RETURN_VALUE
     ::basis::Status configureAcceptor();
@@ -388,24 +386,21 @@ private:
   MUST_USE_RETURN_VALUE
   bool isIocRunning() const NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND_MEMBER(ioc_);
-    return !ioc_->stopped();
+    return !ioc_.stopped();
   }
 
 private:
   SET_WEAK_POINTERS(Listener);
 
   // Provides I/O functionality
-  const ::basis::UnownedRef<IoContext> ioc_
-    GUARD_NOT_THREAD_BOUND_MEMBER(ioc_);
+  IoContext& ioc_;
 
   // acceptor will listen that address
   const EndpointType endpoint_
     GUARDED_BY(acceptorStrand_);
 
   // used to create `per-connection entity`
-  ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_NOT_THREAD_BOUND_MEMBER(registry_);
+  ECS::SafeRegistry& registry_;
 
   // Modification of |acceptor_| must be guarded by |acceptorStrand_|
   // i.e. acceptor_.open(), acceptor_.close(), etc.
@@ -440,21 +435,20 @@ private:
     GUARDED_BY(acceptorStrand_);
 #endif // DCHECK_IS_ON()
 
-  EntityAllocatorCb entityAllocator_;
+  EntityAllocatorCb entityAllocator_
+    GUARDED_BY(registry_);
 
   // Warn about large ECS registry.
   size_t warnBigRegistrySize_
-    GUARDED_BY(*registry_);
+    GUARDED_BY(registry_);
 
   // Max. log frequency in millis.
   // See `warnBigRegistrySize_`.
   int warnBigRegistryFreqMs_
-    GUARDED_BY(*registry_);
+    GUARDED_BY(registry_);
 
-  FP_AcceptedConnectionAborted* fp_AcceptedConnectionAborted_ = nullptr;
-
-  /// \note can be called from any thread
-  CREATE_METHOD_GUARD(logFailure);
+  FP_AcceptedConnectionAborted* fp_AcceptedConnectionAborted_
+    GUARD_MEMBER_DISALLOW_THREAD_COLLISION(fp_AcceptedConnectionAborted_);
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

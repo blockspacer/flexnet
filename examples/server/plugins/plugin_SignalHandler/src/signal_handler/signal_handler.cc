@@ -196,13 +196,7 @@ void SignalHandler::handleSignal(
   ::boost::system::error_code const& errorCode
   , int signum)
 {
-  DCHECK_NOT_THREAD_BOUND_METHOD(handleSignal);
-
   LOG_CALL(DVLOG(99));
-
-  DCHECK_NOT_THREAD_BOUND_MEMBER(quitCb_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(signalsRecievedCount_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(signalCallbacks_);
 
   DVLOG(9)
     << "got signum "
@@ -228,13 +222,7 @@ void SignalHandler::handleQuitSignal(
   ::boost::system::error_code const& errorCode
   , int signum)
 {
-  DCHECK_NOT_THREAD_BOUND_METHOD(handleQuitSignal);
-
   LOG_CALL(DVLOG(99));
-
-  DCHECK_NOT_THREAD_BOUND_MEMBER(quitCb_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(signalsRecievedCount_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(signalCallbacks_);
 
   signalsRecievedCount_.store(
     signalsRecievedCount_.load() + 1);

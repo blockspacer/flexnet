@@ -72,15 +72,16 @@ MainPluginInterface::VoidPromise
 
   return
       ::base::PostPromise(FROM_HERE
-        , UNOWNED_LIFETIME(mainLoopRunner_.get())
-        , ::base::BindOnce(
-          [
-          ](
-          ){
-            LOG_CALL(DVLOG(99))
-                << kPluginName
-                << " starting...";
-          })
+        , mainLoopRunner_.get()
+        , ::base::bindCheckedOnce(
+            DEBUG_BIND_CHECKS(
+              PTR_CHECKER(mainLoopRunner_.get())
+            )
+            , [](){
+              LOG_CALL(DVLOG(99))
+                  << kPluginName
+                  << " starting...";
+            })
         )
       .ThenHere(FROM_HERE
         , ::base::bindCheckedOnce(
@@ -120,15 +121,16 @@ MainPluginInterface::VoidPromise MainPluginInterface::unload()
 
   return
       ::base::PostPromise(FROM_HERE
-        , UNOWNED_LIFETIME(mainLoopRunner_.get())
-        , ::base::BindOnce(
-          [
-          ](
-          ){
-            LOG_CALL(DVLOG(99))
-              << kPluginName
-              << " terminating...";
-          })
+        , mainLoopRunner_.get()
+        , ::base::bindCheckedOnce(
+            DEBUG_BIND_CHECKS(
+              PTR_CHECKER(mainLoopRunner_.get())
+            )
+            , [](){
+              LOG_CALL(DVLOG(99))
+                << kPluginName
+                << " terminating...";
+            })
       )
       .ThenHere(FROM_HERE
         , ::base::bindCheckedOnce(

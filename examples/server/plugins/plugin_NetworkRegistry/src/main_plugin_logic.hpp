@@ -105,11 +105,9 @@ class MainPluginLogic
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
-  scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_
-    GUARD_NOT_THREAD_BOUND_MEMBER(mainLoopRunner_);
+  scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_;
 
-  ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_NOT_THREAD_BOUND_MEMBER(registry_);
+  ::basis::UnownedRef<ECS::SafeRegistry> registry_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

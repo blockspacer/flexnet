@@ -190,9 +190,7 @@ void WsChannel::onFail(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-
-  DCHECK_VALID_PTR_OR(what);
+  DCHECK_VALID_PTR(what);
 
   /// prevent infinite recursion
   /// onFail -> doEof -> async_close -> onClose -> onFail
@@ -259,8 +257,6 @@ void WsChannel::onAccept(ErrorCode ec) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
   if (ec)
@@ -276,9 +272,6 @@ void WsChannel::onAccept(ErrorCode ec) NO_EXCEPTION
 void WsChannel::doRead() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
-
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -305,8 +298,6 @@ void WsChannel::onClose(ErrorCode ec) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
   if(ec)
@@ -321,11 +312,6 @@ void WsChannel::onClose(ErrorCode ec) NO_EXCEPTION
 void WsChannel::doEof() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
-
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   // prohibit callback execution while performing object invalidation.
   UNSET_DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
@@ -366,11 +352,11 @@ void WsChannel::doEof() NO_EXCEPTION
   }
 
   DCHECK_NO_ATOMIC_FLAG(can_schedule_callbacks_);
-  registry_->taskRunner()->PostTask(
+  registry_.taskRunner()->PostTask(
     FROM_HERE
     , ::base::BindOnce(
         &WsChannel::markUnused
-        , REFERENCED(*registry_)
+        , REFERENCED(registry_)
         , entity_id_
       )
   );
@@ -401,10 +387,6 @@ void WsChannel::onRead(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
-
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
   boost::ignore_unused(bytes_transferred);
@@ -434,7 +416,7 @@ void WsChannel::onRead(
   }
 
   DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
-  registry_->taskRunner()->PostTask(
+  registry_.taskRunner()->PostTask(
     FROM_HERE
     , ::base::bindCheckedOnce(
         DEBUG_BIND_CHECKS(
@@ -458,18 +440,14 @@ void WsChannel::allocateRecievedDataComponent(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(registry_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
-
-  DCHECK((*registry_).RunsTasksInCurrentSequence());
+  DCHECK(registry_.RunsTasksInCurrentSequence());
 
   // plugins can extend API
   RETURN_IF_PLUG_POINT_HAS_VALUE(pp_RecievedData_, REFERENCED(message));
 
   // We want to filter recieved messages individually,
   // so each message becomes separate entity.
-  ECS::Entity msg_entity_id = (*registry_)->create();
+  ECS::Entity msg_entity_id = registry_->create();
 
   DVLOG(99)
     << "Websocket message was read with id = "
@@ -479,17 +457,17 @@ void WsChannel::allocateRecievedDataComponent(
 
   {
     RecievedData& recievedDataComponent
-      = (*registry_)->emplace<RecievedData>(
+      = registry_->emplace<RecievedData>(
             msg_entity_id // assign to entity with that id
             , RVALUE_CAST(message));
 
-    DCHECK((*registry_)->valid(entity_id_));
-    DCHECK((*registry_)->valid(msg_entity_id));
+    DCHECK(registry_->valid(entity_id_));
+    DCHECK(registry_->valid(msg_entity_id));
 
     ECS::prependChildEntity<
       RecievedData // unique type tag for all children
     >(
-      REFERENCED(static_cast<ECS::Registry&>((*registry_)))
+      REFERENCED(static_cast<ECS::Registry&>(registry_))
       , entity_id_ // parent
       , msg_entity_id // child
     );
@@ -499,8 +477,6 @@ void WsChannel::allocateRecievedDataComponent(
 bool WsChannel::isOpen() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
-
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -512,10 +488,6 @@ void WsChannel::sendAsync(
   , bool is_binary) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
-
-  DCHECK_NOT_THREAD_BOUND_METHOD(send);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   DCHECK(message);
 
@@ -555,8 +527,6 @@ void WsChannel::send(
 {
   LOG_CALL(DVLOG(99));
 
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
   DCHECK(message);
@@ -567,7 +537,7 @@ void WsChannel::send(
 
   if (sendBuffer_.isFull())
   {
-    LOG_CALL(LOG(WARNING))
+    LOG_CALL(LOG_EVERY_N_MS(WARNING, 100))
       << "Server send buffer is full."
       << "That may indicate DDOS or configuration issues.";
 
@@ -595,9 +565,6 @@ void WsChannel::send(
 void WsChannel::writeQueued() NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
-
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-  DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 
@@ -658,8 +625,6 @@ void WsChannel::onWrite(
   , std::size_t bytes_transferred) NO_EXCEPTION
 {
   LOG_CALL(DVLOG(99));
-
-  DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
 
   DCHECK(perConnectionStrand_->running_in_this_thread());
 

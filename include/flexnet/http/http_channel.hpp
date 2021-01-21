@@ -40,10 +40,6 @@
 
 namespace base { struct NoReject; }
 
-namespace util { template <class T> class UnownedPtr; }
-
-namespace util { template <class T> class UnownedRef; }
-
 namespace flexnet {
 namespace http {
 
@@ -166,7 +162,7 @@ public:
     , ::base::IsNestedPromise isNestedPromise = ::base::IsNestedPromise())
   NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+    DCHECK_MEMBER_GUARD(perConnectionStrand_);
 
     return ::base::PostPromiseOnAsioExecutor(
       from_here
@@ -183,7 +179,6 @@ public:
   MUST_USE_RETURN_VALUE
   bool isStreamValid() const NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
     return is_stream_valid_.load();
   }
 
@@ -194,7 +189,6 @@ public:
   MUST_USE_RETURN_VALUE
   ECS::Entity entityId() const NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
     return entity_id_;
   }
 
@@ -212,8 +206,6 @@ private:
   {
     LOG_CALL(DVLOG(99));
 
-    DCHECK_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
-
     DCHECK_RUN_ON_STRAND(&perConnectionStrand_, ExecutorType);
 
     DCHECK(is_stream_valid_.load());
@@ -230,7 +222,7 @@ private:
     , boost::beast::http::request<
         RequestBodyType
       >&& req) NO_EXCEPTION
-    PRIVATE_METHOD_RUN_ON(*registry_);
+    PRIVATE_METHOD_RUN_ON(registry_);
 
   void doRead() NO_EXCEPTION;
 
@@ -293,27 +285,21 @@ private:
   /// \note Object invalidation split between threads (see `markUnused`),
   /// so we want to prohibit callback execution
   /// while performing object invalidation.
-  DEBUG_ATOMIC_FLAG(can_schedule_callbacks_)
-    // assumed to be thread-safe
-    GUARD_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
+  DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
 
   /// \note `stream_` can be moved to websocket session from http session
-  std::atomic<bool> is_stream_valid_
-    // assumed to be thread-safe
-    GUARD_NOT_THREAD_BOUND_MEMBER(is_stream_valid_);
+  std::atomic<bool> is_stream_valid_;
 
   // The dynamic buffer to store recieved data
   MessageBufferType buffer_
     GUARDED_BY(perConnectionStrand_);
 
   // used by |entity_id_|
-  ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_NOT_THREAD_BOUND_MEMBER(registry_);
+  ECS::SafeRegistry& registry_;
 
   // `per-connection entity`
   // i.e. per-connection data storage
-  const ECS::Entity entity_id_
-    GUARD_NOT_THREAD_BOUND_MEMBER(entity_id_);
+  const ECS::Entity entity_id_;
 
   // The parser is stored in an optional container so we can
   // construct it from scratch at the beginning

@@ -47,10 +47,6 @@
 
 namespace base { struct NoReject; }
 
-namespace util { template <class T> class UnownedPtr; }
-
-namespace util { template <class T> class UnownedRef; }
-
 namespace flexnet {
 namespace ws {
 
@@ -338,9 +334,6 @@ public:
     // asking for a WebSocket connection
     UpgradeRequestType<Body, Allocator>&& req) NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-    DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
-
     DCHECK_HAS_ATOMIC_FLAG(can_schedule_callbacks_);
     ::boost::asio::post(
       *perConnectionStrand_
@@ -361,8 +354,7 @@ public:
   */
   void sendAsync(
     SharedMessageData message
-    , bool is_binary = true) NO_EXCEPTION
-    GUARD_NOT_THREAD_BOUND_METHOD(send);
+    , bool is_binary = true) NO_EXCEPTION;
 
   template <typename CallbackT>
   MUST_USE_RETURN_VALUE
@@ -372,8 +364,6 @@ public:
     , ::base::IsNestedPromise isNestedPromise
         = ::base::IsNestedPromise()) NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-
     return ::base::PostPromiseOnAsioExecutor(
       from_here
       // Post our work to the strand, to prevent data race
@@ -393,7 +383,6 @@ public:
   MUST_USE_RETURN_VALUE
   ECS::Entity entityId() const NO_EXCEPTION
   {
-    DCHECK_NOT_THREAD_BOUND_MEMBER(entity_id_);
     return entity_id_;
   }
 
@@ -411,9 +400,6 @@ private:
     UpgradeRequestType<Body, Allocator>&& req) NO_EXCEPTION
     PRIVATE_METHOD_RUN_ON(&perConnectionStrand_)
   {
-    DCHECK_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
-    DCHECK_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
-
     DCHECK(perConnectionStrand_->running_in_this_thread());
 
     /// \todo Init resources here before first call to `onAccept()`
@@ -438,7 +424,7 @@ private:
 
   void allocateRecievedDataComponent(
     std::string&& message) NO_EXCEPTION
-    PRIVATE_METHOD_RUN_ON(*registry_);
+    PRIVATE_METHOD_RUN_ON(registry_);
 
   /**
   * @brief starts async writing to client
@@ -516,21 +502,18 @@ private:
     GUARDED_BY(perConnectionStrand_);
 
   // |stream_| and calls to |async_*| are guarded by strand
-  ::basis::AnnotatedStrand<ExecutorType> perConnectionStrand_
-    GUARD_NOT_THREAD_BOUND_MEMBER(perConnectionStrand_);
+  ::basis::AnnotatedStrand<ExecutorType> perConnectionStrand_;
 
   // The dynamic buffer to store recieved data
   MessageBufferType readBuffer_
     GUARDED_BY(perConnectionStrand_);
 
   // used by |entity_id_|
-  ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_NOT_THREAD_BOUND_MEMBER(registry_);
+  ECS::SafeRegistry& registry_;
 
   // `per-connection entity`
   // i.e. per-connection data storage
-  const ECS::Entity entity_id_
-    GUARD_NOT_THREAD_BOUND_MEMBER(entity_id_);
+  const ECS::Entity entity_id_;
 
   /// \todo SSL support
   /// ::boost::asio::ssl::context
@@ -549,9 +532,7 @@ private:
   /// \note Object invalidation split between threads (see `markUnused`),
   /// so we want to prohibit callback execution
   /// while performing object invalidation.
-  DEBUG_ATOMIC_FLAG(can_schedule_callbacks_)
-    // assumed to be thread-safe
-    GUARD_NOT_THREAD_BOUND_MEMBER(can_schedule_callbacks_);
+  DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
 
   PlugPoint_RecievedData* pp_RecievedData_ = nullptr;
 
@@ -563,9 +544,6 @@ private:
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);
-
-  /// \note can by called on any thread
-  CREATE_METHOD_GUARD(send);
 
   DISALLOW_COPY_AND_ASSIGN(WsChannel);
 };

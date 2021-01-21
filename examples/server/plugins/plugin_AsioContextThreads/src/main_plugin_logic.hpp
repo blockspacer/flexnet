@@ -89,8 +89,7 @@ class MainPluginLogic
   ::backend::AsioThreadsManager asioThreadsManager_
     GUARDED_BY(sequence_checker_);
 
-  ::basis::UnownedRef<ECS::SafeRegistry> registry_
-    GUARD_NOT_THREAD_BOUND_MEMBER(registry_);
+  ::basis::UnownedRef<ECS::SafeRegistry> registry_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

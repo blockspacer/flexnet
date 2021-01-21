@@ -72,8 +72,7 @@ public:
   }
 
 private:
-  void runIoc(boost::asio::io_context& ioc)
-    GUARD_NOT_THREAD_BOUND_METHOD(runIoc);
+  void runIoc(boost::asio::io_context& ioc);
 
 private:
   SET_WEAK_POINTERS(AsioThreadsManager);
@@ -90,9 +89,6 @@ private:
     std::unique_ptr<AsioThreadType>
   > asio_threads_
     GUARDED_BY(sequence_checker_);
-
-  /// \note can be called from any thread
-  CREATE_METHOD_GUARD(runIoc);
 
   SEQUENCE_CHECKER(sequence_checker_);
 
