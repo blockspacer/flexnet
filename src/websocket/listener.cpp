@@ -434,7 +434,7 @@ void Listener::allocateTcpResourceAndAccept()
 }
 
 void Listener::asyncAccept(
-  ::basis::UnownedPtr<StrandType> unownedPerConnectionStrand
+  ::basis::UnownedPtr<StrandType> perConnectionStrand
   , ECS::Entity tcp_entity_id)
 {
   LOG_CALL(DVLOG(99));
@@ -454,7 +454,7 @@ void Listener::asyncAccept(
     << " current state:"
     << sm_.currentState();
 
-  DCHECK(unownedPerConnectionStrand);
+  DCHECK(perConnectionStrand);
 
   /// Start an asynchronous accept.
   /**
@@ -472,9 +472,9 @@ void Listener::asyncAccept(
     // new connection needs its own strand
     // created socket will be associated with strand
     // that was passed to |async_accept|
-    *unownedPerConnectionStrand.Get()
+    *perConnectionStrand.Get()
     , boost::asio::bind_executor(
-        *unownedPerConnectionStrand.Get()
+        *perConnectionStrand.Get()
         , ::basis::bindFrontOnceCallback(
             ::base::bindCheckedOnce(
               DEBUG_BIND_CHECKS(
@@ -482,7 +482,7 @@ void Listener::asyncAccept(
               )
               , &Listener::onAccept
               , ::base::Unretained(this)
-              , COPIED(unownedPerConnectionStrand)
+              , COPIED(perConnectionStrand)
               , COPIED(tcp_entity_id)))
       )
     );
@@ -613,7 +613,7 @@ Listener::StatusPromise Listener::stopAcceptorAsync()
             ::base::Unretained(this)));
 }
 
-void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
+void Listener::onAccept(basis::UnownedPtr<StrandType> perConnectionStrand
                         , ECS::Entity tcp_entity_id
                         , const ErrorCode& ec
                         , SocketType&& socket)
@@ -624,8 +624,8 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
   DCHECK_MEMBER_GUARD(fp_AcceptedConnectionAborted_);
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
-  DCHECK(unownedPerConnectionStrand
-         && unownedPerConnectionStrand->running_in_this_thread());
+  DCHECK(perConnectionStrand
+         && perConnectionStrand->running_in_this_thread());
 
   ErrorCode errorCode = ec;
   if(UNLIKELY(fp_AcceptedConnectionAborted_->checkFail()))
@@ -746,6 +746,9 @@ Listener::~Listener()
 
   LOG_CALL(DVLOG(99));
 
+  DCHECK_UNOWNED_REF(ioc_);
+  DCHECK_UNOWNED_REF(registry_);
+
   /// \note we assume that |is_open|
   /// is thread-safe in destructor
   /// (but not thread-safe in general)
@@ -757,7 +760,8 @@ Listener::~Listener()
   /// `close` for acceptor before acceptor destructon
   DCHECK(
     sm_.currentState() == Listener::UNINITIALIZED
-    || sm_.currentState() == Listener::TERMINATED)
+    || sm_.currentState() == Listener::TERMINATED
+    || sm_.currentState() == Listener::FAILED)
     << " current state:"
     << sm_.currentState();
 

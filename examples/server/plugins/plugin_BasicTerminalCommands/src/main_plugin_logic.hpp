@@ -22,7 +22,6 @@
 #include <basis/log/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
-#include <basis/unowned_ref.hpp>
 #include <basis/status/statusor.hpp>
 
 #include <entt/entity/registry.hpp>
@@ -73,19 +72,13 @@ class MainPluginLogic
  private:
   SET_WEAK_POINTERS(MainPluginLogic);
 
-  ::basis::UnownedRef<
-    const MainPluginInterface
-  > pluginInterface_
-      GUARDED_BY(sequence_checker_);
-
-  ::basis::UnownedPtr<
-    ::backend::MainLoopRegistry
-  > mainLoopRegistry_
+  const MainPluginInterface* pluginInterface_
     GUARDED_BY(sequence_checker_);
 
-  ::basis::UnownedRef<
-    ::backend::ConsoleTerminalEventDispatcher
-  > consoleTerminalEventDispatcher_
+  ::backend::MainLoopRegistry* mainLoopRegistry_
+    GUARDED_BY(sequence_checker_);
+
+  ::backend::ConsoleTerminalEventDispatcher& consoleTerminalEventDispatcher_
     GUARDED_BY(sequence_checker_);
 
   // Same as `base::MessageLoop::current()->task_runner()`

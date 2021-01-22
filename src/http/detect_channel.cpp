@@ -10,7 +10,6 @@
 #include <base/guid.h>
 
 #include <basis/ECS/tags.hpp>
-#include <basis/unowned_ptr.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/bind/bind_checked.hpp>
@@ -64,6 +63,8 @@ DetectChannel::~DetectChannel()
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   LOG_CALL(DVLOG(99));
+
+  DCHECK_UNOWNED_REF(registry_);
 }
 
 void DetectChannel::configureDetector(

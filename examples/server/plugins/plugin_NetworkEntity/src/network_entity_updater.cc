@@ -1,4 +1,5 @@
 #include "network_entity_updater.hpp" // IWYU pragma: associated
+#include "main_plugin_constants.hpp"
 
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
@@ -29,6 +30,7 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
 #include <base/feature_list.h>
+#include <base/strings/string_number_conversions.h>
 #include <base/trace_event/trace_event.h>
 #include <base/trace_event/trace_buffer.h>
 #include <base/trace_event/trace_log.h>
@@ -46,6 +48,7 @@
 #include <base/trace_event/memory_infra_background_whitelist.h>
 #include <base/trace_event/process_memory_dump.h>
 #include <base/trace_event/trace_event.h>
+#include <base/command_line.h>
 
 #include <basis/checks_and_guard_annotations.hpp>
 #include <basis/task/periodic_validate_until.hpp>
@@ -54,8 +57,6 @@
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/safe_registry.hpp>
 #include <basis/ECS/sequence_local_context.hpp>
-#include <basis/unowned_ptr.hpp>
-#include <basis/unowned_ref.hpp>
 #include <basis/base_environment.hpp>
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
@@ -91,10 +92,40 @@ NetworkEntityUpdater::NetworkEntityUpdater(
         , weakSelf()
       )
     )
+  , warnBigUpdateQueueSize_(100)
+  , warnBigUpdateQueueFreqMs_(100)
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
+
+  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+
+  if (command_line->HasSwitch(::plugin::network_entity::kWarnBigUpdateQueueSize)) {
+    auto value
+      = command_line->GetSwitchValueASCII(::plugin::network_entity::kWarnBigUpdateQueueSize);
+    if (!base::StringToSizeT(value, &warnBigUpdateQueueSize_))
+    {
+      LOG(WARNING)
+        << "Invalid value for "
+        << ::plugin::network_entity::kWarnBigUpdateQueueSize
+        << " Fallback to "
+        << warnBigUpdateQueueSize_;
+    }
+  }
+
+  if (command_line->HasSwitch(::plugin::network_entity::kWarnBigUpdateQueueFreqMs)) {
+    auto value
+      = command_line->GetSwitchValueASCII(::plugin::network_entity::kWarnBigUpdateQueueFreqMs);
+    if (!base::StringToInt(value, &warnBigUpdateQueueFreqMs_))
+    {
+      LOG(WARNING)
+        << "Invalid value for "
+        << ::plugin::network_entity::kWarnBigUpdateQueueFreqMs
+        << " Fallback to "
+        << warnBigUpdateQueueFreqMs_;
+    }
+  }
 }
 
 NetworkEntityUpdater::~NetworkEntityUpdater()
@@ -102,6 +133,9 @@ NetworkEntityUpdater::~NetworkEntityUpdater()
   LOG_CALL(DVLOG(99));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  DCHECK_UNOWNED_REF(ioc_);
+  DCHECK_UNOWNED_REF(registry_);
 }
 
 void NetworkEntityUpdater::update() NO_EXCEPTION
@@ -109,8 +143,8 @@ void NetworkEntityUpdater::update() NO_EXCEPTION
   DCHECK_RUN_ON_SEQUENCED_RUNNER(periodicAsioTaskRunner_.get());
 
   /// \note you can not use `::boost::asio::post`
-  /// if `ioc_->stopped()`
-  if(ioc_->stopped()) // io_context::stopped is thread-safe
+  /// if `ioc_.stopped()`
+  if(ioc_.stopped()) // io_context::stopped is thread-safe
   {
     LOG(WARNING)
       << "skipping update of registry"
@@ -122,47 +156,63 @@ void NetworkEntityUpdater::update() NO_EXCEPTION
     {
       /// \note (thread-safety) access when ioc->stopped
       /// i.e. assume no running asio threads that use |registry_|
-      DCHECK(registry_->registryUnsafe().empty());
+      DCHECK(registry_.registryUnsafe().empty());
     }
 
     return;
   }
 
-  registry_->taskRunner()->PostTask(
+  numQueuedUpdateTasks_++;
+  registry_.taskRunner()->PostTask(
     FROM_HERE
-    , ::base::BindOnce([
-      ](
-        ECS::SafeRegistry& registry
-      ){
-        DCHECK_RUN_ON_REGISTRY(&registry);
-
-        ECS::updateNewConnections(registry);
-
-        ECS::updateSSLDetection(registry);
-
-        /// \todo customizable cleanup period
-        ECS::updateUnusedChildList<
-          // drop recieved messages
-          // if websocket session is unused i.e. closed
-          ::flexnet::ws::RecievedData
-        >(registry);
-
-        /// \note Removes `DelayedConstructionJustDone` component from any entity.
-        ECS::updateDelayedConstructionJustDone(registry);
-
-        /// \note Removes `DelayedConstruction` component from any entity
-        /// and adds `DelayedConstructionJustDone` component.
-        ECS::updateDelayedConstruction(registry);
-
-        /// \todo customizable cleanup period
-        ECS::updateUnusedSystem(registry);
-
-        /// \todo customizable cleanup period
-        ECS::updateCleanupSystem(registry);
-      }
-      , REFERENCED(*registry_)
+    , ::base::bindCheckedOnce(
+        DEBUG_BIND_CHECKS(
+          PTR_CHECKER(this)
+        )
+        , &NetworkEntityUpdater::updateOnRegistryThread
+        , base::Unretained(this)
     )
   );
+}
+
+void NetworkEntityUpdater::updateOnRegistryThread() NO_EXCEPTION
+{
+  DCHECK(registry_.RunsTasksInCurrentSequence());
+
+  numQueuedUpdateTasks_--;
+  LOG_IF_EVERY_N_MS(WARNING
+                    , numQueuedUpdateTasks_ > warnBigUpdateQueueSize_
+                    , warnBigUpdateQueueFreqMs_)
+   << "(NetworkEntityUpdater) Update queue has more than "
+   << warnBigUpdateQueueSize_
+   << " entities."
+   << " That may signal about some problem in code"
+   << " or DDOS.";
+
+  ECS::updateNewConnections(registry_);
+
+  ECS::updateSSLDetection(registry_);
+
+  /// \todo customizable cleanup period
+  ECS::updateUnusedChildList<
+    // drop recieved messages
+    // if websocket session is unused i.e. closed
+    ::flexnet::ws::RecievedData
+  >(registry_);
+
+  /// \note Removes `DelayedConstructionJustDone` component from any entity.
+  ECS::updateDelayedConstructionJustDone(registry_);
+
+  /// \note Removes `DelayedConstruction` component from any entity
+  /// and adds `DelayedConstructionJustDone` component.
+  ECS::updateDelayedConstruction(registry_);
+
+  /// \todo customizable cleanup period
+  ECS::updateUnusedSystem(registry_);
+
+  /// \todo customizable cleanup period
+  ECS::updateCleanupSystem(registry_);
+
 }
 
 MUST_USE_RETURN_VALUE

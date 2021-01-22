@@ -139,6 +139,10 @@ macro(tests_add_executable target source_list TEST_ARGS TEST_LIB)
     ${TEST_LIB}
   )
 
+  target_include_directories(${target} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+
   set_test_compile_options( ${target} )
 
   add_test(
@@ -157,7 +161,7 @@ add_library( ${test_main_catch} OBJECT
   main.cpp
   #${${ROOT_PROJECT_NAME}_SRCS} # all source files  of root project without main.cpp
   #${THIRDPARTY_SOURCES}
-  testsCommon.h # include in IDE
+  tests_common.h # include in IDE
   )
 
 set_property(TARGET ${test_main_catch} PROPERTY CXX_STANDARD 17)
@@ -189,7 +193,7 @@ target_compile_definitions( ${test_main_catch} PUBLIC
 #  main.cpp
 #  #${${ROOT_PROJECT_NAME}_SRCS} # all source files  of root project without main.cpp
 #  #${THIRDPARTY_SOURCES}
-#  testsCommon.h # include in IDE
+#  tests_common.h # include in IDE
 #  )
 #
 #set_property(TARGET ${test_main_doctest} PROPERTY CXX_STANDARD 17)
@@ -220,7 +224,7 @@ add_library( ${test_main_gtest} OBJECT
   main.cpp
   #${${ROOT_PROJECT_NAME}_SRCS} # all source files  of root project without main.cpp
   #${THIRDPARTY_SOURCES}
-  testsCommon.h # include in IDE
+  tests_common.h # include in IDE
   )
 
 set_property(TARGET ${test_main_gtest} PROPERTY CXX_STANDARD 17)
@@ -279,10 +283,11 @@ if(${ROOT_PROJECT_NAME}_BUILD_TESTS)
       "${fakeit_deps}" "${CATCH2_TEST_ARGS}" "${test_main_catch}")
   endif(ENABLE_FAKEIT_TESTS)
 
-  #add_to_tests_list(utils)
-
-  #tests_add_executable(check_all ${UNIT_TEST_SOURCE_LIST} ${GTEST_TEST_ARGS})
-  #message(FATAL_ERROR ${UNIT_TEST_SOURCE_LIST})
+  tests_add_executable(${ROOT_PROJECT_NAME}-app_state_unittest
+    "${flexnet_root_DIR}/examples/server/shared_lib/ServerSharedLib/state/app_state_unittest.cc" "${GTEST_TEST_ARGS}" "${test_main_gtest}")
+  target_link_libraries(${ROOT_PROJECT_NAME}-app_state_unittest PRIVATE
+    ServerSharedLib
+  )
 
   message(STATUS
     "${ROOT_PROJECT_NAME}: copying ${CMAKE_CURRENT_SOURCE_DIR}/data")
@@ -297,6 +302,13 @@ endif()
 
 # Run ALL tests with verbose output
 # Usage: cmake --build build --target run_all_tests
+# NOTE: you can run single test manually like so:
+# HEAPCHECK=draconian BASE_GDBINIT_SOURCED=1 gdb -ex r -ex bt -ex q \
+#   --args ~/flexnet/build/Debug/tests/flexnet-tests/flexnet-app_state_unittest \
+#   --single-process-tests \
+#   --gtest_filter=* \
+#   --test-data-dir="~/chromium_base_conan/tests/data/" \
+#   --enable-features=print_status_macro_error
 add_custom_target(${ROOT_PROJECT_NAME}_run_all_tests
     DEPENDS ${ROOT_PROJECT_LIB} ${ALL_TESTS_LIST_VERBOSE}
 )

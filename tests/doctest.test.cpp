@@ -1,4 +1,4 @@
-#include "testsCommon.h"
+#include "tests_common.h"
 
 #if !defined(USE_DOCTEST_TEST)
 #warning "use USE_DOCTEST_TEST"

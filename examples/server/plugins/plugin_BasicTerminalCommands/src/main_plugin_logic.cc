@@ -15,7 +15,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , pluginInterface_{REFERENCED(*DCHECK_VALID_PTR_OR(pluginInterface))}
+  , pluginInterface_{DCHECK_VALID_PTR_OR(pluginInterface)}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , consoleTerminalEventDispatcher_(
@@ -28,7 +28,7 @@ MainPluginLogic::MainPluginLogic(
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  (*consoleTerminalEventDispatcher_)->sink<
+  consoleTerminalEventDispatcher_->sink<
     std::string
   >().connect<&MainPluginLogic::handleConsoleInput>(this);
 }
@@ -39,7 +39,11 @@ MainPluginLogic::~MainPluginLogic()
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  (*consoleTerminalEventDispatcher_)->sink<
+  DCHECK_UNOWNED_PTR(pluginInterface_);
+  DCHECK_UNOWNED_PTR(mainLoopRegistry_);
+  DCHECK_UNOWNED_REF(consoleTerminalEventDispatcher_);
+
+  consoleTerminalEventDispatcher_->sink<
     std::string
   >().disconnect<&MainPluginLogic::handleConsoleInput>(this);
 }

@@ -16,8 +16,6 @@
 #include <basis/checked_optional.hpp>
 #include <basis/ECS/safe_registry.hpp>
 #include <basis/promise/post_promise.h>
-#include <basis/unowned_ptr.hpp> // IWYU pragma: keep
-#include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
 #include <basis/fail_point/fail_point.hpp>

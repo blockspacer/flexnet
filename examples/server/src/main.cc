@@ -63,8 +63,6 @@
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/safe_registry.hpp>
-#include <basis/unowned_ptr.hpp>
-#include <basis/unowned_ref.hpp>
 #include <basis/base_environment.hpp>
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
@@ -264,10 +262,21 @@ VoidPromise runServerAndPromiseQuit() NO_EXCEPTION
 /// \note metrics expected to be reported after termination of all plugins,
 /// so we do not create separate plugin for `finishProcessMetrics`
 /// (so we able to profile plugin manager heap)
-void finishProcessMetrics() NO_EXCEPTION
+void finishProcessMetrics(::base::ProcessMetrics* processMetrics) NO_EXCEPTION
 {
-  auto processMetrics
-    = ::base::ProcessMetrics::CreateCurrentProcessMetrics();
+  {
+    size_t disk_usage =
+        processMetrics->GetCumulativeDiskUsageInBytes();
+
+    VLOG(1)
+      << "disk_usage: "
+      << disk_usage;
+
+    ::base::UmaHistogramMemoryMB(
+        "App.DiskUsage"
+        , base::saturated_cast<int>(base::ClampAdd(disk_usage, 1024 * 1024 / 2) /
+                                  (1024 * 1024)));
+  }
 
   {
     size_t malloc_usage =
@@ -402,6 +411,9 @@ int main(int argc, char* argv[])
   // Main loop that performs scheduled tasks.
   ::base::RunLoop runLoop;
 
+  std::unique_ptr<::base::ProcessMetrics> processMetrics
+    = ::base::ProcessMetrics::CreateCurrentProcessMetrics();
+
   /// \note Task will be executed
   /// when `runLoop.Run()` called.
   ::base::PostPromise(FROM_HERE,
@@ -410,7 +422,7 @@ int main(int argc, char* argv[])
     , ::base::IsNestedPromise{true}
   )
   .ThenHere(FROM_HERE
-    , ::base::BindOnce(&finishProcessMetrics)
+    , ::base::BindOnce(&finishProcessMetrics, ::base::Unretained(processMetrics.get()))
   )
   // Stop `base::RunLoop` when `base::Promise` resolved.
   .ThenHere(FROM_HERE

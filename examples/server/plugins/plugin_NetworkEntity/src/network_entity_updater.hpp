@@ -65,18 +65,31 @@ class NetworkEntityUpdater
   SET_WEAK_SELF(NetworkEntityUpdater)
 
  private:
+  void updateOnRegistryThread() NO_EXCEPTION
+    PRIVATE_METHOD_RUN_ON(registry_);
+
+ private:
   SET_WEAK_POINTERS(NetworkEntityUpdater);
 
-  ::basis::UnownedRef<ECS::SafeRegistry> registry_;
+  ECS::SafeRegistry& registry_;
 
   // The io_context is required for all I/O
-  ::basis::UnownedRef<IoContext> ioc_;
+  IoContext& ioc_;
 
   // Task sequence used to update `network-ECS`
   scoped_refptr<::base::SequencedTaskRunner> periodicAsioTaskRunner_;
 
   /// \note will stop periodic timer on scope exit
   ::basis::PeriodicTaskExecutor periodicTaskExecutor_;
+
+  // number of `update` tasks posted to `registry_.taskRunner`
+  std::atomic<size_t> numQueuedUpdateTasks_;
+
+  size_t warnBigUpdateQueueSize_
+    GUARDED_BY(registry_);
+
+  int warnBigUpdateQueueFreqMs_
+    GUARDED_BY(registry_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

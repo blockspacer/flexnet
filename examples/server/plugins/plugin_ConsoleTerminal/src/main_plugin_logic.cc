@@ -5,7 +5,6 @@
 #include <basis/log/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
-#include <basis/unowned_ref.hpp>
 #include <basis/status/statusor.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/task/periodic_task_executor.hpp>
@@ -238,7 +237,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , pluginInterface_{REFERENCED(*DCHECK_VALID_PTR_OR(pluginInterface))}
+  , pluginInterface_{DCHECK_VALID_PTR_OR(pluginInterface)}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , consoleTerminalEventDispatcher_(
@@ -266,6 +265,10 @@ MainPluginLogic::~MainPluginLogic()
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
+
+  DCHECK_UNOWNED_PTR(pluginInterface_);
+  DCHECK_UNOWNED_PTR(mainLoopRegistry_);
+  DCHECK_UNOWNED_REF(consoleTerminalEventDispatcher_);
 }
 
 MainPluginLogic::VoidPromise

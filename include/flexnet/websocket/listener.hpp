@@ -18,7 +18,6 @@
 #include <basis/promise/post_promise.h>
 #include <basis/status/status.hpp>
 #include <basis/unowned_ptr.hpp> // IWYU pragma: keep
-#include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
 #include <basis/fail_point/fail_point.hpp>
@@ -284,7 +283,7 @@ private:
   /// while `async_accept` is awaiting.
   /// i.e. `onAccept` will be called anyway
   /// and we can use it to free allocated resources.
-  void onAccept(basis::UnownedPtr<StrandType> unownedPerConnectionStrand
+  void onAccept(basis::UnownedPtr<StrandType> perConnectionStrand
                 // `per-connection entity`
                 , ECS::Entity tcp_entity_id
                 , const ErrorCode& ec
@@ -302,7 +301,7 @@ private:
   // i.e. `per-connection data` will be stored
   // in `per-connection entity`
   void asyncAccept(
-    ::basis::UnownedPtr<StrandType> unownedPerConnectionStrand
+    ::basis::UnownedPtr<StrandType> perConnectionStrand
     , ECS::Entity tcp_entity_id);
 
   void allocateTcpResourceAndAccept()

@@ -5,7 +5,6 @@
 #include <basis/log/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
-#include <basis/unowned_ref.hpp>
 #include <basis/status/statusor.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/task/periodic_task_executor.hpp>
@@ -92,7 +91,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , pluginInterface_{REFERENCED(*DCHECK_VALID_PTR_OR(pluginInterface))}
+  , pluginInterface_{DCHECK_VALID_PTR_OR(pluginInterface)}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
@@ -106,16 +105,16 @@ MainPluginLogic::MainPluginLogic(
             , ::base::TaskShutdownBehavior::BLOCK_SHUTDOWN
           }
         ))
-  , ioc_{REFERENCED(
+  , ioc_{
       mainLoopRegistry_->registry()
-        .ctx<::boost::asio::io_context>())}
-  , registry_{REFERENCED(
+        .ctx<::boost::asio::io_context>()}
+  , registry_{
       mainLoopRegistry_->registry()
-        .ctx<ECS::SafeRegistry>())}
+        .ctx<ECS::SafeRegistry>()}
   , networkEntityUpdater_{
       periodicAsioTaskRunner_
-      , REFERENCED(*registry_)
-      , REFERENCED(*ioc_)}
+      , REFERENCED(registry_)
+      , REFERENCED(ioc_)}
 {
   LOG_CALL(DVLOG(99));
 
@@ -127,6 +126,11 @@ MainPluginLogic::~MainPluginLogic()
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
+
+  DCHECK_UNOWNED_REF(registry_);
+  DCHECK_UNOWNED_REF(ioc_);
+  DCHECK_UNOWNED_PTR(pluginInterface_);
+  DCHECK_UNOWNED_PTR(mainLoopRegistry_);
 }
 
 MainPluginLogic::VoidPromise

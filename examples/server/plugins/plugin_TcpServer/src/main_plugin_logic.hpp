@@ -44,8 +44,6 @@
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/safe_registry.hpp>
-#include <basis/unowned_ptr.hpp>
-#include <basis/unowned_ref.hpp>
 #include <basis/task/periodic_task_executor.hpp>
 
 #include <entt/entity/registry.hpp>
@@ -161,26 +159,22 @@ class MainPluginLogic
   ::basis::PeriodicValidateUntil periodicValidateUntil_
     GUARD_MEMBER_DISALLOW_THREAD_COLLISION(periodicValidateUntil_);
 
-  ::basis::UnownedRef<
-    const MainPluginInterface
-  > pluginInterface_
-      GUARDED_BY(sequence_checker_);
+  const MainPluginInterface* pluginInterface_
+    GUARDED_BY(sequence_checker_);
 
-  ::basis::UnownedPtr<
-    ::backend::MainLoopRegistry
-  > mainLoopRegistry_
+  ::backend::MainLoopRegistry* mainLoopRegistry_
     GUARDED_BY(sequence_checker_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_;
 
-  ::basis::UnownedRef<::boost::asio::io_context> ioc_;
+  ::boost::asio::io_context& ioc_;
 
   const EndpointType tcpEndpoint_
     GUARDED_BY(sequence_checker_);
 
-  ::basis::UnownedRef<ECS::SafeRegistry> registry_;
+  ECS::SafeRegistry& registry_;
 
   ::backend::TcpEntityAllocator tcpEntityAllocator_;
     GUARD_MEMBER_DISALLOW_THREAD_COLLISION(tcpEntityAllocator_);

@@ -14,7 +14,6 @@
 #include <base/task/thread_pool/thread_pool.h>
 
 #include <basis/ECS/tags.hpp>
-#include <basis/unowned_ptr.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/task/task_util.hpp>
@@ -352,6 +351,8 @@ HttpChannel::~HttpChannel()
   LOG_CALL(DVLOG(99));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  DCHECK_UNOWNED_REF(registry_);
 
   /// \note do not call `close()` from destructor
   /// i.e. call `close()` manually

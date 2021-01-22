@@ -172,6 +172,7 @@ message(STATUS "CMAKE_DL_LIBS = ${CMAKE_DL_LIBS}")
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/)
 
+set(flexnet_root_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(flexnet_include_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/flexnet")
 set(flexnet_src_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 

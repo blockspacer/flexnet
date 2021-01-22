@@ -12,7 +12,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , pluginInterface_{REFERENCED(*DCHECK_VALID_PTR_OR(pluginInterface))}
+  , pluginInterface_{DCHECK_VALID_PTR_OR(pluginInterface)}
   , mainLoopRunner_{
       ::base::MessageLoop::current()->task_runner()}
   , mainLoopRegistry_(
@@ -21,8 +21,8 @@ MainPluginLogic::MainPluginLogic(
       ::backend::MainLoopRegistry::GetInstance()->registry()
         .set<::boost::asio::io_context>()))
   , registry_{
-      REFERENCED(mainLoopRegistry_->registry()
-        .ctx<ECS::SafeRegistry>())}
+      mainLoopRegistry_->registry()
+        .ctx<ECS::SafeRegistry>()}
 {
   LOG_CALL(DVLOG(99));
 
@@ -31,7 +31,7 @@ MainPluginLogic::MainPluginLogic(
   asioThreadsManager_.startThreads(
     /// \note Crash if out of range.
     ::base::checked_cast<size_t>(pluginInterface_->asioThreads())
-    , REFERENCED(*ioc_)
+    , REFERENCED(ioc_)
   );
 }
 
@@ -40,6 +40,11 @@ MainPluginLogic::~MainPluginLogic()
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
+
+  DCHECK_UNOWNED_PTR(pluginInterface_);
+  DCHECK_UNOWNED_PTR(mainLoopRegistry_);
+  DCHECK_UNOWNED_REF(ioc_);
+  DCHECK_UNOWNED_REF(registry_);
 
   asioThreadsManager_.stopThreads();
 }

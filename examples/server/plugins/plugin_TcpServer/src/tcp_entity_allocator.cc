@@ -41,8 +41,6 @@
 
 #include <basis/checks_and_guard_annotations.hpp>
 #include <basis/task/periodic_validate_until.hpp>
-#include <basis/unowned_ptr.hpp>
-#include <basis/unowned_ref.hpp>
 #include <basis/base_environment.hpp>
 #include <basis/task/periodic_task_executor.hpp>
 #include <basis/promise/post_promise.h>
@@ -201,6 +199,8 @@ TcpEntityAllocator::TcpEntityAllocator(
 TcpEntityAllocator::~TcpEntityAllocator()
 {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  DCHECK_UNOWNED_REF(registry_);
 }
 
 ECS::Entity TcpEntityAllocator::allocateTcpEntity() NO_EXCEPTION

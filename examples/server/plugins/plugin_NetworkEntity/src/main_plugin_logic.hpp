@@ -5,6 +5,7 @@
 #include "registry/main_loop_registry.hpp"
 #include "state/app_state.hpp"
 #include "network_entity_updater.hpp"
+#include "main_plugin_constants.hpp"
 #include "ECS/systems/accept_connection_result.hpp"
 #include "ECS/systems/cleanup.hpp"
 #include "ECS/systems/ssl_detect_result.hpp"
@@ -65,8 +66,6 @@
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/safe_registry.hpp>
 #include <basis/ECS/tags.hpp>
-#include <basis/unowned_ptr.hpp>
-#include <basis/unowned_ref.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/task/periodic_task_executor.hpp>
 
@@ -145,14 +144,10 @@ class MainPluginLogic
  private:
   SET_WEAK_POINTERS(MainPluginLogic);
 
-  ::basis::UnownedRef<
-    const MainPluginInterface
-  > pluginInterface_
-      GUARDED_BY(sequence_checker_);
+  const MainPluginInterface* pluginInterface_
+    GUARDED_BY(sequence_checker_);
 
-  ::basis::UnownedPtr<
-    ::backend::MainLoopRegistry
-  > mainLoopRegistry_
+  ::backend::MainLoopRegistry* mainLoopRegistry_
     GUARDED_BY(sequence_checker_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
@@ -164,10 +159,10 @@ class MainPluginLogic
   scoped_refptr<::base::SequencedTaskRunner> periodicAsioTaskRunner_
     GUARDED_BY(&sequence_checker_);
 
-  ::basis::UnownedRef<::boost::asio::io_context> ioc_
+  ::boost::asio::io_context& ioc_
     GUARDED_BY(&sequence_checker_);
 
-  ::basis::UnownedRef<ECS::SafeRegistry> registry_
+  ECS::SafeRegistry& registry_
     GUARDED_BY(&sequence_checker_);
 
   ::backend::NetworkEntityUpdater networkEntityUpdater_

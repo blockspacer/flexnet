@@ -16,8 +16,6 @@
 #include <basis/promise/post_promise.h>
 #include <basis/core/scoped_cleanup.hpp>
 #include <basis/status/status_macros.hpp>
-#include <basis/unowned_ptr.hpp>
-#include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
 
@@ -199,7 +197,8 @@ AppState::~AppState()
   /// `close` for acceptor before acceptor destructon
   DCHECK(
     sm_.currentState() == AppState::UNINITIALIZED
-    || sm_.currentState() == AppState::TERMINATED);
+    || sm_.currentState() == AppState::TERMINATED
+    || sm_.currentState() == AppState::FAILED);
 }
 
 } // namespace backend

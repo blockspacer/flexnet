@@ -16,8 +16,6 @@
 #include <basis/promise/promise.h>
 #include <basis/promise/post_promise.h>
 #include <basis/status/status.hpp>
-#include <basis/unowned_ptr.hpp> // IWYU pragma: keep
-#include <basis/unowned_ref.hpp> // IWYU pragma: keep
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>

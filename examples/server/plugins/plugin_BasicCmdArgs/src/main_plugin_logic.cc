@@ -20,7 +20,7 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , pluginInterface_{REFERENCED(*DCHECK_VALID_PTR_OR(pluginInterface))}
+  , pluginInterface_{DCHECK_VALID_PTR_OR(pluginInterface)}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
@@ -36,6 +36,9 @@ MainPluginLogic::~MainPluginLogic()
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
+
+  DCHECK_UNOWNED_PTR(pluginInterface_);
+  DCHECK_UNOWNED_PTR(mainLoopRegistry_);
 }
 
 void MainPluginLogic::handleCmd()

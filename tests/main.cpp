@@ -28,7 +28,7 @@
 #include <base/test/test_suite.h>
 #include <build/build_config.h>
 
-#include "testsCommon.h"
+#include "tests_common.h"
 
 #if defined(USE_CATCH_TEST)
 /*

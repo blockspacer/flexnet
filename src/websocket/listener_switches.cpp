@@ -2,13 +2,13 @@
 
 namespace switches {
 
-const char switches::kWarnBigRegistryFreqMs[] =
+const char kWarnBigRegistryFreqMs[] =
     "warn-big-registry-freq-ms";
 
-const char switches::kWarnBigRegistrySize[] =
+const char kWarnBigRegistrySize[] =
     "warn-big-registry-size";
 
-const char switches::kFailPointAcceptedConnectionAborted[] =
+const char kFailPointAcceptedConnectionAborted[] =
     "fp_accepted_connection_aborted";
 
 }  // namespace switches

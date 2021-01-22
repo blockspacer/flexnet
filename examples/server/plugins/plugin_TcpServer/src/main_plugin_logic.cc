@@ -7,7 +7,6 @@
 #include <basis/log/scoped_log_run_time.hpp>
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
-#include <basis/unowned_ref.hpp>
 #include <basis/status/statusor.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/task/periodic_task_executor.hpp>
@@ -36,14 +35,14 @@ MainPluginLogic::MainPluginLogic(
   , ALLOW_THIS_IN_INITIALIZER_LIST(
       weak_this_(
         weak_ptr_factory_.GetWeakPtr()))
-  , pluginInterface_{REFERENCED(*DCHECK_VALID_PTR_OR(pluginInterface))}
+  , pluginInterface_{DCHECK_VALID_PTR_OR(pluginInterface)}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
       ::base::MessageLoop::current()->task_runner()}
-  , ioc_{REFERENCED(
+  , ioc_{
       mainLoopRegistry_->registry()
-        .ctx<::boost::asio::io_context>())}
+        .ctx<::boost::asio::io_context>()}
   , tcpEndpoint_{
     ::boost::asio::ip::make_address(
         pluginInterface->ipAddr())
@@ -51,13 +50,13 @@ MainPluginLogic::MainPluginLogic(
       ::base::checked_cast<unsigned short>(
           pluginInterface->portNum())}
   , registry_{
-      REFERENCED(mainLoopRegistry_->registry()
-        .ctx<ECS::SafeRegistry>())}
-  , tcpEntityAllocator_(REFERENCED(*registry_))
+      mainLoopRegistry_->registry()
+        .ctx<ECS::SafeRegistry>()}
+  , tcpEntityAllocator_(REFERENCED(registry_))
   , listener_{
-      *ioc_
+      ioc_
       , EndpointType{tcpEndpoint_}
-      , REFERENCED(*registry_)
+      , REFERENCED(registry_)
       // Callback will be called per each connected client
       // to create ECS entity
       , ::base::bindCheckedRepeating(
@@ -79,6 +78,11 @@ MainPluginLogic::~MainPluginLogic()
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
+
+  DCHECK_UNOWNED_PTR(pluginInterface_);
+  DCHECK_UNOWNED_PTR(mainLoopRegistry_);
+  DCHECK_UNOWNED_REF(ioc_);
+  DCHECK_UNOWNED_REF(registry_);
 }
 
 MainPluginLogic::VoidPromise
@@ -200,9 +204,9 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
 
   /// \note you can not use `::boost::asio::post`
   /// if `ioc_->stopped()`
-  DCHECK(!ioc_->stopped()); // io_context::stopped is thread-safe
+  DCHECK(!ioc_.stopped()); // io_context::stopped is thread-safe
 
-  registry_->taskRunner()->PostTask(
+  registry_.taskRunner()->PostTask(
     FROM_HERE
     , ::base::BindOnce([
       ](
@@ -290,7 +294,7 @@ void MainPluginLogic::closeNetworkResources() NO_EXCEPTION
           });
         }
       }
-      , REFERENCED(*registry_)
+      , REFERENCED(registry_)
     )
   );
 }
@@ -310,7 +314,7 @@ void MainPluginLogic::validateAndFreeNetworkResources(
   /// \note you can not use `::boost::asio::post`
   /// if `ioc->stopped()`
   {
-    DCHECK(!ioc_->stopped()); // io_context::stopped is thread-safe
+    DCHECK(!ioc_.stopped()); // io_context::stopped is thread-safe
   }
 
   // send async-close for each connection (on app termination)
@@ -319,7 +323,7 @@ void MainPluginLogic::validateAndFreeNetworkResources(
   /// we wait for scheduled tasks that will fully create entities.
   closeNetworkResources();
 
-   registry_->taskRunner()->PostTask(
+   registry_.taskRunner()->PostTask(
     FROM_HERE
     , ::base::BindOnce(
       []
@@ -343,7 +347,7 @@ void MainPluginLogic::validateAndFreeNetworkResources(
             << registry->size();
         }
       }
-      , REFERENCED(*registry_)
+      , REFERENCED(registry_)
       , COPIED(resolveCallback)
     )
   );
@@ -360,7 +364,7 @@ MainPluginLogic::VoidPromise
 
   /// \note you can not use `::boost::asio::post`
   /// if `ioc_->stopped()`
-  DCHECK(!ioc_->stopped()); // io_context::stopped is thread-safe
+  DCHECK(!ioc_.stopped()); // io_context::stopped is thread-safe
 
   // Will check periodically if `registry->empty()` and if true,
   // than promise will be resolved.
@@ -433,8 +437,8 @@ void MainPluginLogic::stopIOContext() NO_EXCEPTION
     // Stop the `io_context`. This will cause `io_context.run()`
     // to return immediately, eventually destroying the
     // io_context and any remaining handlers in it.
-    ioc_->stop(); // io_context::stop is thread-safe
-    DCHECK(ioc_->stopped()); // io_context::stopped is thread-safe
+    ioc_.stop(); // io_context::stop is thread-safe
+    DCHECK(ioc_.stopped()); // io_context::stopped is thread-safe
   }
 }
 

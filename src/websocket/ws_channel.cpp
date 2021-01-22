@@ -13,7 +13,6 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/helpers/relationship/prepend_child_entity.hpp>
-#include <basis/unowned_ptr.hpp>
 #include <basis/task/periodic_check.hpp>
 #include <basis/task/task_util.hpp>
 #include <basis/promise/post_promise.h>
@@ -175,6 +174,8 @@ WsChannel::~WsChannel()
   LOG_CALL(DVLOG(99));
 
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  DCHECK_UNOWNED_REF(registry_);
 
   /// \note we assume that reading unused `ws_` is thread-safe here
   /// \note don't call `close()` from destructor, handle `close()` manually
