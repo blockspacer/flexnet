@@ -109,7 +109,7 @@ AppState::VoidPromise
         RVALUE_CAST(resolveCb).Run();
       }
 
-      return ::basis::OkStatus(FROM_HERE);
+      RETURN_OK();
     }
     /// \note A ::base::RepeatingCallback can only be run once
     /// if arguments were bound with ::base::Passed().
@@ -150,7 +150,7 @@ AppState::VoidPromise
         RVALUE_CAST(resolveCb).Run();
       }
 
-      return ::basis::OkStatus(FROM_HERE);
+      RETURN_OK();
     }
     /// \note A ::base::RepeatingCallback can only be run once
     /// if arguments were bound with ::base::Passed().

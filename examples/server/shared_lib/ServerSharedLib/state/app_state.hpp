@@ -91,7 +91,7 @@ public:
   //     UNREFERENCED_PARAMETER(event);
   //     UNREFERENCED_PARAMETER(next_state);
   //     UNREFERENCED_PARAMETER(recovery_event);
-  //     return ::basis::OkStatus(FROM_HERE);
+  //     RETURN_OK();
   //   });
   // sm_->AddExitAction(UNINITIALIZED, okStateCallback);
   void AddExitAction(
