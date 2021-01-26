@@ -19,11 +19,5 @@ const int kDefaultEntityUpdateFreqMillisec
 const char kConfEntityUpdateFreqMillisec[]
   = "entityUpdateFreqMillisec";
 
-const char kWarnBigUpdateQueueSize[] =
-    "network-entity-updater-warn-big-update-queue-size";
-
-const char kWarnBigUpdateQueueFreqMs[] =
-    "network-entity-updater-warn-big-update-queue-freq-ms";
-
 } // namespace network_entity
 } // namespace plugin

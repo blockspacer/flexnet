@@ -1,6 +1,5 @@
 #include "flexnet/websocket/listener.hpp" // IWYU pragma: associated
 #include "flexnet/ECS/components/tcp_connection.hpp"
-#include "flexnet/websocket/listener_switches.hpp"
 
 #include <base/rvalue_cast.h>
 #include <base/bind.h>
@@ -23,6 +22,7 @@
 #include <basis/unowned_ref.hpp> // IWYU pragma: keep
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
+#include <basis/command_line/command_line_macros.hpp>
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/error.hpp>
@@ -73,45 +73,18 @@ Listener::Listener(
   , entityAllocator_(entityAllocator)
   , warnBigRegistrySize_(100000)
   , warnBigRegistryFreqMs_(100)
-  , fp_AcceptedConnectionAborted_(nullptr)
 {
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  GET_SWITCH_AS_INT(&warnBigRegistryFreqMs_, "warn-big-registry-freq-ms");
+  GET_SWITCH_AS_SIZE_T(&warnBigRegistrySize_, "warn-big-registry-size");
 
-  if (command_line->HasSwitch(::switches::kWarnBigRegistrySize)) {
-    auto value
-      = command_line->GetSwitchValueASCII(::switches::kWarnBigRegistrySize);
-    if (!base::StringToSizeT(value, &warnBigRegistrySize_))
-    {
-      LOG(WARNING)
-        << "Invalid value for "
-        << ::switches::kWarnBigRegistrySize
-        << " Fallback to "
-        << warnBigRegistrySize_;
-    }
-  }
+  FAIL_POINT(onAborted_) = FAIL_POINT_INSTANCE(FP_ConnectionAborted);
 
-  if (command_line->HasSwitch(::switches::kWarnBigRegistryFreqMs)) {
-    auto value
-      = command_line->GetSwitchValueASCII(::switches::kWarnBigRegistryFreqMs);
-    if (!base::StringToInt(value, &warnBigRegistryFreqMs_))
-    {
-      LOG(WARNING)
-        << "Invalid value for "
-        << ::switches::kWarnBigRegistryFreqMs
-        << " Fallback to "
-        << warnBigRegistryFreqMs_;
-    }
-  }
-
-  fp_AcceptedConnectionAborted_ = FAIL_POINT_INSTANCE(FP_AcceptedConnectionAborted);
-  if (command_line->HasSwitch(::switches::kFailPointAcceptedConnectionAborted)) {
-    fp_AcceptedConnectionAborted_->setFailure();
-    fp_AcceptedConnectionAborted_->enable();
-  }
+  ENABLE_FAIL_POINT_IF_HAS_SWITCH(
+    FAIL_POINT(onAborted_), "fp_1_accepted_connection_aborted");
 }
 
 void Listener::logFailure(
@@ -200,12 +173,12 @@ void Listener::logFailure(
   if (ec)
   {
     logFailure(ec, "open");
-    return MAKE_ERROR()
+    RETURN_ERROR()
            << "Could not call open for acceptor";
   }
 
   if(!isAcceptorOpen()) {
-    return MAKE_ERROR()
+    RETURN_ERROR()
            << "Failed to open acceptor";
   }
 
@@ -239,7 +212,7 @@ void Listener::logFailure(
   if (ec)
   {
     logFailure(ec, "set_option");
-    return MAKE_ERROR()
+    RETURN_ERROR()
            << "Could not call set_option for acceptor";
   }
 
@@ -248,7 +221,7 @@ void Listener::logFailure(
   if (ec)
   {
     logFailure(ec, "bind");
-    return MAKE_ERROR()
+    RETURN_ERROR()
            << "Could not call bind for acceptor";
   }
 
@@ -262,7 +235,7 @@ void Listener::logFailure(
   if (ec)
   {
     logFailure(ec, "listen");
-    return MAKE_ERROR()
+    RETURN_ERROR()
            << "Could not call listen for acceptor";
   }
 
@@ -308,7 +281,7 @@ Listener::StatusPromise Listener::configureAndRun()
 
   if(!isAcceptorOpen())
   {
-    return MAKE_ERROR()
+    RETURN_ERROR()
            << "Unable to run closed acceptor";
   }
 
@@ -538,7 +511,7 @@ void Listener::asyncAccept(
     if (ec)
     {
       logFailure(ec, "acceptor_cancel");
-      return MAKE_ERROR()
+      RETURN_ERROR()
              << "Failed to call acceptor_cancel for acceptor";
     }
 
@@ -551,7 +524,7 @@ void Listener::asyncAccept(
         logFailure(ec, "acceptor_close");
       }
 
-      return MAKE_ERROR()
+      RETURN_ERROR()
              << "Failed to call acceptor_close for acceptor";
     }
 
@@ -621,14 +594,13 @@ void Listener::onAccept(basis::UnownedPtr<StrandType> perConnectionStrand
   LOG_CALL(DVLOG(99));
 
   DCHECK_MEMBER_GUARD(acceptorStrand_);
-  DCHECK_MEMBER_GUARD(fp_AcceptedConnectionAborted_);
 
   /// \note may be same or not same as |isAcceptingInThisThread()|
   DCHECK(perConnectionStrand
          && perConnectionStrand->running_in_this_thread());
 
   ErrorCode errorCode = ec;
-  if(UNLIKELY(fp_AcceptedConnectionAborted_->checkFail()))
+  if(UNLIKELY(FAIL_POINT(onAborted_)->checkFail()))
   {
     errorCode = ::boost::asio::error::connection_aborted;
     // `setAcceptConnectionResult` must free ECS::Entity, socket, etc.

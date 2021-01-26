@@ -47,7 +47,7 @@ namespace flexnet {
 
 namespace ws {
 
-STRONG_FAIL_POINT(FP_AcceptedConnectionAborted);
+STRONG_FAIL_POINT(FP_ConnectionAborted);
 
 // Accepts incoming connections
 //
@@ -446,8 +446,7 @@ private:
   int warnBigRegistryFreqMs_
     GUARDED_BY(registry_);
 
-  FP_AcceptedConnectionAborted* fp_AcceptedConnectionAborted_
-    GUARD_MEMBER_DISALLOW_THREAD_COLLISION(fp_AcceptedConnectionAborted_);
+  FP_ConnectionAborted* FAIL_POINT(onAborted_) = nullptr;
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

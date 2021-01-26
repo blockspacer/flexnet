@@ -86,7 +86,7 @@ CREATE_ECS_COMPONENT(RecievedData)
   std::string data;
 };
 
-STRONG_PLUG_POINT(PlugPoint_RecievedData, base::Optional<bool>(const std::string&));
+STRONG_PLUG_POINT(PP_RecievedData, base::Optional<bool>(const std::string&));
 
 /// \todo support both SslWebsocketSession and PlainWebsocketSession
 /// as in github.com/iotaledger/hub/blob/master/common/http_server_base.cc#L203
@@ -532,7 +532,7 @@ private:
   /// while performing object invalidation.
   DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
 
-  PlugPoint_RecievedData* pp_RecievedData_ = nullptr;
+  PP_RecievedData* PLUG_POINT(RecievedData_) = nullptr;
 
   // detect infinite recursion
   FUNCTION_RECURSION_CHECKER_LIMIT_999(doEof);

@@ -5,6 +5,7 @@
 #include <base/location.h>
 #include <base/macros.h>
 #include <base/logging.h>
+#include <base/command_line.h>
 #include <base/threading/thread.h>
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/guid.h>
@@ -56,6 +57,11 @@ DetectChannel::DetectChannel(
   LOG_CALL(DVLOG(99));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
+
+  FAIL_POINT(onDetect_) = FAIL_POINT_INSTANCE(FP_OnDetect);
+
+  ENABLE_FAIL_POINT_IF_HAS_SWITCH(
+    FAIL_POINT(onDetect_), "fp_1_close_on_detect_channel");
 }
 
 DetectChannel::~DetectChannel()
@@ -256,8 +262,7 @@ void DetectChannel::onDetected(
     = !stream_.has_value()
       || !stream_.value().socket().is_open();
 
-  ASSIGN_FAIL_POINT(failPointPtr, FailPoint_CloseOnDetectChannel);
-  SET_IF_FAIL_POINT(failPointPtr, forceClosing = true);
+  SET_IF_FAIL_POINT(FAIL_POINT(onDetect_), forceClosing = true);
 
   DVLOG_IF(99, forceClosing)
     << " forcing close of connection";

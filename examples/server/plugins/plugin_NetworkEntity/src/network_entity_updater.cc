@@ -63,6 +63,7 @@
 #include <basis/task/periodic_check.hpp>
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
+#include <basis/command_line/command_line_macros.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -99,33 +100,11 @@ NetworkEntityUpdater::NetworkEntityUpdater(
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  const base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  GET_SWITCH_AS_SIZE_T(
+    &warnBigUpdateQueueSize_, "network-entity-updater-warn-big-update-queue-size");
 
-  if (command_line->HasSwitch(::plugin::network_entity::kWarnBigUpdateQueueSize)) {
-    auto value
-      = command_line->GetSwitchValueASCII(::plugin::network_entity::kWarnBigUpdateQueueSize);
-    if (!base::StringToSizeT(value, &warnBigUpdateQueueSize_))
-    {
-      LOG(WARNING)
-        << "Invalid value for "
-        << ::plugin::network_entity::kWarnBigUpdateQueueSize
-        << " Fallback to "
-        << warnBigUpdateQueueSize_;
-    }
-  }
-
-  if (command_line->HasSwitch(::plugin::network_entity::kWarnBigUpdateQueueFreqMs)) {
-    auto value
-      = command_line->GetSwitchValueASCII(::plugin::network_entity::kWarnBigUpdateQueueFreqMs);
-    if (!base::StringToInt(value, &warnBigUpdateQueueFreqMs_))
-    {
-      LOG(WARNING)
-        << "Invalid value for "
-        << ::plugin::network_entity::kWarnBigUpdateQueueFreqMs
-        << " Fallback to "
-        << warnBigUpdateQueueFreqMs_;
-    }
-  }
+  GET_SWITCH_AS_INT(
+    &warnBigUpdateQueueFreqMs_, "network-entity-updater-warn-big-update-queue-freq-ms");
 }
 
 NetworkEntityUpdater::~NetworkEntityUpdater()

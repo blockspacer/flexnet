@@ -44,7 +44,7 @@ CREATE_ECS_TAG(UnusedSSLDetectResultTag)
 namespace flexnet {
 namespace http {
 
-STRONG_FAIL_POINT(FailPoint_CloseOnDetectChannel);
+STRONG_FAIL_POINT(FP_OnDetect);
 
 // Detect a TLS client handshake on a stream.
 //
@@ -362,6 +362,8 @@ private:
   // `per-connection entity`
   // i.e. per-connection data storage
   const ECS::Entity entity_id_;
+
+  FP_OnDetect* FAIL_POINT(onDetect_) = nullptr;
 
   // check sequence on which class was constructed/destructed/configured
   SEQUENCE_CHECKER(sequence_checker_);

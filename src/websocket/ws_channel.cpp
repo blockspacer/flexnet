@@ -83,7 +83,7 @@ WsChannel::WsChannel(
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 
-  pp_RecievedData_ = PLUG_POINT_INSTANCE(PlugPoint_RecievedData);
+  PLUG_POINT(RecievedData_) = PLUG_POINT_INSTANCE(PP_RecievedData);
 
   SET_DEBUG_ATOMIC_FLAG(can_schedule_callbacks_);
 
@@ -444,7 +444,7 @@ void WsChannel::allocateRecievedDataComponent(
   DCHECK(registry_.RunsTasksInCurrentSequence());
 
   // plugins can extend API
-  RETURN_IF_PLUG_POINT_HAS_VALUE(pp_RecievedData_, REFERENCED(message));
+  RETURN_IF_PLUG_POINT_HAS_VALUE(PLUG_POINT(RecievedData_), REFERENCED(message));
 
   // We want to filter recieved messages individually,
   // so each message becomes separate entity.
