@@ -46,9 +46,6 @@ MainPluginLogic::~MainPluginLogic()
   LOG_CALL(DVLOG(99));
 
   DCHECK_RUN_ON(&sequence_checker_);
-
-  DCHECK_UNOWNED_PTR(pluginInterface_);
-  DCHECK_UNOWNED_PTR(mainLoopRegistry_);
 }
 
 MainPluginLogic::VoidPromise

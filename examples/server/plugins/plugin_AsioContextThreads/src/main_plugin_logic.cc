@@ -41,11 +41,6 @@ MainPluginLogic::~MainPluginLogic()
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  DCHECK_UNOWNED_PTR(pluginInterface_);
-  DCHECK_UNOWNED_PTR(mainLoopRegistry_);
-  DCHECK_UNOWNED_REF(ioc_);
-  DCHECK_UNOWNED_REF(registry_);
-
   asioThreadsManager_.stopThreads();
 }
 

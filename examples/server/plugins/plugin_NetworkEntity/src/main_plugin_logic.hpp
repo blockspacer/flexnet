@@ -147,8 +147,12 @@ class MainPluginLogic
   const MainPluginInterface* pluginInterface_
     GUARDED_BY(sequence_checker_);
 
+  SCOPED_UNOWNED_PTR_CHECKER(pluginInterface_);
+
   ::backend::MainLoopRegistry* mainLoopRegistry_
     GUARDED_BY(sequence_checker_);
+
+  SCOPED_UNOWNED_PTR_CHECKER(mainLoopRegistry_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
@@ -162,8 +166,12 @@ class MainPluginLogic
   ::boost::asio::io_context& ioc_
     GUARDED_BY(&sequence_checker_);
 
+  SCOPED_UNOWNED_REF_CHECKER(ioc_);
+
   ECS::SafeRegistry& registry_
     GUARDED_BY(&sequence_checker_);
+
+  SCOPED_UNOWNED_REF_CHECKER(registry_);
 
   ::backend::NetworkEntityUpdater networkEntityUpdater_
     GUARDED_BY(&sequence_checker_);

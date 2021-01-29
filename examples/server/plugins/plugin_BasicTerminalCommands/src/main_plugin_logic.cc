@@ -39,10 +39,6 @@ MainPluginLogic::~MainPluginLogic()
 
   DCHECK_RUN_ON(&sequence_checker_);
 
-  DCHECK_UNOWNED_PTR(pluginInterface_);
-  DCHECK_UNOWNED_PTR(mainLoopRegistry_);
-  DCHECK_UNOWNED_REF(consoleTerminalEventDispatcher_);
-
   consoleTerminalEventDispatcher_->sink<
     std::string
   >().disconnect<&MainPluginLogic::handleConsoleInput>(this);

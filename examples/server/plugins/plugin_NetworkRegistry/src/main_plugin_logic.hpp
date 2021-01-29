@@ -94,14 +94,20 @@ class MainPluginLogic
   const MainPluginInterface* pluginInterface_
     GUARDED_BY(sequence_checker_);
 
+  SCOPED_UNOWNED_PTR_CHECKER(pluginInterface_);
+
   ::backend::MainLoopRegistry* mainLoopRegistry_
     GUARDED_BY(sequence_checker_);
+
+  SCOPED_UNOWNED_PTR_CHECKER(mainLoopRegistry_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_;
 
   ECS::SafeRegistry& registry_;
+
+  SCOPED_UNOWNED_REF_CHECKER(registry_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

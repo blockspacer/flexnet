@@ -307,6 +307,7 @@ endif()
 #   --args ~/flexnet/build/Debug/tests/flexnet-tests/flexnet-app_state_unittest \
 #   --single-process-tests \
 #   --gtest_filter=* \
+#   --vmodule=*=9999 \
 #   --test-data-dir="~/chromium_base_conan/tests/data/" \
 #   --enable-features=print_status_macro_error
 add_custom_target(${ROOT_PROJECT_NAME}_run_all_tests

@@ -162,8 +162,12 @@ class MainPluginLogic
   const MainPluginInterface* pluginInterface_
     GUARDED_BY(sequence_checker_);
 
+  SCOPED_UNOWNED_PTR_CHECKER(pluginInterface_);
+
   ::backend::MainLoopRegistry* mainLoopRegistry_
     GUARDED_BY(sequence_checker_);
+
+  SCOPED_UNOWNED_PTR_CHECKER(mainLoopRegistry_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
@@ -171,10 +175,14 @@ class MainPluginLogic
 
   ::boost::asio::io_context& ioc_;
 
+  SCOPED_UNOWNED_REF_CHECKER(ioc_);
+
   const EndpointType tcpEndpoint_
     GUARDED_BY(sequence_checker_);
 
   ECS::SafeRegistry& registry_;
+
+  SCOPED_UNOWNED_REF_CHECKER(registry_);
 
   ::backend::TcpEntityAllocator tcpEntityAllocator_;
     GUARD_MEMBER_DISALLOW_THREAD_COLLISION(tcpEntityAllocator_);

@@ -25,6 +25,7 @@
 #include <basis/ECS/unsafe_context.hpp>
 #include <basis/ECS/safe_registry.hpp>
 #include <basis/status/statusor.hpp>
+#include <basis/checks_and_guard_annotations.hpp>
 
 #include <entt/entity/registry.hpp>
 #include <entt/signal/dispatcher.hpp>
@@ -70,6 +71,8 @@ class MainPluginLogic
   const MainPluginInterface* pluginInterface_
     GUARDED_BY(sequence_checker_);
 
+  SCOPED_UNOWNED_PTR_CHECKER(pluginInterface_);
+
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
   scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_
@@ -78,13 +81,19 @@ class MainPluginLogic
   ::backend::MainLoopRegistry* mainLoopRegistry_
     GUARDED_BY(sequence_checker_);
 
+  SCOPED_UNOWNED_PTR_CHECKER(mainLoopRegistry_);
+
   ::boost::asio::io_context& ioc_
     GUARDED_BY(sequence_checker_);
+
+  SCOPED_UNOWNED_REF_CHECKER(ioc_);
 
   ::backend::AsioThreadsManager asioThreadsManager_
     GUARDED_BY(sequence_checker_);
 
   ECS::SafeRegistry& registry_;
+
+  SCOPED_UNOWNED_REF_CHECKER(registry_);
 
   SEQUENCE_CHECKER(sequence_checker_);
 

@@ -22,6 +22,7 @@
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/status/statusor.hpp>
+#include <basis/checks_and_guard_annotations.hpp>
 
 #include <entt/entity/registry.hpp>
 #include <entt/signal/dispatcher.hpp>
@@ -77,8 +78,12 @@ class MainPluginLogic
   const MainPluginInterface* pluginInterface_
     GUARDED_BY(sequence_checker_);
 
+  SCOPED_UNOWNED_PTR_CHECKER(pluginInterface_);
+
   ::backend::MainLoopRegistry* mainLoopRegistry_
     GUARDED_BY(sequence_checker_);
+
+  SCOPED_UNOWNED_PTR_CHECKER(mainLoopRegistry_);
 
   // Same as `base::MessageLoop::current()->task_runner()`
   // during class construction
