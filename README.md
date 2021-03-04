@@ -131,11 +131,18 @@ Use `--vmodule`.
   --vmodule=*main*=100,*=200 \
   --enable-logging=stderr \
   --log-level=100 \
-  --show-fps-counter \
-  --enable-features=console_terminal,remote_console,print_status_macro_stack_trace,print_status_macro_error \
+  --enable-features=console_terminal,remote_console \
   --start_tracing \
-  --tracing_categories=*,disabled-by-default-memory-infra
+  --tracing_categories=*,disabled-by-default-memory-infra \
+  --log_file_conf_server_executable="/tmp/logme.log"
 ```
+
+NOTE: if you want verbose error reporting, than
+you can add `,print_status_macro_stack_trace,print_status_macro_error`
+into `--enable-features=`
+
+NOTE: if you want to run app under debugger, than
+you can prepend `gdb -ex r -ex bt -ex q --args`
 
 ## HOW TO BUILD WITH SANITIZERS ENABLED
 
@@ -219,6 +226,10 @@ CONAN_REVISIONS_ENABLED=1 \
         -e openssl:compile_with_llvm_tools=True \
         -e conan_gtest:compile_with_llvm_tools=True \
         -e conan_gtest:enable_llvm_tools=True \
+        -e benchmark:compile_with_llvm_tools=True \
+        -e benchmark:enable_llvm_tools=True \
+        -e fmt:compile_with_llvm_tools=True \
+        -e fmt:enable_llvm_tools=True \
         -e chromium_libxml:compile_with_llvm_tools=True \
         -e chromium_libxml:enable_llvm_tools=True \
         -e chromium_icu:compile_with_llvm_tools=True \
@@ -487,6 +498,10 @@ conan workspace install \
         -e openssl:compile_with_llvm_tools=True \
         -e conan_gtest:compile_with_llvm_tools=True \
         -e conan_gtest:enable_llvm_tools=True \
+        -e benchmark:compile_with_llvm_tools=True \
+        -e benchmark:enable_llvm_tools=True \
+        -e fmt:compile_with_llvm_tools=True \
+        -e fmt:enable_llvm_tools=True \
         -e chromium_libxml:compile_with_llvm_tools=True \
         -e chromium_libxml:enable_llvm_tools=True \
         -e chromium_icu:compile_with_llvm_tools=True \

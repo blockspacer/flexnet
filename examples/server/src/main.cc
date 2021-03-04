@@ -47,6 +47,7 @@
 #include <base/threading/thread_collision_warner.h>
 #include <base/strings/substitute.h>
 #include <base/strings/utf_string_conversions.h>
+#include <base/basictypes.h>
 
 #include <basis/status/app_error_space.hpp>
 #include <basis/core/typed_enum.hpp>

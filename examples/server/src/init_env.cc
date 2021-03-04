@@ -66,7 +66,7 @@ const char DEFAULT_EVENT_CATEGORIES[]
 
 /// \todo make configurable
 static constexpr ::base::FilePath::CharType kIcuDataFileName[]
-  = FILE_PATH_LITERAL(R"raw(./resources/icu/optimal/icudt64l.dat)raw");
+  = FILE_PATH_LITERAL(R"raw(./resources/icu/optimal/icudt68l.dat)raw");
 
 /// \todo make configurable
 static constexpr ::base::FilePath::CharType kTraceReportFileName[]
