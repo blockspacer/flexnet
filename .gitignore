@@ -1,3 +1,6 @@
+/doc/cmake
+/share
+
 # Prerequisites
 *.d
 
