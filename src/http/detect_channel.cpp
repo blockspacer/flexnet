@@ -1,6 +1,6 @@
 #include "flexnet/http/detect_channel.hpp" // IWYU pragma: associated
 
-#include <base/rvalue_cast.h>
+#include <basic/rvalue_cast.h>
 #include <base/optional.h>
 #include <base/location.h>
 #include <base/macros.h>

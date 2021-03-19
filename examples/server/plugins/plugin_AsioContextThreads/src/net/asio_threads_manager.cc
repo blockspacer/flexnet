@@ -1,6 +1,6 @@
 #include "net/asio_threads_manager.hpp" // IWYU pragma: associated
 
-#include <base/rvalue_cast.h>
+#include <basic/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
 #include <base/bind.h>
@@ -34,7 +34,7 @@
 
 #include <basis/bind/bind_checked.hpp>
 #include <basis/bind/ptr_checker.hpp>
-#include <basis/checks_and_guard_annotations.hpp>
+#include <basic/annotations/guard_annotations.h>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>

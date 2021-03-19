@@ -6,7 +6,7 @@
 #include <flexnet/http/detect_channel.hpp>
 
 #include <base/memory/singleton.h>
-#include <base/rvalue_cast.h>
+#include <basic/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
 #include <base/bind.h>
@@ -23,7 +23,7 @@
 
 #include <basis/task/task_util.hpp>
 #include <basis/checked_optional.hpp>
-#include <basis/checks_and_guard_annotations.hpp>
+#include <basic/annotations/guard_annotations.h>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>

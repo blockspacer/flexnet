@@ -1,7 +1,7 @@
 #include "state/app_state.hpp" // IWYU pragma: associated
 #include "flexnet/ECS/components/tcp_connection.hpp"
 
-#include <base/rvalue_cast.h>
+#include <basic/rvalue_cast.h>
 #include <base/bind.h>
 #include <base/location.h>
 #include <base/logging.h>

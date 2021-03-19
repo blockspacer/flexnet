@@ -22,7 +22,7 @@
 #include <base/strings/string_util.h>
 #include <base/strings/string_number_conversions.h>
 #include <base/numerics/safe_conversions.h>
-#include <base/rvalue_cast.h>
+#include <basic/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
 #include <base/bind.h>
@@ -60,7 +60,7 @@
 #include <basis/strong_types/strong_alias.hpp>
 #include <basis/task/task_util.hpp>
 #include <basis/checked_optional.hpp>
-#include <basis/checks_and_guard_annotations.hpp>
+#include <basic/annotations/guard_annotations.h>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/ecs.hpp>
 #include <basis/ECS/unsafe_context.hpp>

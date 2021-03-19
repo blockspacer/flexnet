@@ -3,7 +3,7 @@
 #include <basis/ECS/safe_registry.hpp>
 #include <basis/core/bitmask.hpp>
 
-#include <base/rvalue_cast.h>
+#include <basic/rvalue_cast.h>
 #include <base/callback.h> // IWYU pragma: keep
 #include <base/macros.h>
 #include <base/location.h>
@@ -13,7 +13,7 @@
 #include <basis/task/task_util.hpp>
 #include <basis/checked_optional.hpp>
 #include <basis/state_machine/unsafe_state_machine.hpp>
-#include <basis/checks_and_guard_annotations.hpp>
+#include <basic/annotations/guard_annotations.h>
 #include <basis/promise/promise.h>
 #include <basis/promise/post_promise.h>
 #include <basis/status/status.hpp>

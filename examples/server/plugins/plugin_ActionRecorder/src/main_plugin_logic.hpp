@@ -33,7 +33,7 @@
 #include <basis/promise/post_promise.h>
 #include <basis/ECS/sequence_local_context.hpp>
 #include <basis/status/statusor.hpp>
-#include <basis/checks_and_guard_annotations.hpp>
+#include <basic/annotations/guard_annotations.h>
 
 #include <entt/entity/registry.hpp>
 #include <entt/signal/dispatcher.hpp>

@@ -7,7 +7,7 @@
 #include <flexnet/websocket/ws_channel.hpp>
 #include <flexnet/ECS/components/tcp_connection.hpp>
 
-#include <base/rvalue_cast.h>
+#include <basic/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
 #include <base/bind.h>
@@ -39,7 +39,7 @@
 #include <base/trace_event/process_memory_dump.h>
 #include <base/trace_event/trace_event.h>
 
-#include <basis/checks_and_guard_annotations.hpp>
+#include <basic/annotations/guard_annotations.h>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/base_environment.hpp>
 #include <basis/task/periodic_task_executor.hpp>

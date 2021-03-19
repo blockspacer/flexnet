@@ -3,7 +3,7 @@
 #include <flexnet/websocket/listener.hpp>
 #include <flexnet/http/detect_channel.hpp>
 
-#include <base/rvalue_cast.h>
+#include <basic/rvalue_cast.h>
 #include <base/path_service.h>
 #include <base/optional.h>
 #include <base/bind.h>
@@ -16,7 +16,7 @@
 #include <base/task/thread_pool/thread_pool.h>
 #include <base/stl_util.h>
 
-#include <basis/checks_and_guard_annotations.hpp>
+#include <basic/annotations/guard_annotations.h>
 #include <basis/task/periodic_validate_until.hpp>
 #include <basis/ECS/tags.hpp>
 #include <basis/ECS/ecs.hpp>

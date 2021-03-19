@@ -149,6 +149,7 @@ if(UNCRUSTIFY)
           --profile clang
               -e flexnet:enable_tests=True
               -e flexnet:enable_llvm_tools=True
+              -o perfetto:is_hermetic_clang=False
               -e chromium_base:enable_llvm_tools=True
               -o chromium_base:use_alloc_shim=False
               -e basis:enable_llvm_tools=True
@@ -226,6 +227,7 @@ if(CLANG_FORMAT)
           --profile clang
               -e flexnet:enable_tests=True
               -e flexnet:enable_llvm_tools=True
+              -o perfetto:is_hermetic_clang=False
               -e chromium_base:enable_llvm_tools=True
               -o chromium_base:use_alloc_shim=False
               -e basis:enable_llvm_tools=True
@@ -303,6 +305,7 @@ if(OCLINT)
           --profile clang
               -e flexnet:enable_tests=True
               -e flexnet:enable_llvm_tools=True
+              -o perfetto:is_hermetic_clang=False
               -e chromium_base:enable_llvm_tools=True
               -o chromium_base:use_alloc_shim=False
               -e basis:enable_llvm_tools=True
@@ -381,6 +384,7 @@ if(IWYU)
               -o llvm_tools:include_what_you_use=True
               -e flexnet:enable_tests=True
               -e flexnet:enable_llvm_tools=True
+              -o perfetto:is_hermetic_clang=False
               -e chromium_base:enable_llvm_tools=True
               -o chromium_base:use_alloc_shim=False
               -e basis:enable_llvm_tools=True
@@ -458,6 +462,7 @@ if(CPPCLEAN)
           --profile clang
               -e flexnet:enable_tests=True
               -e flexnet:enable_llvm_tools=True
+              -o perfetto:is_hermetic_clang=False
               -e chromium_base:enable_llvm_tools=True
               -o chromium_base:use_alloc_shim=False
               -e basis:enable_llvm_tools=True
@@ -535,6 +540,7 @@ if(CLANG_TIDY)
           --profile clang
               -e flexnet:enable_tests=True
               -e flexnet:enable_llvm_tools=True
+              -o perfetto:is_hermetic_clang=False
               -e chromium_base:enable_llvm_tools=True
               -o chromium_base:use_alloc_shim=False
               -e basis:enable_llvm_tools=True
@@ -612,6 +618,7 @@ if(CPPCHECK)
           --profile clang
               -e flexnet:enable_tests=True
               -e flexnet:enable_llvm_tools=True
+              -o perfetto:is_hermetic_clang=False
               -e chromium_base:enable_llvm_tools=True
               -o chromium_base:use_alloc_shim=False
               -e basis:enable_llvm_tools=True

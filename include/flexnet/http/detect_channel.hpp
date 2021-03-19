@@ -4,7 +4,7 @@
 
 #include <base/callback.h>
 #include <base/macros.h>
-#include <base/rvalue_cast.h>
+#include <basic/rvalue_cast.h>
 #include <base/optional.h>
 #include <base/memory/weak_ptr.h>
 #include <base/sequence_checker.h>
@@ -12,7 +12,7 @@
 #include <base/threading/thread_collision_warner.h>
 
 #include <basis/task/task_util.hpp>
-#include <basis/checks_and_guard_annotations.hpp>
+#include <basic/annotations/guard_annotations.h>
 #include <basis/checked_optional.hpp>
 #include <basis/ECS/safe_registry.hpp>
 #include <basis/promise/post_promise.h>
