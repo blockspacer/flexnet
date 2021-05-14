@@ -36,7 +36,7 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      ::base::MessageLoop::current()->task_runner()}
+      ::base::ThreadTaskRunnerHandle::Get()}
   , registry_{
       mainLoopRegistry_->registry()
         .set<ECS::SafeRegistry>()}

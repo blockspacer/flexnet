@@ -342,7 +342,7 @@ public:
             )
             , &WsChannel::startAccept<Body, Allocator>
             , ::base::Unretained(this)
-            , ::base::Passed(RVALUE_CAST(req))
+            , ::std::move(RVALUE_CAST(req))
           ))
     );
   }

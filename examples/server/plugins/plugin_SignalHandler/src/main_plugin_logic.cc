@@ -33,7 +33,7 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      ::base::MessageLoop::current()->task_runner()}
+      ::base::ThreadTaskRunnerHandle::Get()}
   , signalHandler_(
       REFERENCED(mainLoopRegistry_->registry()
         .ctx<::boost::asio::io_context>())

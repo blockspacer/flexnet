@@ -269,12 +269,6 @@ if(${ROOT_PROJECT_NAME}_BUILD_TESTS)
   tests_add_executable(${ROOT_PROJECT_NAME}-gmock
     "${gmock_deps}" "${GTEST_TEST_ARGS}" "${test_main_gtest}")
 
-  set ( ECS_hierarchies_deps
-    ECS_hierarchies.test.cpp
-  )
-  tests_add_executable(${ROOT_PROJECT_NAME}-ECS_hierarchies
-    "${ECS_hierarchies_deps}" "${GTEST_TEST_ARGS}" "${test_main_gtest}")
-
   if(ENABLE_FAKEIT_TESTS)
     set ( fakeit_deps
       fakeit.test.cpp

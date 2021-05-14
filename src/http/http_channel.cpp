@@ -653,7 +653,7 @@ void HttpChannel::onRead(
           , ec
           , bytes_transferred
           , RVALUE_CAST(stream_)
-          , ::base::Passed(RVALUE_CAST(parser_->release()))
+          , ::std::move(RVALUE_CAST(parser_->release()))
         )
     );
 

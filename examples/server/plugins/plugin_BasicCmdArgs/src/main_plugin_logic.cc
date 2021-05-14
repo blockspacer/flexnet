@@ -24,7 +24,7 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      ::base::MessageLoop::current()->task_runner()}
+      ::base::ThreadTaskRunnerHandle::Get()}
 {
   LOG_CALL(DVLOG(99));
 

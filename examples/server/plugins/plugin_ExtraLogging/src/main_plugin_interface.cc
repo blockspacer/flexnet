@@ -19,7 +19,7 @@ MainPluginInterface::MainPluginInterface(
   , title_(metadata()->data().value("title"))
   , author_(metadata()->data().value("author"))
   , description_(metadata()->data().value("description"))
-  , mainLoopRunner_(base::MessageLoop::current()->task_runner())
+  , mainLoopRunner_(::base::ThreadTaskRunnerHandle::Get())
 {
   LOG_CALL(DVLOG(99));
 

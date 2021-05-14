@@ -14,7 +14,7 @@ MainPluginLogic::MainPluginLogic(
         weak_ptr_factory_.GetWeakPtr()))
   , pluginInterface_{DCHECK_VALID_PTR_OR(pluginInterface)}
   , mainLoopRunner_{
-      ::base::MessageLoop::current()->task_runner()}
+      ::base::ThreadTaskRunnerHandle::Get()}
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , ioc_(REFERENCED(

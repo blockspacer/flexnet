@@ -31,7 +31,7 @@ STRONGLY_TYPED(basis::PeriodicTaskExecutor, NetworkEntityPeriodicTaskExecutor);
 static void setNetworkEntityPeriodicTaskExecutorOnSequence(
   const ::base::Location& from_here
   , scoped_refptr<::base::SequencedTaskRunner> task_runner
-  , COPIED() ::base::RepeatingClosure updateCallback)
+  , /*COPIED*/ ::base::RepeatingClosure updateCallback)
 {
   LOG_CALL(DVLOG(99));
 
@@ -39,8 +39,7 @@ static void setNetworkEntityPeriodicTaskExecutorOnSequence(
     && task_runner->RunsTasksInCurrentSequence());
 
   ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
-    = ECS::SequenceLocalContext::getSequenceLocalInstance(
-        from_here, task_runner);
+    = ECS::SequenceLocalContext::getLocalInstance(from_here, task_runner);
 
   DCHECK(sequenceLocalContext);
   // Can not register same data type twice.
@@ -59,7 +58,7 @@ static void startNetworkEntityPeriodicTaskExecutorOnSequence(
   LOG_CALL(DVLOG(99));
 
   ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
-    = ECS::SequenceLocalContext::getSequenceLocalInstance(
+    = ECS::SequenceLocalContext::getLocalInstance(
         FROM_HERE, ::base::SequencedTaskRunnerHandle::Get());
 
   DCHECK(sequenceLocalContext);
@@ -76,7 +75,7 @@ static void unsetNetworkEntityPeriodicTaskExecutorOnSequence()
   LOG_CALL(DVLOG(99));
 
   ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
-    = ECS::SequenceLocalContext::getSequenceLocalInstance(
+    = ECS::SequenceLocalContext::getLocalInstance(
         FROM_HERE, ::base::SequencedTaskRunnerHandle::Get());
 
   DCHECK(sequenceLocalContext);
@@ -95,7 +94,7 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      ::base::MessageLoop::current()->task_runner()}
+      ::base::ThreadTaskRunnerHandle::Get()}
   , periodicAsioTaskRunner_(
       ::base::ThreadPool::GetInstance()->
         CreateSequencedTaskRunnerWithTraits(

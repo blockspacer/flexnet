@@ -327,14 +327,18 @@ CONAN_PRINT_RUN_COMMANDS=1 \
 CONAN_LOGGING_LEVEL=10 \
 GIT_SSL_NO_VERIFY=true \
   cmake -E time \
-    conan source . --source-folder local_build
+    conan source . \
+    --source-folder local_build \
+    --install-folder local_build
 
 conan build . \
   --build-folder local_build
 
 conan package . \
   --build-folder local_build \
-  --package-folder local_build/package_dir
+  --package-folder local_build/package_dir \
+  --source-folder local_build \
+  --install-folder local_build
 ```
 
 Set package to editable mode:
@@ -354,7 +358,9 @@ conan build . \
 
 conan package . \
   --build-folder local_build \
-  --package-folder local_build/package_dir
+  --package-folder local_build/package_dir \
+  --source-folder local_build \
+  --install-folder local_build
 ```
 
 Build your test project

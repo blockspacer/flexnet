@@ -82,16 +82,15 @@ static void postOnRunnerDispatcherEvent(
 static void setConsolePeriodicTaskExecutorOnSequence(
   const ::base::Location& from_here
   , scoped_refptr<::base::SequencedTaskRunner> task_runner
-  , COPIED() ::base::RepeatingClosure updateCallback)
+  , /*COPIED*/ ::base::RepeatingClosure updateCallback)
 {
   LOG_CALL(DVLOG(99));
 
   DCHECK(task_runner
     && task_runner->RunsTasksInCurrentSequence());
 
-  ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
-    = ECS::SequenceLocalContext::getSequenceLocalInstance(
-        from_here, task_runner);
+  ECS::SequenceLocalContext* sequenceLocalContext
+    = ECS::SequenceLocalContext::getLocalInstance(from_here, task_runner);
 
   DCHECK(sequenceLocalContext);
   // Can not register same data type twice.
@@ -109,8 +108,8 @@ static void startConsolePeriodicTaskExecutorOnSequence(
 {
   LOG_CALL(DVLOG(99));
 
-  ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
-    = ECS::SequenceLocalContext::getSequenceLocalInstance(
+  ECS::SequenceLocalContext* sequenceLocalContext
+    = ECS::SequenceLocalContext::getLocalInstance(
         FROM_HERE, ::base::SequencedTaskRunnerHandle::Get());
 
   DCHECK(sequenceLocalContext);
@@ -126,8 +125,8 @@ static void unsetConsolePeriodicTaskExecutorOnSequence()
 {
   LOG_CALL(DVLOG(99));
 
-  ::base::WeakPtr<ECS::SequenceLocalContext> sequenceLocalContext
-    = ECS::SequenceLocalContext::getSequenceLocalInstance(
+  ECS::SequenceLocalContext* sequenceLocalContext
+    = ECS::SequenceLocalContext::getLocalInstance(
         FROM_HERE, ::base::SequencedTaskRunnerHandle::Get());
 
   DCHECK(sequenceLocalContext);
@@ -244,7 +243,7 @@ MainPluginLogic::MainPluginLogic(
       REFERENCED(mainLoopRegistry_->registry()
         .set<::backend::ConsoleTerminalEventDispatcher>()))
   , mainLoopRunner_{
-      ::base::MessageLoop::current()->task_runner()}
+      ::base::ThreadTaskRunnerHandle::Get()}
   , periodicConsoleTaskRunner_(
     ::base::ThreadPool::GetInstance()->
       CreateSequencedTaskRunnerWithTraits(

@@ -219,7 +219,7 @@ void DetectChannel::runDetector(
 
 void DetectChannel::onDetected(
 #if DCHECK_IS_ON()
-  COPIED() ::base::RepeatingClosure timeoutResolver
+  /*COPIED*/ ::base::RepeatingClosure timeoutResolver
 #endif // DCHECK_IS_ON()
   , const ErrorCode& ec
   , const bool& handshakeResult)

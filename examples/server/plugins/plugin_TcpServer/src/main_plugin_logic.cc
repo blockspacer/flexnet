@@ -39,7 +39,7 @@ MainPluginLogic::MainPluginLogic(
   , mainLoopRegistry_(
       ::backend::MainLoopRegistry::GetInstance())
   , mainLoopRunner_{
-      ::base::MessageLoop::current()->task_runner()}
+      ::base::ThreadTaskRunnerHandle::Get()}
   , ioc_{
       mainLoopRegistry_->registry()
         .ctx<::boost::asio::io_context>()}
@@ -180,7 +180,7 @@ void MainPluginLogic::startAcceptors() NO_EXCEPTION
   ::base::PostPromise(FROM_HERE
     /// \note delayed execution:
     /// will be executed only when |run_loop| is running
-    , ::base::MessageLoop::current()->task_runner().get()
+    , ::base::ThreadTaskRunnerHandle::Get().get()
     , ::base::BindOnce(
         &MainPluginLogic::configureAndRunAcceptor
         , ::base::Unretained(this)
@@ -324,7 +324,7 @@ void MainPluginLogic::validateAndFreeNetworkResources(
       []
       (
         ECS::SafeRegistry& registry
-        , COPIED() ::base::RepeatingClosure resolveCallback)
+        , /*COPIED*/ ::base::RepeatingClosure resolveCallback)
       {
         LOG_CALL(DVLOG(99));
 

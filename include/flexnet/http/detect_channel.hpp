@@ -277,7 +277,7 @@ private:
 #if DCHECK_IS_ON()
     // Used to stop periodic timer that limits execution time.
     // See `timeoutPromiseResolver.GetRepeatingResolveCallback()`.
-    COPIED() ::base::RepeatingClosure timeoutResolver
+    /*COPIED*/ ::base::RepeatingClosure timeoutResolver
 #endif // DCHECK_IS_ON()
     , const ErrorCode& ec
     // `true` if the buffer contains a TLS client handshake

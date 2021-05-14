@@ -101,7 +101,7 @@ class MainPluginLogic
 
   SCOPED_UNOWNED_PTR_CHECKER(mainLoopRegistry_);
 
-  // Same as `base::MessageLoop::current()->task_runner()`
+  // Same as `::base::ThreadTaskRunnerHandle::Get()`
   // during class construction
   scoped_refptr<::base::SingleThreadTaskRunner> mainLoopRunner_;
 
