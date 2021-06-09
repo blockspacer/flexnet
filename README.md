@@ -98,25 +98,27 @@ Up-to-date instructions are found here: [https://github.com/blockspacer/llvm_too
 ## Installation
 
 ```bash
+export VERBOSE=1
+export CONAN_REVISIONS_ENABLED=1
+export CONAN_VERBOSE_TRACEBACK=1
+export CONAN_PRINT_RUN_COMMANDS=1
+export CONAN_LOGGING_LEVEL=10
+export GIT_SSL_NO_VERIFY=true
+
 export CXX=clang++-10
 export CC=clang-10
 
 # NOTE: change `build_type=Debug` to `build_type=Release` in production
 # NOTE: use --build=missing if you got error `ERROR: Missing prebuilt package`
-CONAN_REVISIONS_ENABLED=1 \
-CONAN_VERBOSE_TRACEBACK=1 \
-CONAN_PRINT_RUN_COMMANDS=1 \
-CONAN_LOGGING_LEVEL=10 \
-GIT_SSL_NO_VERIFY=true \
-    cmake -E time \
-      conan create . conan/stable \
-      -s build_type=Debug \
-      -s llvm_tools:build_type=Release \
-      --profile clang \
-          -o chromium_base:use_alloc_shim=True \
-          -o chromium_tcmalloc:use_alloc_shim=True \
-          -o flexnet:shared=False \
-          -e flexnet:enable_tests=True
+cmake -E time \
+  conan create . conan/stable \
+  -s build_type=Debug \
+  -s llvm_tools:build_type=Release \
+  --profile clang \
+      -o chromium_base:use_alloc_shim=True \
+      -o chromium_tcmalloc:use_alloc_shim=True \
+      -o flexnet:shared=False \
+      -e flexnet:enable_tests=True
 
 # clean build cache
 conan remove "*" --build --force
@@ -176,83 +178,85 @@ export CXXFLAGS="-fsanitize=thread -fuse-ld=lld -stdlib=libc++ -lc++ -lc++abi -l
 
 export LDFLAGS="-stdlib=libc++ -lc++ -lc++abi -lunwind"
 
+export VERBOSE=1
+export CONAN_REVISIONS_ENABLED=1
+export CONAN_VERBOSE_TRACEBACK=1
+export CONAN_PRINT_RUN_COMMANDS=1
+export CONAN_LOGGING_LEVEL=10
+export GIT_SSL_NO_VERIFY=true
+
 # NOTE: NO `--profile` argument cause we use `CXX` env. var
 # NOTE: change `build_type=Debug` to `build_type=Release` in production
-CONAN_REVISIONS_ENABLED=1 \
-    CONAN_VERBOSE_TRACEBACK=1 \
-    CONAN_PRINT_RUN_COMMANDS=1 \
-    CONAN_LOGGING_LEVEL=10 \
-    GIT_SSL_NO_VERIFY=true \
-    conan install .. \
-        conan/stable \
-        -s build_type=Debug \
-        -s llvm_tools:build_type=Release \
-        --build chromium_base \
-        --build basis \
-        --build flexnet \
-        --build missing \
-        --build cascade \
-        -s llvm_tools:build_type=Release \
-        -o llvm_tools:enable_tsan=True \
-        -o llvm_tools:include_what_you_use=False \
-        -s llvm_tools:compiler=clang \
-        -s llvm_tools:compiler.version=10 \
-        -s llvm_tools:compiler.libcxx=libstdc++11 \
-        -o perfetto:is_hermetic_clang=False \
-        -o perfetto:is_tsan=True \
-        -e abseil:enable_llvm_tools=True \
-        -e chromium_base:enable_tests=True \
-        -o chromium_base:enable_tsan=True \
-        -e chromium_base:enable_llvm_tools=True \
-        -o chromium_base:use_alloc_shim=False \
-        -e basis:enable_tests=True \
-        -o basis:enable_tsan=True \
-        -e basis:enable_llvm_tools=True \
-        -e flexnet:compile_with_llvm_tools=True \
-        -e chromium_base:compile_with_llvm_tools=True \
-        -e basis:compile_with_llvm_tools=True \
-        -e boost:enable_llvm_tools=True \
-        -o boost:enable_tsan=True \
-        -o boost:no_exceptions=True \
-        -e boost:compile_with_llvm_tools=True \
-        -s compiler=clang \
-        -s compiler.version=10 \
-        -s compiler.libcxx=libc++ \
-        -e flexnet:enable_tests=True \
-        -o flexnet:enable_tsan=True \
-        -e flexnet:enable_llvm_tools=True \
-        -o flexnet:shared=False \
-        -o chromium_tcmalloc:use_alloc_shim=False \
-        -o openssl:shared=True \
-        -o openssl:enable_tsan=True \
-        -e openssl:enable_llvm_tools=True \
-        -e openssl:compile_with_llvm_tools=True \
-        -e conan_gtest:compile_with_llvm_tools=True \
-        -e conan_gtest:enable_llvm_tools=True \
-        -e benchmark:compile_with_llvm_tools=True \
-        -e benchmark:enable_llvm_tools=True \
-        -e fmt:compile_with_llvm_tools=True \
-        -e fmt:enable_llvm_tools=True \
-        -e chromium_libxml:compile_with_llvm_tools=True \
-        -e chromium_libxml:enable_llvm_tools=True \
-        -e chromium_icu:compile_with_llvm_tools=True \
-        -e chromium_icu:enable_llvm_tools=True \
-        -e chromium_zlib:compile_with_llvm_tools=True \
-        -e chromium_zlib:enable_llvm_tools=True \
-        -e chromium_libevent:compile_with_llvm_tools=True \
-        -e chromium_libevent:enable_llvm_tools=True \
-        -e chromium_xdg_user_dirs:compile_with_llvm_tools=True \
-        -e chromium_xdg_user_dirs:enable_llvm_tools=True \
-        -e chromium_xdg_mime:compile_with_llvm_tools=True \
-        -e chromium_xdg_mime:enable_llvm_tools=True \
-        -e chromium_dynamic_annotations:compile_with_llvm_tools=True \
-        -e chromium_dynamic_annotations:enable_llvm_tools=True \
-        -e chromium_modp_b64:compile_with_llvm_tools=True \
-        -e chromium_modp_b64:enable_llvm_tools=True \
-        -e chromium_compact_enc_det:compile_with_llvm_tools=True \
-        -e chromium_compact_enc_det:enable_llvm_tools=True \
-        -e corrade:compile_with_llvm_tools=True \
-        -e corrade:enable_llvm_tools=True
+conan install .. \
+    conan/stable \
+    -s build_type=Debug \
+    -s llvm_tools:build_type=Release \
+    --build chromium_base \
+    --build basis \
+    --build flexnet \
+    --build missing \
+    --build cascade \
+    -s llvm_tools:build_type=Release \
+    -o llvm_tools:enable_tsan=True \
+    -o llvm_tools:include_what_you_use=False \
+    -s llvm_tools:compiler=clang \
+    -s llvm_tools:compiler.version=10 \
+    -s llvm_tools:compiler.libcxx=libstdc++11 \
+    -o perfetto:is_hermetic_clang=False \
+    -o perfetto:is_tsan=True \
+    -e abseil:enable_llvm_tools=True \
+    -e chromium_base:enable_tests=True \
+    -o chromium_base:enable_tsan=True \
+    -e chromium_base:enable_llvm_tools=True \
+    -o chromium_base:use_alloc_shim=False \
+    -e basis:enable_tests=True \
+    -o basis:enable_tsan=True \
+    -e basis:enable_llvm_tools=True \
+    -e flexnet:compile_with_llvm_tools=True \
+    -e chromium_base:compile_with_llvm_tools=True \
+    -e basis:compile_with_llvm_tools=True \
+    -e boost:enable_llvm_tools=True \
+    -o boost:enable_tsan=True \
+    -o boost:no_exceptions=True \
+    -e boost:compile_with_llvm_tools=True \
+    -s compiler=clang \
+    -s compiler.version=10 \
+    -s compiler.libcxx=libc++ \
+    -e flexnet:enable_tests=True \
+    -o flexnet:enable_tsan=True \
+    -e flexnet:enable_llvm_tools=True \
+    -o flexnet:shared=False \
+    -o chromium_tcmalloc:use_alloc_shim=False \
+    -o openssl:shared=True \
+    -o openssl:enable_tsan=True \
+    -e openssl:enable_llvm_tools=True \
+    -e openssl:compile_with_llvm_tools=True \
+    -e conan_gtest:compile_with_llvm_tools=True \
+    -e conan_gtest:enable_llvm_tools=True \
+    -e benchmark:compile_with_llvm_tools=True \
+    -e benchmark:enable_llvm_tools=True \
+    -e fmt:compile_with_llvm_tools=True \
+    -e fmt:enable_llvm_tools=True \
+    -e chromium_libxml:compile_with_llvm_tools=True \
+    -e chromium_libxml:enable_llvm_tools=True \
+    -e chromium_icu:compile_with_llvm_tools=True \
+    -e chromium_icu:enable_llvm_tools=True \
+    -e chromium_zlib:compile_with_llvm_tools=True \
+    -e chromium_zlib:enable_llvm_tools=True \
+    -e chromium_libevent:compile_with_llvm_tools=True \
+    -e chromium_libevent:enable_llvm_tools=True \
+    -e chromium_xdg_user_dirs:compile_with_llvm_tools=True \
+    -e chromium_xdg_user_dirs:enable_llvm_tools=True \
+    -e chromium_xdg_mime:compile_with_llvm_tools=True \
+    -e chromium_xdg_mime:enable_llvm_tools=True \
+    -e chromium_dynamic_annotations:compile_with_llvm_tools=True \
+    -e chromium_dynamic_annotations:enable_llvm_tools=True \
+    -e chromium_modp_b64:compile_with_llvm_tools=True \
+    -e chromium_modp_b64:enable_llvm_tools=True \
+    -e chromium_compact_enc_det:compile_with_llvm_tools=True \
+    -e chromium_compact_enc_det:enable_llvm_tools=True \
+    -e corrade:compile_with_llvm_tools=True \
+    -e corrade:enable_llvm_tools=True
 
 # NOTE: change `build_type=Debug` to `build_type=Release` in production
 export build_type=Debug
@@ -307,29 +311,26 @@ See for details [https://docs.conan.io/en/latest/developing_packages/editable_pa
 Build locally:
 
 ```bash
-CONAN_REVISIONS_ENABLED=1 \
-CONAN_VERBOSE_TRACEBACK=1 \
-CONAN_PRINT_RUN_COMMANDS=1 \
-CONAN_LOGGING_LEVEL=10 \
-GIT_SSL_NO_VERIFY=true \
-  cmake -E time \
-    conan install . \
-    --install-folder local_build \
-    -s build_type=Debug \
-    -s llvm_tools:build_type=Release \
-    --profile clang \
-      -o flexnet:shared=False \
-      -e flexnet:enable_tests=True
+export VERBOSE=1
+export CONAN_REVISIONS_ENABLED=1
+export CONAN_VERBOSE_TRACEBACK=1
+export CONAN_PRINT_RUN_COMMANDS=1
+export CONAN_LOGGING_LEVEL=10
+export GIT_SSL_NO_VERIFY=true
 
-CONAN_REVISIONS_ENABLED=1 \
-CONAN_VERBOSE_TRACEBACK=1 \
-CONAN_PRINT_RUN_COMMANDS=1 \
-CONAN_LOGGING_LEVEL=10 \
-GIT_SSL_NO_VERIFY=true \
-  cmake -E time \
-    conan source . \
-    --source-folder local_build \
-    --install-folder local_build
+cmake -E time \
+  conan install . \
+  --install-folder local_build \
+  -s build_type=Debug \
+  -s llvm_tools:build_type=Release \
+  --profile clang \
+    -o flexnet:shared=False \
+    -e flexnet:enable_tests=True
+
+cmake -E time \
+  conan source . \
+  --source-folder local_build \
+  --install-folder local_build
 
 conan build . \
   --build-folder local_build
